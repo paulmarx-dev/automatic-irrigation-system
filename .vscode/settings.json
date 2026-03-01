@@ -1,0 +1,8 @@
+{
+  "C_Cpp.default.configurationProvider": "platformio.platformio-ide",
+  "C_Cpp.dimInactiveRegions": true,
+  "platformio-ide.useBuiltinPIOCore": true,
+  "platformio-ide.useBuiltinPython": false,
+  "platformio-ide.autoPreloadEnvTasks": false,
+  "platformio-ide.customPATH": "/Users/marx/.local/bin:/opt/anaconda3/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+}

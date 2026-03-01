@@ -1,0 +1,97 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "PIO Build Sensor",
+			"type": "shell",
+			"command": "source ~/.zprofile && pios",
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "PIO Build Head",
+			"type": "shell",
+			"command": "source ~/.zprofile && pioh",
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "PIO Build Control",
+			"type": "shell",
+			"command": "source ~/.zprofile && platformio run --environment control_c3_mini",
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "PIO Build All",
+			"type": "shell",
+			"command": "source ~/.zprofile && pioall",
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "PIO Upload Sensor",
+			"type": "shell",
+			"command": "source ~/.zprofile && pious",
+			"group": {
+				"kind": "test",
+				"isDefault": true
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "PIO Upload Head",
+			"type": "shell",
+			"command": "source ~/.zprofile && piouh",
+			"problemMatcher": []
+		},
+		{
+			"label": "PIO Upload Control",
+			"type": "shell",
+			"command": "source ~/.zprofile && platformio run --target upload --environment control_c3_mini",
+			"problemMatcher": []
+		},
+		{
+			"label": "PIO Upload+Monitor Head",
+			"dependsOrder": "sequence",
+			"dependsOn": [
+				"PIO Upload Head",
+				"PIO Monitor Head"
+			],
+			"problemMatcher": []
+		},
+		{
+			"label": "PIO Upload+Monitor Control",
+			"dependsOrder": "sequence",
+			"dependsOn": [
+				"PIO Upload Control",
+				"PIO Monitor Control"
+			],
+			"problemMatcher": []
+		},
+		{
+			"label": "PIO Monitor Sensor",
+			"type": "shell",
+			"command": "source ~/.zprofile && piox device monitor -e sensor_c3_mini",
+			"isBackground": true,
+			"problemMatcher": []
+		},
+		{
+			"label": "PIO Monitor Control",
+			"type": "shell",
+			"command": "source ~/.zprofile && piox device monitor -e control_c3_mini",
+			"isBackground": true,
+			"problemMatcher": []
+		},
+		{
+			"label": "PIO Monitor Head",
+			"type": "shell",
+			"command": "source ~/.zprofile && piox device monitor -e head_c6_wroom1",
+			"isBackground": true,
+			"problemMatcher": []
+		}
+	]
+}
