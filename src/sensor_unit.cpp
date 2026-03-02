@@ -125,10 +125,14 @@ void loop() {
 
 	if (buttonConsumeLongPress()) {
 		Serial.println("PAIRING(NODE): factory reset requested");
-		pairingNodeSetUnpaired();
+		pairingNodeFactoryReset();
 		if (!pairingNvsClearNode()) {
 			Serial.println("PAIRING(NODE): NVS clear failed");
 		}
+		pairingNodeEnterJoinMode(now);
+		s_autoJoinTriggered = true;
+		Serial.println("PAIRING(NODE): join window opened after factory reset");
+		joinModeActive = true;
 		ledsTriggerOnce(LED_MODE_FACTORY_RESET_ONCE);
 	}
 

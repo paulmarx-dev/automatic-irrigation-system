@@ -12,6 +12,7 @@
 #include "sensors.h"
 #include "button.h"
 #include "leds.h"
+#include "pairing_nvs.h"
 
 static const unsigned long TELEMETRY_INTERVAL_MS = 5000;
 static const unsigned long ACK_TIMEOUT_MS = 200;
@@ -85,6 +86,26 @@ void telemetryOnRecv(const uint8_t* src_mac, const uint8_t* data, int len)
   }
 
   if (ack->ackSeq != s_lastSentSeq) {
+    return;
+  }
+
+  if (ack->status == TELEMETRY_ACK_STATUS_NOT_PAIRED) {
+    Serial.println("PAIRING(NODE): head reports NOT_PAIRED, clearing local pairing");
+    pairingInitNode(ROLE_SENSOR);
+    if (!pairingNvsClearNode()) {
+      Serial.println("PAIRING(NODE): NVS clear failed");
+    }
+    pairingNodeEnterJoinMode(millis());
+    ledsTriggerOnce(LED_MODE_ERROR_ONCE);
+    s_waitingAck = false;
+    s_noAckCycles = 0;
+    return;
+  }
+
+  if (ack->status != TELEMETRY_ACK_STATUS_OK) {
+    Serial.print("TELEMETRY_ACK unexpected status=");
+    Serial.println((unsigned long)ack->status);
+    s_waitingAck = false;
     return;
   }
 
@@ -214,6 +235,8 @@ void telemetryTickSensor(const SensorMeasurement* measurement, bool hasMeasureme
 #include "leds.h"
 
 static const uint8_t MAX_NODE_REGISTRY = 8;
+static const uint32_t REBIND_OPEN_MS = 10000;
+static const uint32_t REBIND_COOLDOWN_MS = 30000;
 
 struct NodeTelemetryState {
   bool used;
@@ -300,7 +323,7 @@ static void logTelemetry(const MsgTelemetry* telemetry, const uint8_t src_mac[6]
   Serial.println(calValid ? 1 : 0);
 }
 
-static void sendTelemetryAck(const uint8_t src_mac[6], uint16_t nodeId, uint16_t telemetrySeq)
+static void sendTelemetryAck(const uint8_t src_mac[6], uint16_t nodeId, uint16_t telemetrySeq, uint8_t status)
 {
   MsgTelemetryAck ack{};
   ack.hdr.ver = PROTO_VER;
@@ -308,7 +331,7 @@ static void sendTelemetryAck(const uint8_t src_mac[6], uint16_t nodeId, uint16_t
   ack.hdr.seq = ++s_ackSeq;
   ack.hdr.nodeId = nodeId;
   ack.ackSeq = telemetrySeq;
-  ack.status = 0;
+  ack.status = status;
   ack.reserved = 0;
 
   (void)espnowEnsurePeer(src_mac, ESPNOW_CHANNEL, false);
@@ -322,6 +345,8 @@ static void sendTelemetryAck(const uint8_t src_mac[6], uint16_t nodeId, uint16_t
   Serial.print(macBuf);
   Serial.print("] telemetry_ack sent=");
   Serial.print(sent ? 1 : 0);
+  Serial.print(" status=");
+  Serial.print((unsigned long)status);
   Serial.print(" ackSeq=");
   Serial.println((unsigned long)telemetrySeq);
 }
@@ -338,20 +363,23 @@ void telemetryOnRecv(const uint8_t* src_mac, const uint8_t* data, int len)
   }
 
   const uint16_t pairedNodeId = pairingHeadPairedNodeId();
-  if (pairedNodeId == 0) {
-    return;
-  }
-
   uint8_t pairedMac[6] = {0};
-  if (!pairingHeadPairedNodeMac(pairedMac)) {
-    return;
-  }
+  const bool hasPairedMac = pairingHeadPairedNodeMac(pairedMac);
+  const bool fromCurrentPair = pairedNodeId != 0 &&
+                               hasPairedMac &&
+                               memcmp(src_mac, pairedMac, 6) == 0 &&
+                               telemetry->hdr.nodeId == pairedNodeId;
 
-  if (memcmp(src_mac, pairedMac, 6) != 0) {
-    return;
-  }
+  if (!fromCurrentPair) {
+    sendTelemetryAck(src_mac, telemetry->hdr.nodeId, telemetry->hdr.seq, TELEMETRY_ACK_STATUS_NOT_PAIRED);
 
-  if (telemetry->hdr.nodeId != pairedNodeId) {
+    const bool opened = pairingHeadOpenCandidateWindow(src_mac, millis(), REBIND_OPEN_MS, REBIND_COOLDOWN_MS);
+    if (opened) {
+      char macBuf[18] = {0};
+      macToString(src_mac, macBuf, sizeof(macBuf));
+      Serial.print("PAIRING(HEAD): rebind window opened for candidate mac=");
+      Serial.println(macBuf);
+    }
     return;
   }
 
@@ -372,7 +400,7 @@ void telemetryOnRecv(const uint8_t* src_mac, const uint8_t* data, int len)
     ledsPulseOnce(120);
   }
 
-  sendTelemetryAck(src_mac, telemetry->hdr.nodeId, telemetry->hdr.seq);
+  sendTelemetryAck(src_mac, telemetry->hdr.nodeId, telemetry->hdr.seq, TELEMETRY_ACK_STATUS_OK);
 }
 
 void telemetryTickSensor(const SensorMeasurement* measurement, bool hasMeasurement, uint32_t nowMs)

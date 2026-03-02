@@ -38,6 +38,10 @@ static uint8_t s_headPairedNodeUid[6] = {0};
 static bool s_headPairSuccessEvent = false;
 static bool s_headOpen = false;
 static uint32_t s_headOpenDeadlineMs = 0;
+static bool s_headRebindArmed = false;
+static bool s_headCandidateFilterActive = false;
+static uint8_t s_headCandidateMac[6] = {0};
+static uint32_t s_headCandidateLastOpenMs = 0;
 
 static bool s_nodePaired = false;
 static uint16_t s_nodeId = 0;
@@ -59,9 +63,36 @@ void pairingHeadSetOpen(bool open)
   s_headOpen = open;
   if (open) {
     s_headOpenDeadlineMs = millis() + PAIRING_HEAD_OPEN_MS;
+    s_headRebindArmed = s_headPaired;
+    s_headCandidateFilterActive = false;
+    memset(s_headCandidateMac, 0, sizeof(s_headCandidateMac));
   } else {
     s_headOpenDeadlineMs = 0;
+    s_headRebindArmed = false;
+    s_headCandidateFilterActive = false;
+    memset(s_headCandidateMac, 0, sizeof(s_headCandidateMac));
   }
+}
+
+bool pairingHeadOpenCandidateWindow(const uint8_t candidateMac[6], uint32_t nowMs, uint32_t openMs, uint32_t cooldownMs)
+{
+  if (!candidateMac || openMs == 0) {
+    return false;
+  }
+
+  if (cooldownMs > 0 &&
+      s_headCandidateLastOpenMs != 0 &&
+      (int32_t)(nowMs - s_headCandidateLastOpenMs) < (int32_t)cooldownMs) {
+    return false;
+  }
+
+  s_headOpen = true;
+  s_headOpenDeadlineMs = nowMs + openMs;
+  s_headRebindArmed = false;
+  s_headCandidateFilterActive = true;
+  memcpy(s_headCandidateMac, candidateMac, sizeof(s_headCandidateMac));
+  s_headCandidateLastOpenMs = nowMs;
+  return true;
 }
 
 bool pairingHeadIsOpen()
@@ -78,6 +109,9 @@ void pairingHeadTick(uint32_t nowMs)
   if ((int32_t)(nowMs - s_headOpenDeadlineMs) >= 0) {
     s_headOpen = false;
     s_headOpenDeadlineMs = 0;
+    s_headRebindArmed = false;
+    s_headCandidateFilterActive = false;
+    memset(s_headCandidateMac, 0, sizeof(s_headCandidateMac));
   }
 }
 
@@ -163,6 +197,8 @@ void pairingHeadFactoryReset()
   s_nextNodeId = 1;
   s_headSessionId = esp_random();
   pairingHeadSetOpen(false);
+  s_headRebindArmed = false;
+  s_headCandidateLastOpenMs = 0;
   Serial.println("PAIRING(HEAD): factory reset complete");
 }
 
@@ -234,6 +270,10 @@ void pairingInitHead(uint8_t headId)
   s_headPairSuccessEvent = false;
   s_headOpen = false;
   s_headOpenDeadlineMs = 0;
+  s_headRebindArmed = false;
+  s_headCandidateFilterActive = false;
+  memset(s_headCandidateMac, 0, sizeof(s_headCandidateMac));
+  s_headCandidateLastOpenMs = 0;
 
   (void)espnowEnsurePeer(ESPNOW_BROADCAST_MAC, ESPNOW_CHANNEL, false);
 
@@ -336,8 +376,25 @@ static void headHandleJoinReq(const uint8_t* src_mac, const MsgJoinReq* join)
     return;
   }
 
+  if (s_headPaired) {
+    if (!s_headRebindArmed) {
+      return;
+    }
+    if (!macEq(src_mac, s_headPairedNodeMac)) {
+      return;
+    }
+  }
+
   if (!s_headOpen) {
     return;
+  }
+
+  if (s_headCandidateFilterActive && !macEq(src_mac, s_headCandidateMac)) {
+    return;
+  }
+
+  if (s_headRebindArmed) {
+    s_headRebindArmed = false;
   }
 
   const uint16_t assignedNodeId = s_nextNodeId++;

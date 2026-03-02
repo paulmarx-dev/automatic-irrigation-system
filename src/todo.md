@@ -7,7 +7,7 @@
   - [x] Pairing receive router returns handled flag (bool pairingOnRecv)
   - [x] Session and step validation on handshake packets (offer/confirm/ack)
   - [ ] Button + LED UX
-  - [ ] NVS persistence for paired state
+  - [x] NVS persistence for paired state (Milestone 6: pair_node namespace, ver/paired/headMac)
   - [ ] Safe rules: no accidental rebind; factory reset flow
 - [ ] Base message definitions (telemetry, battery, cmd, cmd_ack), protocol versioning
 - [x] Sensor -> head telemetry (happy path) + ack policy + retries
@@ -36,6 +36,9 @@ Head networking mode = SoftAP always (local UI), STA hotspot only for upload (ma
 ### Control Unit:
 “Control completes START cycle without further head communication.”
 “On reboot pump defaults OFF and reports interruption when back online.”
+
+### Open Issues:
+- [ ] Sensor UX on head factory reset: sensor has no immediate user-facing error indication when head resets; currently fallback is telemetry no-ack threshold -> force rejoin.
 
 
 ## ACCEPTANCE CRITERIA
@@ -99,16 +102,17 @@ Head networking mode = SoftAP always (local UI), STA hotspot only for upload (ma
 - [ ] Functional
   - [x] Unpaired node pairs in <10 seconds
   - [ ] Node stores in NVS:
-    - [ ] paired flag
-    - [ ] headMAC
-    - [ ] nodeId
+    - [x] paired flag
+    - [x] headMAC
+    - [ ] nodeId (not persisted in Milestone 6 scope)
   - [x] Node reconnects after reboot
   - [x] Head accepts node after reboot
 - [ ] Safety
   - [x] Paired node does NOT rebind by short press
-  - [ ] Rebind only after factory reset
+  - [x] Rebind only after factory reset
 
 - [x] Milestone 5.1: Sensor auto-enters join mode on boot when unpaired (one-shot trigger, existing 60s join window and LED JOINING behavior)
+- [x] Milestone 6: Sensor node pairing persistence in NVS (pair_node schema ver=1, paired/headMac load/save/clear)
 - [x] Multi-head safety
   - [x] Node refuses pairing if multiple heads in pairing mode
 
