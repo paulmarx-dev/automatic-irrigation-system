@@ -6,6 +6,7 @@
 #include "telemetry.h"
 #include "leds.h"
 #include "button.h"
+#include "app_log.h"
 
 
 #if defined(DEVICE_ROLE_HEAD)
@@ -45,12 +46,12 @@ static void printMac(const char* label, const uint8_t mac[6])
 void setup() {
   Serial.begin(115200);
 
+#if defined(HEAD_WAIT_FOR_SERIAL_DEV)
   unsigned long start = millis();
   while (!Serial && (millis() - start < 8000)) {
     delay(10);
   }
-  
-  Serial.println("BOOT");
+#endif
 
   Serial.println();
     Serial.println("HEAD: Pairing 2.0 always-open");
@@ -64,6 +65,7 @@ void setup() {
 
     pairingInitHead(1);
     pairingHeadSetOpen(false);
+    logStartupCommon("HEAD", true, pairingHeadHasPairedNode());
     telemetryInit();
     ledsInit(LED_DEFAULT_CONFIG.pin, LED_DEFAULT_CONFIG.activeHigh);
     buttonInit(BUTTON_HEAD_CONFIG.pin, BUTTON_HEAD_CONFIG.activeLow, BUTTON_HEAD_CONFIG.usePullup);

@@ -6,9 +6,12 @@
   - [x] Pairing 2.0 MVP: always-open handshake (no buttons, no NVS)
   - [x] Pairing receive router returns handled flag (bool pairingOnRecv)
   - [x] Session and step validation on handshake packets (offer/confirm/ack)
-  - [ ] Button + LED UX
+  - [x] Button + LED UX
   - [x] NVS persistence for paired state (Milestone 6: pair_node namespace, ver/paired/headMac)
-  - [ ] Safe rules: no accidental rebind; factory reset flow
+  - [x] Safe rules: no accidental rebind; factory reset flow
+  - [ ] Multi-device pairing: head supports pairing/handling multiple nodes (SENSOR + CONTROL)
+  - [ ] NVS on HEAD: persist paired nodes registry (MAC/role/nodeId/lastSeen)
+  - [ ] NVS on CONTROL: persist paired head state and restore after reboot
 - [ ] Base message definitions (telemetry, battery, cmd, cmd_ack), protocol versioning
 - [x] Sensor -> head telemetry (happy path) + ack policy + retries
 - [ ] Power management for sensor: deep sleep cycle, wake -> measure -> transmit -> sleep
@@ -38,25 +41,26 @@ Head networking mode = SoftAP always (local UI), STA hotspot only for upload (ma
 “On reboot pump defaults OFF and reports interruption when back online.”
 
 ### Open Issues:
-- [ ] Sensor UX on head factory reset: sensor has no immediate user-facing error indication when head resets; currently fallback is telemetry no-ack threshold -> force rejoin.
+- [x] Sensor UX on head factory reset resolved: sensor handles NOT_PAIRED ACK, clears local pairing, enters join mode; head opens short candidate rebind window.
 
 
 ## ACCEPTANCE CRITERIA
 
-[ ] “HEAD waits for serial in dev builds only”
+[x] “HEAD waits for serial in dev builds only”
 
 ### 0. Project Skeleton
 
 **Done when:**
 
 - [x] Firmware builds for HEAD, SENSOR and CONTROL (PlatformIO envs or build flags)
-- [ ] Startup log prints:
-  - [ ] device role
-  - [ ] protocol version
-  - [ ] deviceUID (factory MAC)
-  - [ ] WiFi channel
-  - [ ] paired status
-- [ ] Logging levels exist (INFO/WARN/ERROR)
+- [x] Startup log prints:
+  - [x] consistent startup block on all roles
+  - [x] device role
+  - [x] protocol version
+  - [x] deviceUID (factory MAC)
+  - [x] WiFi channel
+  - [x] paired status
+- [x] Logging levels exist (INFO/WARN/ERROR)
 
 ### 1. ESP-NOW Basics
 
@@ -113,8 +117,16 @@ Head networking mode = SoftAP always (local UI), STA hotspot only for upload (ma
 
 - [x] Milestone 5.1: Sensor auto-enters join mode on boot when unpaired (one-shot trigger, existing 60s join window and LED JOINING behavior)
 - [x] Milestone 6: Sensor node pairing persistence in NVS (pair_node schema ver=1, paired/headMac load/save/clear)
+- [x] Milestone 6.2: NOT_PAIRED rebind flow (head short candidate window + sensor immediate rejoin)
+  - [x] Implementation note: `TELEMETRY_ACK status=NOT_PAIRED` triggers sensor local unpair + immediate join
+  - [x] Implementation note: head candidate rebind window = 10s, cooldown = 30s, candidate-MAC filter
+  - [x] Implementation note: detailed reproducible flow documented in `paring.md`
 - [x] Multi-head safety
   - [x] Node refuses pairing if multiple heads in pairing mode
+- [ ] Milestone 6.3: Multi-device pairing + persistence beyond SENSOR
+  - [ ] Head supports multiple paired devices concurrently (at least SENSOR + CONTROL)
+  - [ ] Head stores paired devices registry in NVS and restores on reboot
+  - [ ] Control stores paired HEAD info in NVS and restores on reboot
 
 ### 2.1. Moisture Sensor Calibrarion 
 
@@ -186,8 +198,10 @@ Head networking mode = SoftAP always (local UI), STA hotspot only for upload (ma
   - [ ] Sends low battery warning
   - [ ] Reduces activity
 - [ ] Control:
-  - [ ] Pump disabled on critical battery
+  - [ ] Pump/Sensor disabled on critical battery
   - [ ] Alert sent to head
+- [ ] Charging state (also send in Flags)
+
 
 ### 7. Control Unit
 

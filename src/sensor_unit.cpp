@@ -8,6 +8,7 @@
 #include "telemetry.h"
 #include "leds.h"
 #include "button.h"
+#include "app_log.h"
 
 #if defined(DEVICE_ROLE_SENSOR)
 
@@ -51,7 +52,6 @@ static void printMac(const char* label, const uint8_t mac[6])
 void setup() {
 	Serial.begin(115200);
 	delay(1500);
-	Serial.println("BOOT");
 
   	setupSensors();
 
@@ -85,6 +85,7 @@ void setup() {
 		s_autoJoinTriggered = true;
 		Serial.println("PAIRING(NODE): restored paired head from NVS");
 	}
+	logStartupCommon("SENSOR", true, pairingNodeIsPaired());
 	telemetryInit();
 	ledsInit(LED_DEFAULT_CONFIG.pin, LED_DEFAULT_CONFIG.activeHigh);
 	buttonInit(BUTTON_SENSOR_CONFIG.pin, BUTTON_SENSOR_CONFIG.activeLow, BUTTON_SENSOR_CONFIG.usePullup);
