@@ -59,7 +59,7 @@ struct MsgAck {
 
 #pragma pack(pop)
 
-void pairingOnRecv(const uint8_t* src_mac, const uint8_t* data, int len);
+bool pairingOnRecv(const uint8_t* src_mac, const uint8_t* data, int len);
 void pairingInitHead(uint8_t headId);
 void pairingInitNode(uint8_t role);
 void pairingTick();

@@ -47,6 +47,7 @@ static uint8_t s_seenHeadMac[6] = {0};
 static bool s_joinSent = false;
 static uint32_t s_lastJoinMs = 0;
 static uint16_t s_offerNodeId = 0;
+static bool s_offerReceived = false;
 
 static void readFactoryUid(uint8_t out_uid[6])
 {
@@ -130,6 +131,7 @@ void pairingInitNode(uint8_t role)
   s_joinSent = false;
   s_lastJoinMs = 0;
   s_offerNodeId = 0;
+  s_offerReceived = false;
   s_beaconRxCount = 0;
 
   (void)espnowEnsurePeer(ESPNOW_BROADCAST_MAC, ESPNOW_CHANNEL, false);
@@ -164,6 +166,7 @@ static void sendNodeJoinReq()
   const bool ok = espnowSend(ESPNOW_BROADCAST_MAC, reinterpret_cast<const uint8_t*>(&join), sizeof(join));
   s_joinSent = true;
   s_lastJoinMs = millis();
+  s_offerReceived = false;
 
   if (ok) {
     Serial.println("PAIRING(NODE): JOIN_REQ sent");
@@ -313,7 +316,12 @@ static void nodeHandleOffer(const uint8_t* src_mac, const MsgOffer* offer)
     return;
   }
 
+  if (offer->nodeId == 0) {
+    return;
+  }
+
   s_offerNodeId = offer->nodeId;
+  s_offerReceived = true;
   macCopy(s_nodeHeadMac, src_mac);
 
   (void)espnowEnsurePeer(src_mac, ESPNOW_CHANNEL, false);
@@ -343,7 +351,15 @@ static void nodeHandleAck(const uint8_t* src_mac, const MsgAck* ack)
     return;
   }
 
+  if (!s_offerReceived) {
+    return;
+  }
+
   if (ack->ok != 1 || ack->nodeId == 0) {
+    return;
+  }
+
+  if (ack->nodeId != s_offerNodeId) {
     return;
   }
 
@@ -360,51 +376,58 @@ static void nodeHandleAck(const uint8_t* src_mac, const MsgAck* ack)
   logMac("PAIRING(NODE): uid=", s_localFactoryUid);
 }
 
-void pairingOnRecv(const uint8_t* src_mac, const uint8_t* data, int len)
+bool pairingOnRecv(const uint8_t* src_mac, const uint8_t* data, int len)
 {
   if (!src_mac || !data || len < (int)sizeof(PairBase)) {
-    return;
+    return false;
   }
 
   const PairBase* base = reinterpret_cast<const PairBase*>(data);
   if (base->protocolVersion != PAIRING_PROTOCOL_VERSION) {
-    return;
+    return false;
   }
 
   switch (base->messageType) {
     case MSG_BEACON:
       if (s_isNode && len == (int)sizeof(MsgBeacon)) {
         nodeHandleBeacon(src_mac, reinterpret_cast<const MsgBeacon*>(data));
+        return true;
       }
       break;
 
     case MSG_JOIN_REQ:
       if (s_isHead && len == (int)sizeof(MsgJoinReq)) {
         headHandleJoinReq(src_mac, reinterpret_cast<const MsgJoinReq*>(data));
+        return true;
       }
       break;
 
     case MSG_OFFER:
       if (s_isNode && len == (int)sizeof(MsgOffer)) {
         nodeHandleOffer(src_mac, reinterpret_cast<const MsgOffer*>(data));
+        return true;
       }
       break;
 
     case MSG_CONFIRM:
       if (s_isHead && len == (int)sizeof(MsgConfirm)) {
         headHandleConfirm(src_mac, reinterpret_cast<const MsgConfirm*>(data));
+        return true;
       }
       break;
 
     case MSG_ACK:
       if (s_isNode && len == (int)sizeof(MsgAck)) {
         nodeHandleAck(src_mac, reinterpret_cast<const MsgAck*>(data));
+        return true;
       }
       break;
 
     default:
       break;
   }
+
+  return false;
 }
 
 bool pairingHeadHasPairedNode()

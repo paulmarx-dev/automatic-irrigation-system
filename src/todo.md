@@ -4,6 +4,8 @@
 - [x] ESP-NOW basics: init, channel, send, receive callbacks, peer management
 - [ ] Pairing protocol (service messages): beacon/join/offer/confirm/ack
   - [x] Pairing 2.0 MVP: always-open handshake (no buttons, no NVS)
+  - [x] Pairing receive router returns handled flag (bool pairingOnRecv)
+  - [x] Session and step validation on handshake packets (offer/confirm/ack)
   - [ ] Button + LED UX
   - [ ] NVS persistence for paired state
   - [ ] Safe rules: no accidental rebind; factory reset flow
@@ -78,6 +80,8 @@ Head networking mode = SoftAP always (local UI), STA hotspot only for upload (ma
   - [x] Node sends CONFIRM (unicast)
   - [x] Head sends ACK (unicast)
   - [x] Both sides store paired state in RAM until reboot
+  - [x] Receive routing API returns handled flag for protocol multiplexing
+  - [x] Handshake sessionId/nodeId checks reject stale or out-of-step packets
 
 - [ ] UX
   - [ ] Head short press -> pairing open 120s
@@ -101,8 +105,8 @@ Head networking mode = SoftAP always (local UI), STA hotspot only for upload (ma
 - [ ] Safety
   - [ ] Paired node does NOT rebind by short press
   - [ ] Rebind only after factory reset
-- [ ] Multi-head safety
-  - [ ] Node refuses pairing if multiple heads in pairing mode
+- [x] Multi-head safety
+  - [x] Node refuses pairing if multiple heads in pairing mode
 
 ### 3. Base Message Protocol
 

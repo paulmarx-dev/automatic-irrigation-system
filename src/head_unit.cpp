@@ -3,7 +3,6 @@
 #include "common_config.h"
 #include <WiFi.h>
 #include "pairing.h"
-#include "pairing.h"
 
 
 #if defined(DEVICE_ROLE_HEAD)
@@ -14,7 +13,7 @@
 */
 static void onRecv(const uint8_t* src_mac, const uint8_t* data, int len)
 {
-    pairingOnRecv(src_mac, data, len);
+  (void)pairingOnRecv(src_mac, data, len);
 }
 
 /*

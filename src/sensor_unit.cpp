@@ -20,7 +20,7 @@ static const uint8_t SENSOR_LED_PIN = 8;
 static const bool SENSOR_LED_ACTIVE_LOW = true;
 static void onRecv(const uint8_t* src_mac, const uint8_t* data, int len)
 {
-    pairingOnRecv(src_mac, data, len);
+	(void)pairingOnRecv(src_mac, data, len);
 }
 
 static void onSend(const uint8_t* dst_mac, bool success)
