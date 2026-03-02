@@ -53,3 +53,21 @@ bool espnowSend(const uint8_t dst_mac[6],
 void macToString(const uint8_t mac[6],
                  char* out,
                  size_t out_len);
+
+/*
+  Check if a peer is already registered in ESP-NOW peer list.
+*/
+bool espnowIsPeer(const uint8_t peer_mac[6]);
+
+/*
+  Ensure a peer exists in ESP-NOW peer list.
+  If already present, returns true.
+  If not present, tries to add it.
+*/
+bool espnowEnsurePeer(const uint8_t peer_mac[6], uint8_t channel, bool encrypt = false);
+
+/*
+  Remove a peer from ESP-NOW peer list.
+  Returns true if the peer does not exist or was removed successfully.
+*/
+bool espnowRemovePeer(const uint8_t peer_mac[6]);

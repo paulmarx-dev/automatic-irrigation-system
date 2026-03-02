@@ -94,11 +94,14 @@ static bool setCustomStaMacIfProvided(const uint8_t* custom_sta_mac)
 }
 
 
+static bool s_initialized = false;
+
 bool espnowInit(uint8_t channel, 
                 const uint8_t* custom_sta_mac, 
                 EspNowRecvCb recv_cb,
                 EspNowSendCb send_cb)
 {
+    if (s_initialized) { return false; }
     if (channel < 1 || channel > 13) { return false; }
 
     s_recv_cb = recv_cb;
@@ -135,6 +138,7 @@ bool espnowInit(uint8_t channel,
     */
     // esp_now_set_pmk((const uint8_t*)"pmk1234567890123");
 
+    s_initialized = true;
     return true;
 }
 
@@ -159,6 +163,41 @@ bool espnowAddPeer(const uint8_t peer_mac[6], uint8_t channel, bool encrypt)
 
     esp_err_t err = esp_now_add_peer(&peer);
     return (err == ESP_OK);
+}
+
+bool espnowIsPeer(const uint8_t peer_mac[6])
+{
+    if (!peer_mac) {
+        return false;
+    }
+
+    return esp_now_is_peer_exist(peer_mac);
+}
+
+bool espnowEnsurePeer(const uint8_t peer_mac[6], uint8_t channel, bool encrypt)
+{
+    if (!peer_mac) {
+        return false;
+    }
+
+    if (espnowIsPeer(peer_mac)) {
+        return true;
+    }
+
+    return espnowAddPeer(peer_mac, channel, encrypt);
+}
+
+bool espnowRemovePeer(const uint8_t peer_mac[6])
+{
+    if (!peer_mac) {
+        return false;
+    }
+
+    if (!espnowIsPeer(peer_mac)) {
+        return true;
+    }
+
+    return (esp_now_del_peer(peer_mac) == ESP_OK);
 }
 
 bool espnowSend(const uint8_t dst_mac[6], const uint8_t* data, size_t len)

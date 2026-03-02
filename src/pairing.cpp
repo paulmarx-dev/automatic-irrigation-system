@@ -8,6 +8,19 @@
 
 // #pragma once
 
+/*
+ Device Registry Record
+*/
+// struct NodeRecord
+// {
+//   uint16_t nodeId;
+//   uint64_t uid;
+//   uint8_t mac[6];
+//   DeviceRole type;
+//   uint32_t lastSeen;
+// };
+// usage 
+// Registry.add(uid, mac, nodeId)
 
 /*
  Device roles

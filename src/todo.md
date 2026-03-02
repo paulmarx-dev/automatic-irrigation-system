@@ -63,8 +63,8 @@ Head networking mode = SoftAP always (local UI), STA hotspot only for upload (ma
   - [x] espnowSend()
   - [x] onReceive()
   - [x] onSend()
-- [ ] Peer can be added safely multiple times
-- [ ] Communication resumes after head reboot
+- [x] Peer can be added safely multiple times
+- [x] Communication resumes after head reboot
 
 ### 2. Pairing Protocol
 
