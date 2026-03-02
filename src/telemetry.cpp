@@ -16,6 +16,10 @@ static const unsigned long ACK_TIMEOUT_MS = 200;
 static const uint8_t MAX_RETRIES = 3;
 static const uint8_t MAX_NO_ACK_CYCLES_BEFORE_REJOIN = 3;
 
+static const int32_t MOISTURE_DRY_RAW_MV = 2770;
+static const int32_t MOISTURE_WET_RAW_MV = 1120;
+static const uint32_t BATTERY_EST_RATIO_PERMILLE = 2066;
+
 static uint16_t s_telemetrySeq = 0;
 static uint16_t s_lastSentSeq = 0;
 static bool s_waitingAck = false;
@@ -32,6 +36,25 @@ static bool sendPendingTelemetry()
 {
   (void)espnowEnsurePeer(s_pendingHeadMac, ESPNOW_CHANNEL, false);
   return espnowSend(s_pendingHeadMac, reinterpret_cast<const uint8_t*>(&s_pendingTelemetry), sizeof(s_pendingTelemetry));
+}
+
+static uint16_t computeMoisturePermille(uint16_t moistureRawMv)
+{
+  const int32_t denominator = MOISTURE_DRY_RAW_MV - MOISTURE_WET_RAW_MV;
+  if (denominator == 0) {
+    return 0;
+  }
+
+  const int32_t numerator = (int32_t)(MOISTURE_DRY_RAW_MV - (int32_t)moistureRawMv) * 1000;
+  int32_t permille = numerator / denominator;
+  permille = constrain(permille, 0, 1000);
+  return (uint16_t)permille;
+}
+
+static uint16_t computeBatteryEstimatedMv(uint16_t batteryRawMv)
+{
+  const uint32_t scaled = (uint32_t)batteryRawMv * BATTERY_EST_RATIO_PERMILLE;
+  return (uint16_t)((scaled + 500U) / 1000U);
 }
 
 static uint32_t retryBackoffMs(uint8_t retryIndex)
@@ -162,13 +185,10 @@ void telemetryTickSensor(const SensorMeasurement* measurement, bool hasMeasureme
   s_pendingTelemetry.hdr.seq = ++s_telemetrySeq;
   s_pendingTelemetry.hdr.nodeId = pairingNodeId();
 
-  int32_t moisturePermille = (int32_t)(measurement->moisturePercentage * 10.0f + 0.5f);
-  moisturePermille = constrain(moisturePermille, 0, 1000);
-
-  s_pendingTelemetry.moisturePermille = (uint16_t)moisturePermille;
+  s_pendingTelemetry.moisturePermille = computeMoisturePermille(measurement->moistureRaw);
   s_pendingTelemetry.moistureRawMv = measurement->moistureRaw;
   s_pendingTelemetry.batteryRawMv = measurement->batteryRaw;
-  s_pendingTelemetry.batteryEstMv = (uint16_t)(measurement->batteryEstimatedVoltage * 1000.0f);
+  s_pendingTelemetry.batteryEstMv = computeBatteryEstimatedMv(measurement->batteryRaw);
   s_pendingTelemetry.flags = 0;
   s_pendingTelemetry.reserved = 0;
 
