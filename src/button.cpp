@@ -17,6 +17,7 @@ static uint32_t s_bootWindowEndMs = 0;
 static uint8_t s_pressCount = 0;
 static bool s_debugEnabled = false;
 static bool s_debugEventPending = false;
+static bool s_shortPressPending = false;
 
 static bool readPressedRaw()
 {
@@ -47,6 +48,7 @@ void buttonInit(uint8_t pin, bool activeLow, bool usePullup)
   s_pressCount = 0;
   s_debugEnabled = false;
   s_debugEventPending = false;
+  s_shortPressPending = false;
 }
 
 void buttonTick(uint32_t nowMs)
@@ -71,6 +73,8 @@ void buttonTick(uint32_t nowMs)
     return;
   }
 
+  s_shortPressPending = true;
+
   if ((int32_t)(s_bootWindowEndMs - nowMs) < 0) {
     return;
   }
@@ -83,6 +87,13 @@ void buttonTick(uint32_t nowMs)
     s_debugEnabled = true;
     s_debugEventPending = true;
   }
+}
+
+bool buttonConsumeShortPress()
+{
+  const bool pending = s_shortPressPending;
+  s_shortPressPending = false;
+  return pending;
 }
 
 bool buttonIsDebugEnabled()

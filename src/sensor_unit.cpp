@@ -21,6 +21,15 @@ static const unsigned long MEASUREMENT_INTERVAL_MS = 1000;
 static SensorMeasurement latestMeasurement{};
 static bool haveMeasurement = false;
 
+enum SensorUxState : uint8_t {
+	SENSOR_UX_NORMAL = 0,
+	SENSOR_UX_CAL_PROMPT_WET = 1,
+	SENSOR_UX_CAL_MEASURE_DRY = 2,
+	SENSOR_UX_CAL_MEASURE_WET = 3,
+};
+
+static SensorUxState s_uxState = SENSOR_UX_NORMAL;
+
 static void onRecv(const uint8_t* src_mac, const uint8_t* data, int len)
 {
 	if (pairingOnRecv(src_mac, data, len)) {
@@ -96,10 +105,14 @@ void loop() {
 
 	buttonTick(now);
 	static bool idleModeSet = false;
-	if (pairingNodeIsPaired()) {
-		if (!idleModeSet) {
-			ledsSetMode(LED_MODE_IDLE);
-			idleModeSet = true;
+	if (s_uxState == SENSOR_UX_NORMAL) {
+		if (pairingNodeIsPaired()) {
+			if (!idleModeSet) {
+				ledsSetMode(LED_MODE_IDLE);
+				idleModeSet = true;
+			}
+		} else {
+			idleModeSet = false;
 		}
 	} else {
 		idleModeSet = false;
@@ -108,6 +121,22 @@ void loop() {
 	if (buttonConsumeDebugEnabledEvent()) {
 		Serial.println("DEBUG gate: enabled for this boot");
 		ledsSetMode(LED_MODE_DEBUG_CONFIRM);
+
+		// Temporary entry hook for calibration scaffold.
+		s_uxState = SENSOR_UX_CAL_PROMPT_WET;
+		Serial.println("CAL: prompt wet reference (press button to confirm)");
+		ledsSetMode(LED_MODE_CAL_PROMPT_WET);
+	}
+
+	if (s_uxState == SENSOR_UX_CAL_PROMPT_WET && buttonConsumeShortPress()) {
+		Serial.println("CAL: wet reference confirmed");
+		ledsSetMode(LED_MODE_SUCCESS_ONCE);
+		s_uxState = SENSOR_UX_NORMAL;
+		if (pairingNodeIsPaired()) {
+			ledsSetMode(LED_MODE_IDLE);
+		} else {
+			ledsSetMode(LED_MODE_OFF);
+		}
 	}
 
 	ledsTick(now);

@@ -5,17 +5,60 @@
 static uint8_t s_ledPin = 255;
 static bool s_activeHigh = true;
 static LedMode s_mode = LED_MODE_OFF;
-static LedMode s_restoreMode = LED_MODE_OFF;
-
-static uint8_t s_seqStep = 0;
-static uint32_t s_seqStepStartedMs = 0;
-static bool s_seqRunning = false;
-
-static uint32_t s_idlePulseStartedMs = 0;
-static bool s_idlePulseActive = false;
-static uint32_t s_lastIdleBeatMs = 0;
+static LedMode s_onceRestoreMode = LED_MODE_OFF;
+static uint8_t s_patternStep = 0;
+static uint32_t s_patternStepStartedMs = 0;
 
 static uint32_t s_pulseUntilMs = 0;
+
+struct LedPatternStep {
+  bool on;
+  uint16_t durationMs;
+};
+
+struct LedPattern {
+  const LedPatternStep* steps;
+  uint8_t count;
+  bool repeat;
+};
+
+static const LedPatternStep PATTERN_BOOT[] = {
+  {true, 500}, {false, 150}, {true, 500}, {false, 150}
+};
+
+static const LedPatternStep PATTERN_PAIRING_OPEN[] = {
+  {true, 100}, {false, 100}, {true, 100}, {false, 700}
+};
+
+static const LedPatternStep PATTERN_JOINING[] = {
+  {true, 300}, {false, 700}
+};
+
+static const LedPatternStep PATTERN_SUCCESS[] = {
+  {true, 600}, {false, 400}
+};
+
+static const LedPatternStep PATTERN_ERROR[] = {
+  {true, 100}, {false, 100}, {true, 100}, {false, 100}, {true, 100}, {false, 100}
+};
+
+static const LedPatternStep PATTERN_FACTORY_RESET[] = {
+  {true, 80}, {false, 80}, {true, 80}, {false, 80}, {true, 80}, {false, 80},
+  {true, 80}, {false, 80}, {true, 80}, {false, 80}, {true, 80}, {false, 80}
+};
+
+static const LedPatternStep PATTERN_CAL_ENTER[] = {
+  {true, 80}, {false, 80}, {true, 80}, {false, 80}, {true, 80},
+  {false, 80}, {true, 80}, {false, 80}, {true, 80}, {false, 80}
+};
+
+static const LedPatternStep PATTERN_CAL_MEASURE[] = {
+  {true, 500}, {false, 500}
+};
+
+static const LedPatternStep PATTERN_CAL_PROMPT_WET[] = {
+  {true, 200}, {false, 200}, {true, 200}, {false, 400}
+};
 
 static void writeLed(bool on)
 {
@@ -34,13 +77,53 @@ static void writeLed(bool on)
 #endif
 }
 
-static void startSequence(LedMode mode, LedMode restoreMode, uint32_t nowMs)
+static bool modeIsOneShot(LedMode mode)
+{
+  return mode == LED_MODE_BOOT ||
+         mode == LED_MODE_DEBUG_CONFIRM ||
+         mode == LED_MODE_SUCCESS_ONCE ||
+         mode == LED_MODE_FACTORY_RESET_ONCE ||
+         mode == LED_MODE_CAL_ENTER_ONCE ||
+         mode == LED_MODE_CAL_DONE_ONCE;
+}
+
+static LedPattern getPatternForMode(LedMode mode)
+{
+  switch (mode) {
+    case LED_MODE_BOOT:
+      return {PATTERN_BOOT, static_cast<uint8_t>(sizeof(PATTERN_BOOT) / sizeof(PATTERN_BOOT[0])), false};
+    case LED_MODE_PAIRING_OPEN:
+      return {PATTERN_PAIRING_OPEN, static_cast<uint8_t>(sizeof(PATTERN_PAIRING_OPEN) / sizeof(PATTERN_PAIRING_OPEN[0])), true};
+    case LED_MODE_JOINING:
+      return {PATTERN_JOINING, static_cast<uint8_t>(sizeof(PATTERN_JOINING) / sizeof(PATTERN_JOINING[0])), true};
+    case LED_MODE_DEBUG_CONFIRM:
+    case LED_MODE_SUCCESS_ONCE:
+    case LED_MODE_CAL_DONE_ONCE:
+      return {PATTERN_SUCCESS, static_cast<uint8_t>(sizeof(PATTERN_SUCCESS) / sizeof(PATTERN_SUCCESS[0])), false};
+    case LED_MODE_ERROR_REPEAT:
+    case LED_MODE_CAL_ERROR_REPEAT:
+      return {PATTERN_ERROR, static_cast<uint8_t>(sizeof(PATTERN_ERROR) / sizeof(PATTERN_ERROR[0])), true};
+    case LED_MODE_FACTORY_RESET_ONCE:
+      return {PATTERN_FACTORY_RESET, static_cast<uint8_t>(sizeof(PATTERN_FACTORY_RESET) / sizeof(PATTERN_FACTORY_RESET[0])), false};
+    case LED_MODE_CAL_ENTER_ONCE:
+      return {PATTERN_CAL_ENTER, static_cast<uint8_t>(sizeof(PATTERN_CAL_ENTER) / sizeof(PATTERN_CAL_ENTER[0])), false};
+    case LED_MODE_CAL_MEASURE_DRY:
+    case LED_MODE_CAL_MEASURE_WET:
+      return {PATTERN_CAL_MEASURE, static_cast<uint8_t>(sizeof(PATTERN_CAL_MEASURE) / sizeof(PATTERN_CAL_MEASURE[0])), true};
+    case LED_MODE_CAL_PROMPT_WET:
+      return {PATTERN_CAL_PROMPT_WET, static_cast<uint8_t>(sizeof(PATTERN_CAL_PROMPT_WET) / sizeof(PATTERN_CAL_PROMPT_WET[0])), true};
+    case LED_MODE_IDLE:
+    case LED_MODE_OFF:
+    default:
+      return {nullptr, 0, false};
+  }
+}
+
+static void startMode(LedMode mode, uint32_t nowMs)
 {
   s_mode = mode;
-  s_restoreMode = restoreMode;
-  s_seqStep = 0;
-  s_seqStepStartedMs = nowMs;
-  s_seqRunning = true;
+  s_patternStep = 0;
+  s_patternStepStartedMs = nowMs;
 }
 
 void ledsInit(uint8_t pin, bool activeHigh)
@@ -52,35 +135,32 @@ void ledsInit(uint8_t pin, bool activeHigh)
   writeLed(false);
 
   const uint32_t nowMs = millis();
-  s_idlePulseStartedMs = 0;
-  s_idlePulseActive = false;
-  s_lastIdleBeatMs = nowMs;
   s_pulseUntilMs = 0;
+  s_onceRestoreMode = LED_MODE_OFF;
 
-  startSequence(LED_MODE_BOOT, LED_MODE_OFF, nowMs);
+  startMode(LED_MODE_BOOT, nowMs);
 }
 
 void ledsSetMode(LedMode mode)
 {
   const uint32_t nowMs = millis();
 
-  if (mode == LED_MODE_DEBUG_CONFIRM) {
-    startSequence(LED_MODE_DEBUG_CONFIRM, s_mode == LED_MODE_DEBUG_CONFIRM ? LED_MODE_IDLE : s_mode, nowMs);
+  if (modeIsOneShot(mode)) {
+    if (modeIsOneShot(s_mode)) {
+      s_onceRestoreMode = LED_MODE_OFF;
+    } else {
+      s_onceRestoreMode = s_mode;
+    }
+    startMode(mode, nowMs);
     return;
   }
 
-  if (s_seqRunning) {
-    s_restoreMode = mode;
+  if (modeIsOneShot(s_mode)) {
+    s_onceRestoreMode = mode;
     return;
   }
 
-  s_mode = mode;
-  s_seqRunning = false;
-  s_seqStep = 0;
-  s_seqStepStartedMs = nowMs;
-  if (mode != LED_MODE_IDLE) {
-    s_idlePulseActive = false;
-  }
+  startMode(mode, nowMs);
 }
 
 void ledsPulseOnce(uint16_t onMs)
@@ -92,77 +172,56 @@ void ledsPulseOnce(uint16_t onMs)
   }
 }
 
-static bool tickSequence(uint32_t nowMs)
+static bool tickPattern(uint32_t nowMs, bool* patternOn)
 {
-  if (!s_seqRunning) {
+  const LedPattern pattern = getPatternForMode(s_mode);
+  if (!pattern.steps || pattern.count == 0) {
+    *patternOn = false;
     return false;
   }
 
-  const uint16_t onMs = 500;
-  const uint16_t offMs = 150;
-
-  switch (s_seqStep) {
-    case 0:
-      writeLed(true);
-      if (nowMs - s_seqStepStartedMs >= onMs) {
-        s_seqStep = 1;
-        s_seqStepStartedMs = nowMs;
-      }
-      return true;
-    case 1:
-      writeLed(false);
-      if (nowMs - s_seqStepStartedMs >= offMs) {
-        s_seqStep = 2;
-        s_seqStepStartedMs = nowMs;
-      }
-      return true;
-    case 2:
-      writeLed(true);
-      if (nowMs - s_seqStepStartedMs >= onMs) {
-        s_seqStep = 3;
-        s_seqStepStartedMs = nowMs;
-      }
-      return true;
-    case 3:
-      writeLed(false);
-      if (nowMs - s_seqStepStartedMs >= offMs) {
-        s_seqRunning = false;
-        s_mode = s_restoreMode;
-      }
-      return true;
-    default:
-      s_seqRunning = false;
-      return false;
+  if (s_patternStep >= pattern.count) {
+    s_patternStep = 0;
+    s_patternStepStartedMs = nowMs;
   }
+
+  const LedPatternStep step = pattern.steps[s_patternStep];
+  *patternOn = step.on;
+
+  if ((nowMs - s_patternStepStartedMs) < step.durationMs) {
+    return true;
+  }
+
+  s_patternStep++;
+  s_patternStepStartedMs = nowMs;
+
+  if (s_patternStep < pattern.count) {
+    return true;
+  }
+
+  if (pattern.repeat) {
+    s_patternStep = 0;
+    return true;
+  }
+
+  if (s_mode == LED_MODE_FACTORY_RESET_ONCE) {
+    startMode(LED_MODE_SUCCESS_ONCE, nowMs);
+    return true;
+  }
+
+  if (modeIsOneShot(s_mode)) {
+    startMode(s_onceRestoreMode, nowMs);
+    return true;
+  }
+
+  startMode(LED_MODE_OFF, nowMs);
+  return true;
 }
 
 void ledsTick(uint32_t nowMs)
 {
-  if (tickSequence(nowMs)) {
-    return;
-  }
-
   bool baseOn = false;
-
-  if (s_mode == LED_MODE_IDLE) {
-    // IDLE heartbeat is intentionally disabled for now.
-    // Keep this logic for quick restore later:
-    // const uint32_t heartbeatPeriodMs = 2000;
-    // const uint32_t heartbeatOnMs = 35;
-    // if (!s_idlePulseActive && (nowMs - s_lastIdleBeatMs >= heartbeatPeriodMs)) {
-    //   s_idlePulseActive = true;
-    //   s_idlePulseStartedMs = nowMs;
-    //   s_lastIdleBeatMs = nowMs;
-    // }
-    // if (s_idlePulseActive) {
-    //   if (nowMs - s_idlePulseStartedMs < heartbeatOnMs) {
-    //     baseOn = true;
-    //   } else {
-    //     s_idlePulseActive = false;
-    //   }
-    // }
-    baseOn = false;
-  }
+  (void)tickPattern(nowMs, &baseOn);
 
   const bool pulseOn = (int32_t)(s_pulseUntilMs - nowMs) > 0;
   writeLed(baseOn || pulseOn);
