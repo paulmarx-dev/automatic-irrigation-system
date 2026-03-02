@@ -5,6 +5,7 @@
 static constexpr uint8_t PROTO_VER = 1;
 
 static constexpr uint8_t MSG_TELEMETRY = 10;
+static constexpr uint8_t MSG_TELEMETRY_ACK = 11;
 
 static constexpr uint8_t FLAG_UNCALIBRATED = 0x01;
 
@@ -24,6 +25,13 @@ struct MsgTelemetry {
   uint16_t batteryRawMv;      // battery reading at ADC pin in mV
   uint16_t batteryEstMv;      // estimated battery voltage after divider/correction in mV
   uint8_t flags;
+  uint8_t reserved;
+};
+
+struct MsgTelemetryAck {
+  MsgHdr hdr;
+  uint16_t ackSeq;
+  uint8_t status;
   uint8_t reserved;
 };
 

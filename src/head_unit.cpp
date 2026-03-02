@@ -2,9 +2,8 @@
 #include "esp_now_helpers.h"
 #include "common_config.h"
 #include <WiFi.h>
-#include <string.h>
 #include "pairing.h"
-#include "protocol.h"
+#include "telemetry.h"
 
 
 #if defined(DEVICE_ROLE_HEAD)
@@ -18,39 +17,7 @@ static void onRecv(const uint8_t* src_mac, const uint8_t* data, int len)
   if (pairingOnRecv(src_mac, data, len)) {
     return;
   }
-
-  if (!src_mac || !data || len != (int)sizeof(MsgTelemetry)) {
-    return;
-  }
-
-  const MsgTelemetry* telemetry = reinterpret_cast<const MsgTelemetry*>(data);
-  if (telemetry->hdr.ver != PROTO_VER || telemetry->hdr.type != MSG_TELEMETRY) {
-    return;
-  }
-
-  uint8_t pairedMac[6] = {0};
-  if (!pairingHeadPairedNodeMac(pairedMac)) {
-    return;
-  }
-
-  if (memcmp(src_mac, pairedMac, 6) != 0) {
-    return;
-  }
-
-  Serial.print("TELEMETRY nodeId=");
-  Serial.print((unsigned long)telemetry->hdr.nodeId);
-  Serial.print(" seq=");
-  Serial.print((unsigned long)telemetry->hdr.seq);
-  Serial.print(" moisturePermille=");
-  Serial.print((unsigned long)telemetry->moisturePermille);
-  Serial.print(" moistureRawMv=");
-  Serial.print((unsigned long)telemetry->moistureRawMv);
-  Serial.print(" batteryRawMv=");
-  Serial.print((unsigned long)telemetry->batteryRawMv);
-  Serial.print(" batteryEstMv=");
-  Serial.print((unsigned long)telemetry->batteryEstMv);
-  Serial.print(" flags=");
-  Serial.println((unsigned long)telemetry->flags);
+  telemetryOnRecv(src_mac, data, len);
 }
 
 /*
@@ -94,6 +61,7 @@ void setup() {
   }
 
     pairingInitHead(1);
+    telemetryInit();
 
 
   Serial.println("ESP-NOW ready.");

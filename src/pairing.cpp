@@ -289,10 +289,19 @@ static void nodeHandleBeacon(const uint8_t* src_mac, const MsgBeacon* beacon)
   }
 
   if (s_nodeSessionId != beacon->base.sessionId) {
+    const bool wasPaired = s_nodePaired;
     s_nodeSessionId = beacon->base.sessionId;
+    s_nodePaired = false;
+    s_nodeId = 0;
+    s_offerNodeId = 0;
+    s_offerReceived = false;
     s_joinSent = false;
-    if (!s_nodePaired && !s_multiHeadConflict) {
-      Serial.println("PAIRING(NODE): head session changed, rejoin");
+    if (!s_multiHeadConflict) {
+      if (wasPaired) {
+        Serial.println("PAIRING(NODE): head reboot/session changed, rejoin");
+      } else {
+        Serial.println("PAIRING(NODE): head session changed, rejoin");
+      }
       sendNodeJoinReq();
     }
   }
