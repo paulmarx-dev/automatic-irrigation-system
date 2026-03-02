@@ -63,6 +63,7 @@ void setup() {
   }
 
     pairingInitHead(1);
+    pairingHeadSetOpen(false);
     telemetryInit();
     ledsInit(LED_DEFAULT_CONFIG.pin, LED_DEFAULT_CONFIG.activeHigh);
     buttonInit(BUTTON_HEAD_CONFIG.pin, BUTTON_HEAD_CONFIG.activeLow, BUTTON_HEAD_CONFIG.usePullup);
@@ -77,10 +78,52 @@ void setup() {
 void loop() {
     const uint32_t now = millis();
     buttonTick(now);
+
+    static bool lastOpenState = false;
+    pairingHeadTick(now);
+
+    if (buttonConsumeLongPress()) {
+      Serial.println("PAIRING(HEAD): factory reset requested");
+      pairingHeadFactoryReset();
+      ledsSetMode(LED_MODE_FACTORY_RESET_ONCE);
+    }
+
+    if (buttonConsumeShortPress()) {
+      if (pairingHeadIsOpen()) {
+        pairingHeadSetOpen(false);
+        Serial.println("PAIRING(HEAD): pairing window closed by user");
+        ledsSetMode(LED_MODE_ERROR_ONCE);
+      } else {
+        pairingHeadSetOpen(true);
+        Serial.println("PAIRING(HEAD): pairing window opened");
+        ledsSetMode(LED_MODE_PAIRING_OPEN);
+      }
+    }
+
     if (buttonConsumeDebugEnabledEvent()) {
       Serial.println("DEBUG gate: enabled for this boot");
       ledsSetMode(LED_MODE_DEBUG_CONFIRM);
     }
+
+    if (pairingHeadConsumePairSuccessEvent()) {
+      const bool openNow = pairingHeadIsOpen();
+      if (openNow) {
+        ledsSetMode(LED_MODE_PAIRING_OPEN);
+      } else {
+        ledsSetMode(LED_MODE_OFF);
+      }
+      ledsSetMode(LED_MODE_SUCCESS_DOUBLE);
+      Serial.println("PAIRING(HEAD): pair success indication");
+    }
+
+    const bool isOpen = pairingHeadIsOpen();
+    if (isOpen && !lastOpenState) {
+      ledsSetMode(LED_MODE_PAIRING_OPEN);
+    } else if (!isOpen && lastOpenState) {
+      ledsSetMode(LED_MODE_OFF);
+    }
+    lastOpenState = isOpen;
+
     ledsTick(now);
     pairingTick();
     delay(10);

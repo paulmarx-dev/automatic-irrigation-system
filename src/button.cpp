@@ -5,6 +5,7 @@
 static const uint16_t BOOT_WINDOW_MS = 5000;
 static const uint8_t REQUIRED_PRESSES = 5;
 static const uint16_t DEBOUNCE_MS = 30;
+static const uint16_t LONG_PRESS_MS = 3000;
 
 static uint8_t s_pin = 255;
 static bool s_activeLow = true;
@@ -18,6 +19,9 @@ static uint8_t s_pressCount = 0;
 static bool s_debugEnabled = false;
 static bool s_debugEventPending = false;
 static bool s_shortPressPending = false;
+static bool s_longPressPending = false;
+static uint32_t s_pressStartedMs = 0;
+static bool s_longPressFired = false;
 
 static bool readPressedRaw()
 {
@@ -49,6 +53,9 @@ void buttonInit(uint8_t pin, bool activeLow, bool usePullup)
   s_debugEnabled = false;
   s_debugEventPending = false;
   s_shortPressPending = false;
+  s_longPressPending = false;
+  s_pressStartedMs = nowMs;
+  s_longPressFired = false;
 }
 
 void buttonTick(uint32_t nowMs)
@@ -59,34 +66,39 @@ void buttonTick(uint32_t nowMs)
     s_lastRawChangeMs = nowMs;
   }
 
-  if ((nowMs - s_lastRawChangeMs) < DEBOUNCE_MS) {
-    return;
+  if ((nowMs - s_lastRawChangeMs) >= DEBOUNCE_MS && s_stablePressed != s_lastRawPressed) {
+    s_stablePressed = s_lastRawPressed;
+
+    if (s_stablePressed) {
+      s_pressStartedMs = nowMs;
+      s_longPressFired = false;
+
+      if ((int32_t)(s_bootWindowEndMs - nowMs) >= 0) {
+        if (s_pressCount < 255) {
+          s_pressCount++;
+        }
+
+        if (!s_debugEnabled && s_pressCount >= REQUIRED_PRESSES) {
+          s_debugEnabled = true;
+          s_debugEventPending = true;
+        }
+      }
+    } else if (!s_longPressFired) {
+      s_shortPressPending = true;
+    }
   }
 
-  if (s_stablePressed == s_lastRawPressed) {
-    return;
+  if (s_stablePressed && !s_longPressFired && (nowMs - s_pressStartedMs >= LONG_PRESS_MS)) {
+    s_longPressFired = true;
+    s_longPressPending = true;
   }
+}
 
-  s_stablePressed = s_lastRawPressed;
-
-  if (!s_stablePressed) {
-    return;
-  }
-
-  s_shortPressPending = true;
-
-  if ((int32_t)(s_bootWindowEndMs - nowMs) < 0) {
-    return;
-  }
-
-  if (s_pressCount < 255) {
-    s_pressCount++;
-  }
-
-  if (!s_debugEnabled && s_pressCount >= REQUIRED_PRESSES) {
-    s_debugEnabled = true;
-    s_debugEventPending = true;
-  }
+bool buttonConsumeLongPress()
+{
+  const bool pending = s_longPressPending;
+  s_longPressPending = false;
+  return pending;
 }
 
 bool buttonConsumeShortPress()

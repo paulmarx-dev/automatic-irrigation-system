@@ -84,19 +84,20 @@ Head networking mode = SoftAP always (local UI), STA hotspot only for upload (ma
   - [x] Handshake sessionId/nodeId checks reject stale or out-of-step packets
 
 - [ ] UX
-  - [ ] Head short press -> pairing open 120s
-  - [ ] Head short press again -> pairing closes
-  - [ ] Head long press -> factory reset
-  - [ ] Node short press -> join mode 60s
-  - [ ] Node long press -> factory reset
-  - [ ] LED patterns implemented:
-    - [ ] pairing open
-    - [ ] joining
-    - [ ] success
-    - [ ] error
-    - [ ] factory reset
+  - [x] Head short press -> pairing open 120s
+  - [x] Head short press again -> pairing closes
+  - [x] Head long press -> factory reset
+  - [x] Node short press -> join mode 60s
+  - [x] Node short press again -> pairing closes
+  - [x] Node long press -> factory reset
+  - [x] LED patterns implemented:
+    - [x] pairing open: double tap repeat (100 ON / 100 OFF / 100 ON / 700 OFF loop)
+    - [x] joining:      slow blink repeat (300 ON / 700 OFF loop)
+    - [x] success:      1 long blink (1500 ON / 300 OFF once)
+    - [x] error:        3 fast blinks (100 ON / 100 OFF ×3, repeat if persistent)
+    - [x] factory reset: 6 rapid blinks (80 ON / 80 OFF ×6 once) + success
 - [ ] Functional
-  - [ ] Unpaired node pairs in <10 seconds
+  - [x] Unpaired node pairs in <10 seconds
   - [ ] Node stores in NVS:
     - [ ] paired flag
     - [ ] headMAC
@@ -104,10 +105,23 @@ Head networking mode = SoftAP always (local UI), STA hotspot only for upload (ma
   - [x] Node reconnects after reboot
   - [x] Head accepts node after reboot
 - [ ] Safety
-  - [ ] Paired node does NOT rebind by short press
+  - [x] Paired node does NOT rebind by short press
   - [ ] Rebind only after factory reset
+
+- [x] Milestone 5.1: Sensor auto-enters join mode on boot when unpaired (one-shot trigger, existing 60s join window and LED JOINING behavior)
 - [x] Multi-head safety
   - [x] Node refuses pairing if multiple heads in pairing mode
+
+### 2.1. Moisture Sensor Calibrarion 
+
+- [ ] cal_enter         : 5 fast blinks (80 ON / 80 OFF ×4 once)
+- [ ] cal_measure_dry   : slow pulse repeat (500 ON / 500 OFF loop)
+- [ ] cal_prompt_wet    : double tap repeat (200 ON / 200 OFF / 200 ON / 400 OFF loop until unser presses the button)
+- [ ] cal_measure_wet   : slow pulse repeat (500 ON / 500 OFF loop)
+- [ ] cal_done          : success
+- [ ] cal_error         : error once (e.g. when the difference between wet and dry is too low)
+- [ ] cal_cancel        : error once
+
 
 ### 3. Base Message Protocol
 

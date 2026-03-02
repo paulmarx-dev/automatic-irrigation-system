@@ -35,7 +35,11 @@ static const LedPatternStep PATTERN_JOINING[] = {
 };
 
 static const LedPatternStep PATTERN_SUCCESS[] = {
-  {true, 600}, {false, 400}
+  {true, 1500}, {false, 300}
+};
+
+static const LedPatternStep PATTERN_SUCCESS_DOUBLE[] = {
+  {true, 1500}, {false, 300}, {true, 1500}, {false, 300}
 };
 
 static const LedPatternStep PATTERN_ERROR[] = {
@@ -82,6 +86,8 @@ static bool modeIsOneShot(LedMode mode)
   return mode == LED_MODE_BOOT ||
          mode == LED_MODE_DEBUG_CONFIRM ||
          mode == LED_MODE_SUCCESS_ONCE ||
+        mode == LED_MODE_SUCCESS_DOUBLE ||
+      mode == LED_MODE_ERROR_ONCE ||
          mode == LED_MODE_FACTORY_RESET_ONCE ||
          mode == LED_MODE_CAL_ENTER_ONCE ||
          mode == LED_MODE_CAL_DONE_ONCE;
@@ -100,9 +106,13 @@ static LedPattern getPatternForMode(LedMode mode)
     case LED_MODE_SUCCESS_ONCE:
     case LED_MODE_CAL_DONE_ONCE:
       return {PATTERN_SUCCESS, static_cast<uint8_t>(sizeof(PATTERN_SUCCESS) / sizeof(PATTERN_SUCCESS[0])), false};
+    case LED_MODE_SUCCESS_DOUBLE:
+      return {PATTERN_SUCCESS_DOUBLE, static_cast<uint8_t>(sizeof(PATTERN_SUCCESS_DOUBLE) / sizeof(PATTERN_SUCCESS_DOUBLE[0])), false};
     case LED_MODE_ERROR_REPEAT:
     case LED_MODE_CAL_ERROR_REPEAT:
       return {PATTERN_ERROR, static_cast<uint8_t>(sizeof(PATTERN_ERROR) / sizeof(PATTERN_ERROR[0])), true};
+    case LED_MODE_ERROR_ONCE:
+      return {PATTERN_ERROR, static_cast<uint8_t>(sizeof(PATTERN_ERROR) / sizeof(PATTERN_ERROR[0])), false};
     case LED_MODE_FACTORY_RESET_ONCE:
       return {PATTERN_FACTORY_RESET, static_cast<uint8_t>(sizeof(PATTERN_FACTORY_RESET) / sizeof(PATTERN_FACTORY_RESET[0])), false};
     case LED_MODE_CAL_ENTER_ONCE:
@@ -146,9 +156,7 @@ void ledsSetMode(LedMode mode)
   const uint32_t nowMs = millis();
 
   if (modeIsOneShot(mode)) {
-    if (modeIsOneShot(s_mode)) {
-      s_onceRestoreMode = LED_MODE_OFF;
-    } else {
+    if (!modeIsOneShot(s_mode)) {
       s_onceRestoreMode = s_mode;
     }
     startMode(mode, nowMs);

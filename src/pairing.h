@@ -63,8 +63,19 @@ bool pairingOnRecv(const uint8_t* src_mac, const uint8_t* data, int len);
 void pairingInitHead(uint8_t headId);
 void pairingInitNode(uint8_t role);
 void pairingTick();
+void pairingHeadSetOpen(bool open);
+bool pairingHeadIsOpen();
+void pairingHeadTick(uint32_t nowMs);
+void pairingNodeEnterJoinMode(uint32_t nowMs);
+void pairingNodeExitJoinMode();
+bool pairingNodeIsInJoinMode();
+bool pairingNodeJoinExpired(uint32_t nowMs);
+void pairingNodeTick(uint32_t nowMs);
+void pairingHeadFactoryReset();
+void pairingNodeFactoryReset();
 
 bool pairingHeadHasPairedNode();
+bool pairingHeadConsumePairSuccessEvent();
 uint16_t pairingHeadPairedNodeId();
 bool pairingHeadPairedNodeMac(uint8_t out_mac[6]);
 

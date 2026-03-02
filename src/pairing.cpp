@@ -35,10 +35,15 @@ static bool s_headPaired = false;
 static uint16_t s_headPairedNodeId = 0;
 static uint8_t s_headPairedNodeMac[6] = {0};
 static uint8_t s_headPairedNodeUid[6] = {0};
+static bool s_headPairSuccessEvent = false;
+static bool s_headOpen = false;
+static uint32_t s_headOpenDeadlineMs = 0;
 
 static bool s_nodePaired = false;
 static uint16_t s_nodeId = 0;
 static uint8_t s_nodeHeadMac[6] = {0};
+static bool s_nodeInJoinMode = false;
+static uint32_t s_nodeJoinDeadlineMs = 0;
 
 static bool s_seenHead = false;
 static bool s_multiHeadConflict = false;
@@ -48,6 +53,98 @@ static bool s_joinSent = false;
 static uint32_t s_lastJoinMs = 0;
 static uint16_t s_offerNodeId = 0;
 static bool s_offerReceived = false;
+
+void pairingHeadSetOpen(bool open)
+{
+  s_headOpen = open;
+  if (open) {
+    s_headOpenDeadlineMs = millis() + PAIRING_HEAD_OPEN_MS;
+  } else {
+    s_headOpenDeadlineMs = 0;
+  }
+}
+
+bool pairingHeadIsOpen()
+{
+  return s_headOpen;
+}
+
+void pairingHeadTick(uint32_t nowMs)
+{
+  if (!s_headOpen) {
+    return;
+  }
+
+  if ((int32_t)(nowMs - s_headOpenDeadlineMs) >= 0) {
+    s_headOpen = false;
+    s_headOpenDeadlineMs = 0;
+  }
+}
+
+void pairingNodeEnterJoinMode(uint32_t nowMs)
+{
+  if (s_nodePaired) {
+    return;
+  }
+
+  s_nodeInJoinMode = true;
+  s_nodeJoinDeadlineMs = nowMs + PAIRING_NODE_JOIN_MS;
+  s_joinSent = false;
+  s_lastJoinMs = 0;
+  s_offerNodeId = 0;
+  s_offerReceived = false;
+}
+
+void pairingNodeExitJoinMode()
+{
+  s_nodeInJoinMode = false;
+  s_nodeJoinDeadlineMs = 0;
+  s_joinSent = false;
+  s_offerNodeId = 0;
+  s_offerReceived = false;
+}
+
+bool pairingNodeIsInJoinMode()
+{
+  return s_nodeInJoinMode;
+}
+
+bool pairingNodeJoinExpired(uint32_t nowMs)
+{
+  return s_nodeInJoinMode && ((int32_t)(nowMs - s_nodeJoinDeadlineMs) >= 0);
+}
+
+void pairingNodeTick(uint32_t nowMs)
+{
+  (void)nowMs;
+
+  if (s_nodePaired) {
+    pairingNodeExitJoinMode();
+  }
+}
+
+void pairingHeadFactoryReset()
+{
+  s_headPaired = false;
+  s_headPairedNodeId = 0;
+  memset(s_headPairedNodeMac, 0, sizeof(s_headPairedNodeMac));
+  memset(s_headPairedNodeUid, 0, sizeof(s_headPairedNodeUid));
+  s_headPairSuccessEvent = false;
+  s_pendingNodeId = 0;
+  s_pendingSessionId = 0;
+  memset(s_pendingNodeUid, 0, sizeof(s_pendingNodeUid));
+  memset(s_pendingNodeMac, 0, sizeof(s_pendingNodeMac));
+  s_nextNodeId = 1;
+  s_headSessionId = esp_random();
+  pairingHeadSetOpen(false);
+  Serial.println("PAIRING(HEAD): factory reset complete");
+}
+
+void pairingNodeFactoryReset()
+{
+  pairingInitNode(s_nodeRole);
+  Serial.println("PAIRING(NODE): factory reset complete");
+}
 
 static void readFactoryUid(uint8_t out_uid[6])
 {
@@ -103,6 +200,9 @@ void pairingInitHead(uint8_t headId)
   s_headPairedNodeId = 0;
   memset(s_headPairedNodeMac, 0, sizeof(s_headPairedNodeMac));
   memset(s_headPairedNodeUid, 0, sizeof(s_headPairedNodeUid));
+  s_headPairSuccessEvent = false;
+  s_headOpen = false;
+  s_headOpenDeadlineMs = 0;
 
   (void)espnowEnsurePeer(ESPNOW_BROADCAST_MAC, ESPNOW_CHANNEL, false);
 
@@ -123,6 +223,8 @@ void pairingInitNode(uint8_t role)
   s_nodePaired = false;
   s_nodeId = 0;
   memset(s_nodeHeadMac, 0, sizeof(s_nodeHeadMac));
+  s_nodeInJoinMode = false;
+  s_nodeJoinDeadlineMs = 0;
 
   s_seenHead = false;
   s_multiHeadConflict = false;
@@ -143,10 +245,14 @@ void pairingInitNode(uint8_t role)
 
 static void sendHeadBeacon()
 {
+  if (!s_headOpen) {
+    return;
+  }
+
   MsgBeacon beacon{};
   fillBase(beacon.base, MSG_BEACON, s_headSessionId);
   beacon.headId = s_headId;
-  beacon.pairingOpen = 1;
+  beacon.pairingOpen = s_headOpen ? 1 : 0;
 
   (void)espnowSend(ESPNOW_BROADCAST_MAC, reinterpret_cast<const uint8_t*>(&beacon), sizeof(beacon));
 
@@ -185,7 +291,7 @@ void pairingTick()
     }
   }
 
-  if (s_isNode && !s_nodePaired && s_seenHead && !s_multiHeadConflict) {
+  if (s_isNode && !s_nodePaired && s_nodeInJoinMode && s_seenHead && !s_multiHeadConflict) {
     const uint32_t now = millis();
     if (!s_joinSent || (now - s_lastJoinMs >= 1000U)) {
       sendNodeJoinReq();
@@ -196,6 +302,10 @@ void pairingTick()
 static void headHandleJoinReq(const uint8_t* src_mac, const MsgJoinReq* join)
 {
   if (!src_mac || !join) {
+    return;
+  }
+
+  if (!s_headOpen) {
     return;
   }
 
@@ -243,6 +353,7 @@ static void headHandleConfirm(const uint8_t* src_mac, const MsgConfirm* confirm)
   s_headPairedNodeId = confirm->nodeId;
   macCopy(s_headPairedNodeMac, src_mac);
   macCopy(s_headPairedNodeUid, confirm->base.deviceUid);
+  s_headPairSuccessEvent = true;
 
   MsgAck ack{};
   fillBase(ack.base, MSG_ACK, confirm->base.sessionId);
@@ -276,7 +387,7 @@ static void nodeHandleBeacon(const uint8_t* src_mac, const MsgBeacon* beacon)
     macCopy(s_seenHeadMac, src_mac);
     s_nodeSessionId = beacon->base.sessionId;
     logMac("PAIRING(NODE): headMac=", s_seenHeadMac);
-    if (!s_nodePaired && !s_multiHeadConflict) {
+    if (!s_nodePaired && s_nodeInJoinMode && !s_multiHeadConflict) {
       sendNodeJoinReq();
     }
     return;
@@ -302,7 +413,9 @@ static void nodeHandleBeacon(const uint8_t* src_mac, const MsgBeacon* beacon)
       } else {
         Serial.println("PAIRING(NODE): head session changed, rejoin");
       }
-      sendNodeJoinReq();
+      if (s_nodeInJoinMode) {
+        sendNodeJoinReq();
+      }
     }
   }
 }
@@ -378,6 +491,7 @@ static void nodeHandleAck(const uint8_t* src_mac, const MsgAck* ack)
 
   s_nodePaired = true;
   s_nodeId = ack->nodeId;
+  pairingNodeExitJoinMode();
 
   Serial.print("PAIRING(NODE): ACK received nodeId=");
   Serial.println((unsigned long)s_nodeId);
@@ -442,6 +556,13 @@ bool pairingOnRecv(const uint8_t* src_mac, const uint8_t* data, int len)
 bool pairingHeadHasPairedNode()
 {
   return s_headPaired;
+}
+
+bool pairingHeadConsumePairSuccessEvent()
+{
+  const bool pending = s_headPairSuccessEvent;
+  s_headPairSuccessEvent = false;
+  return pending;
 }
 
 uint16_t pairingHeadPairedNodeId()

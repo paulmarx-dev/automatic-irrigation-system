@@ -20,15 +20,7 @@ static const char *DEVICE_ID = "3";
 static const unsigned long MEASUREMENT_INTERVAL_MS = 1000;
 static SensorMeasurement latestMeasurement{};
 static bool haveMeasurement = false;
-
-enum SensorUxState : uint8_t {
-	SENSOR_UX_NORMAL = 0,
-	SENSOR_UX_CAL_PROMPT_WET = 1,
-	SENSOR_UX_CAL_MEASURE_DRY = 2,
-	SENSOR_UX_CAL_MEASURE_WET = 3,
-};
-
-static SensorUxState s_uxState = SENSOR_UX_NORMAL;
+static bool s_autoJoinTriggered = false;
 
 static void onRecv(const uint8_t* src_mac, const uint8_t* data, int len)
 {
@@ -104,40 +96,66 @@ void loop() {
 	const unsigned long now = millis();
 
 	buttonTick(now);
-	static bool idleModeSet = false;
-	if (s_uxState == SENSOR_UX_NORMAL) {
-		if (pairingNodeIsPaired()) {
-			if (!idleModeSet) {
-				ledsSetMode(LED_MODE_IDLE);
-				idleModeSet = true;
-			}
+	pairingNodeTick(now);
+
+	if (!s_autoJoinTriggered && !pairingNodeIsPaired()) {
+		pairingNodeEnterJoinMode(now);
+		Serial.println("PAIRING(NODE): auto-join on boot");
+		s_autoJoinTriggered = true;
+	}
+
+	static bool wasPaired = false;
+	static bool lastJoinModeActive = false;
+	const bool isPaired = pairingNodeIsPaired();
+	bool joinModeActive = pairingNodeIsInJoinMode();
+
+	if (buttonConsumeLongPress()) {
+		Serial.println("PAIRING(NODE): factory reset requested");
+		pairingNodeFactoryReset();
+		ledsSetMode(LED_MODE_FACTORY_RESET_ONCE);
+	}
+
+	if (!wasPaired && isPaired) {
+		Serial.println("PAIRING(NODE): join success");
+		ledsSetMode(LED_MODE_SUCCESS_ONCE);
+	}
+	wasPaired = isPaired;
+
+	if (!isPaired && joinModeActive && pairingNodeJoinExpired(now)) {
+		pairingNodeExitJoinMode();
+		Serial.println("PAIRING(NODE): join window expired");
+		ledsSetMode(LED_MODE_ERROR_ONCE);
+		joinModeActive = false;
+	}
+
+	if (buttonConsumeShortPress()) {
+		if (isPaired) {
+			Serial.println("PAIRING(NODE): short press ignored (already paired)");
+		} else if (pairingNodeIsInJoinMode()) {
+			pairingNodeExitJoinMode();
+			Serial.println("PAIRING(NODE): join window canceled by user");
+			ledsSetMode(LED_MODE_ERROR_ONCE);
+			joinModeActive = false;
 		} else {
-			idleModeSet = false;
+			pairingNodeEnterJoinMode(now);
+			Serial.println("PAIRING(NODE): join window opened");
+			ledsSetMode(LED_MODE_JOINING);
+			joinModeActive = true;
 		}
-	} else {
-		idleModeSet = false;
 	}
 
 	if (buttonConsumeDebugEnabledEvent()) {
 		Serial.println("DEBUG gate: enabled for this boot");
 		ledsSetMode(LED_MODE_DEBUG_CONFIRM);
-
-		// Temporary entry hook for calibration scaffold.
-		s_uxState = SENSOR_UX_CAL_PROMPT_WET;
-		Serial.println("CAL: prompt wet reference (press button to confirm)");
-		ledsSetMode(LED_MODE_CAL_PROMPT_WET);
 	}
 
-	if (s_uxState == SENSOR_UX_CAL_PROMPT_WET && buttonConsumeShortPress()) {
-		Serial.println("CAL: wet reference confirmed");
-		ledsSetMode(LED_MODE_SUCCESS_ONCE);
-		s_uxState = SENSOR_UX_NORMAL;
-		if (pairingNodeIsPaired()) {
-			ledsSetMode(LED_MODE_IDLE);
-		} else {
-			ledsSetMode(LED_MODE_OFF);
-		}
+	const bool joinModeNow = pairingNodeIsInJoinMode();
+	if (joinModeNow && !lastJoinModeActive) {
+		ledsSetMode(LED_MODE_JOINING);
+	} else if (!joinModeNow && lastJoinModeActive) {
+		ledsSetMode(LED_MODE_OFF);
 	}
+	lastJoinModeActive = joinModeNow;
 
 	ledsTick(now);
 
