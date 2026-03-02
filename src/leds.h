@@ -2,6 +2,8 @@
 
 #include <stdint.h>
 
+#include "common_config.h"
+
 enum LedMode : uint8_t {
   LED_MODE_OFF = 0,
   LED_MODE_BOOT = 1,
@@ -14,9 +16,10 @@ struct LedPinConfig {
   bool activeHigh;
 };
 
-static constexpr LedPinConfig LED_SENSOR_CONFIG = {8, false};
-static constexpr LedPinConfig LED_HEAD_CONFIG = {8, true};
-static constexpr LedPinConfig LED_CONTROL_CONFIG = {8, true};
+static constexpr LedPinConfig LED_DEFAULT_CONFIG = {
+  static_cast<uint8_t>(LED_PIN),
+  LED_ACTIVE_HIGH != 0
+};
 
 void ledsInit(uint8_t pin, bool activeHigh);
 void ledsSetMode(LedMode mode);

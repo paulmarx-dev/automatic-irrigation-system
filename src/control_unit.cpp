@@ -18,7 +18,7 @@ void setup() {
   Serial.print(", Device ID: ");
   Serial.println(DEVICE_ID);
 
-  ledsInit(LED_CONTROL_CONFIG.pin, LED_CONTROL_CONFIG.activeHigh);
+  ledsInit(LED_DEFAULT_CONFIG.pin, LED_DEFAULT_CONFIG.activeHigh);
   buttonInit(BUTTON_CONTROL_CONFIG.pin, BUTTON_CONTROL_CONFIG.activeLow, BUTTON_CONTROL_CONFIG.usePullup);
   ledsSetMode(LED_MODE_IDLE);
 }

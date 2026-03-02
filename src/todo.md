@@ -86,6 +86,7 @@ Head networking mode = SoftAP always (local UI), STA hotspot only for upload (ma
 - [ ] UX
   - [ ] Head short press -> pairing open 120s
   - [ ] Head short press again -> pairing closes
+  - [ ] Head long press -> factory reset
   - [ ] Node short press -> join mode 60s
   - [ ] Node long press -> factory reset
   - [ ] LED patterns implemented:

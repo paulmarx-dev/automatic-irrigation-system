@@ -210,6 +210,9 @@ void telemetryTickSensor(const SensorMeasurement* measurement, bool hasMeasureme
 
 #elif defined(DEVICE_ROLE_HEAD)
 
+#include "button.h"
+#include "leds.h"
+
 static const uint8_t MAX_NODE_REGISTRY = 8;
 
 struct NodeTelemetryState {
@@ -363,6 +366,10 @@ void telemetryOnRecv(const uint8_t* src_mac, const uint8_t* data, int len)
     nodeState->hasLastSeq = true;
     nodeState->lastSeq = telemetry->hdr.seq;
     logTelemetry(telemetry, src_mac);
+  }
+
+  if (buttonIsDebugEnabled()) {
+    ledsPulseOnce(120);
   }
 
   sendTelemetryAck(src_mac, telemetry->hdr.nodeId, telemetry->hdr.seq);

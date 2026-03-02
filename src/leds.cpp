@@ -7,10 +7,6 @@ static bool s_activeHigh = true;
 static LedMode s_mode = LED_MODE_OFF;
 static LedMode s_restoreMode = LED_MODE_OFF;
 
-#if defined(DEVICE_ROLE_HEAD)
-static const uint8_t HEAD_LED_BRIGHTNESS = 32;
-#endif
-
 static uint8_t s_seqStep = 0;
 static uint32_t s_seqStepStartedMs = 0;
 static bool s_seqRunning = false;
@@ -29,8 +25,8 @@ static void writeLed(bool on)
 
   const bool effectiveOn = s_activeHigh ? on : !on;
 
-#if defined(DEVICE_ROLE_HEAD)
-  const uint8_t blue = effectiveOn ? HEAD_LED_BRIGHTNESS : 0;
+#if HAS_RGB_LED
+  const uint8_t blue = effectiveOn ? static_cast<uint8_t>(RGB_LED_BRIGHTNESS) : 0;
   rgbLedWrite(s_ledPin, 0, 0, blue);
 #else
   const uint8_t level = effectiveOn ? HIGH : LOW;
@@ -73,6 +69,11 @@ void ledsSetMode(LedMode mode)
     return;
   }
 
+  if (s_seqRunning) {
+    s_restoreMode = mode;
+    return;
+  }
+
   s_mode = mode;
   s_seqRunning = false;
   s_seqStep = 0;
@@ -97,8 +98,8 @@ static bool tickSequence(uint32_t nowMs)
     return false;
   }
 
-  const uint16_t onMs = 90;
-  const uint16_t offMs = 110;
+  const uint16_t onMs = 500;
+  const uint16_t offMs = 150;
 
   switch (s_seqStep) {
     case 0:

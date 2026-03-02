@@ -64,7 +64,7 @@ void setup() {
 
     pairingInitHead(1);
     telemetryInit();
-    ledsInit(LED_HEAD_CONFIG.pin, LED_HEAD_CONFIG.activeHigh);
+    ledsInit(LED_DEFAULT_CONFIG.pin, LED_DEFAULT_CONFIG.activeHigh);
     buttonInit(BUTTON_HEAD_CONFIG.pin, BUTTON_HEAD_CONFIG.activeLow, BUTTON_HEAD_CONFIG.usePullup);
     ledsSetMode(LED_MODE_IDLE);
 

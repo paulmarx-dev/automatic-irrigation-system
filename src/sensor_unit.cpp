@@ -77,7 +77,7 @@ void setup() {
 
 	pairingInitNode(ROLE_SENSOR);
 	telemetryInit();
-	ledsInit(LED_SENSOR_CONFIG.pin, LED_SENSOR_CONFIG.activeHigh);
+	ledsInit(LED_DEFAULT_CONFIG.pin, LED_DEFAULT_CONFIG.activeHigh);
 	buttonInit(BUTTON_SENSOR_CONFIG.pin, BUTTON_SENSOR_CONFIG.activeLow, BUTTON_SENSOR_CONFIG.usePullup);
 
 
@@ -95,17 +95,19 @@ void loop() {
 	const unsigned long now = millis();
 
 	buttonTick(now);
-	if (buttonConsumeDebugEnabledEvent()) {
-		Serial.println("DEBUG gate: enabled for this boot");
-		ledsSetMode(LED_MODE_DEBUG_CONFIRM);
-	}
-
+	static bool idleModeSet = false;
 	if (pairingNodeIsPaired()) {
-		static bool idleModeSet = false;
 		if (!idleModeSet) {
 			ledsSetMode(LED_MODE_IDLE);
 			idleModeSet = true;
 		}
+	} else {
+		idleModeSet = false;
+	}
+
+	if (buttonConsumeDebugEnabledEvent()) {
+		Serial.println("DEBUG gate: enabled for this boot");
+		ledsSetMode(LED_MODE_DEBUG_CONFIRM);
 	}
 
 	ledsTick(now);
