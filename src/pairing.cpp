@@ -123,6 +123,32 @@ void pairingNodeTick(uint32_t nowMs)
   }
 }
 
+void pairingNodeRestorePairedHead(const uint8_t headMac[6])
+{
+  if (!headMac) {
+    return;
+  }
+
+  s_nodePaired = true;
+  s_nodeId = 1;
+  memcpy(s_nodeHeadMac, headMac, sizeof(s_nodeHeadMac));
+  pairingNodeExitJoinMode();
+  s_offerNodeId = 0;
+  s_offerReceived = false;
+  s_joinSent = false;
+}
+
+void pairingNodeSetUnpaired()
+{
+  s_nodePaired = false;
+  s_nodeId = 0;
+  memset(s_nodeHeadMac, 0, sizeof(s_nodeHeadMac));
+  pairingNodeExitJoinMode();
+  s_offerNodeId = 0;
+  s_offerReceived = false;
+  s_joinSent = false;
+}
+
 void pairingHeadFactoryReset()
 {
   s_headPaired = false;
@@ -142,7 +168,12 @@ void pairingHeadFactoryReset()
 
 void pairingNodeFactoryReset()
 {
-  pairingInitNode(s_nodeRole);
+  pairingNodeSetUnpaired();
+  s_nodeSessionId = 0;
+  s_seenHead = false;
+  s_multiHeadConflict = false;
+  memset(s_seenHeadMac, 0, sizeof(s_seenHeadMac));
+  s_beaconRxCount = 0;
   Serial.println("PAIRING(NODE): factory reset complete");
 }
 
@@ -400,6 +431,11 @@ static void nodeHandleBeacon(const uint8_t* src_mac, const MsgBeacon* beacon)
   }
 
   if (s_nodeSessionId != beacon->base.sessionId) {
+    if (s_nodePaired && s_nodeSessionId == 0) {
+      s_nodeSessionId = beacon->base.sessionId;
+      return;
+    }
+
     const bool wasPaired = s_nodePaired;
     s_nodeSessionId = beacon->base.sessionId;
     s_nodePaired = false;

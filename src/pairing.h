@@ -73,6 +73,8 @@ bool pairingNodeJoinExpired(uint32_t nowMs);
 void pairingNodeTick(uint32_t nowMs);
 void pairingHeadFactoryReset();
 void pairingNodeFactoryReset();
+void pairingNodeRestorePairedHead(const uint8_t headMac[6]);
+void pairingNodeSetUnpaired();
 
 bool pairingHeadHasPairedNode();
 bool pairingHeadConsumePairSuccessEvent();

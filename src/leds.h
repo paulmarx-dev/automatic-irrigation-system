@@ -36,5 +36,7 @@ static constexpr LedPinConfig LED_DEFAULT_CONFIG = {
 
 void ledsInit(uint8_t pin, bool activeHigh);
 void ledsSetMode(LedMode mode);
+void ledsSetBaseMode(LedMode mode);
+void ledsTriggerOnce(LedMode mode);
 void ledsPulseOnce(uint16_t onMs);
 void ledsTick(uint32_t nowMs);

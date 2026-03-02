@@ -171,6 +171,16 @@ void ledsSetMode(LedMode mode)
   startMode(mode, nowMs);
 }
 
+void ledsSetBaseMode(LedMode mode)
+{
+  ledsSetMode(mode);
+}
+
+void ledsTriggerOnce(LedMode mode)
+{
+  ledsSetMode(mode);
+}
+
 void ledsPulseOnce(uint16_t onMs)
 {
   const uint32_t nowMs = millis();

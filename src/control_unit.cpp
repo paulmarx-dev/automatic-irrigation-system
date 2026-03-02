@@ -20,7 +20,7 @@ void setup() {
 
   ledsInit(LED_DEFAULT_CONFIG.pin, LED_DEFAULT_CONFIG.activeHigh);
   buttonInit(BUTTON_CONTROL_CONFIG.pin, BUTTON_CONTROL_CONFIG.activeLow, BUTTON_CONTROL_CONFIG.usePullup);
-  ledsSetMode(LED_MODE_IDLE);
+  ledsSetBaseMode(LED_MODE_IDLE);
 }
 
 void loop() {
@@ -28,7 +28,7 @@ void loop() {
   buttonTick(now);
   if (buttonConsumeDebugEnabledEvent()) {
     Serial.println("DEBUG gate: enabled for this boot");
-    ledsSetMode(LED_MODE_DEBUG_CONFIRM);
+    ledsTriggerOnce(LED_MODE_DEBUG_CONFIRM);
   }
   ledsTick(now);
   delay(10);

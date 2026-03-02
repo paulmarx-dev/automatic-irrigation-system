@@ -4,6 +4,7 @@
 #include "esp_now_helpers.h"
 #include <WiFi.h>
 #include "pairing.h"
+#include "pairing_nvs.h"
 #include "telemetry.h"
 #include "leds.h"
 #include "button.h"
@@ -77,6 +78,13 @@ void setup() {
     }
 
 	pairingInitNode(ROLE_SENSOR);
+	uint8_t restoredHeadMac[6] = {0};
+	if (pairingNvsLoadNode(restoredHeadMac)) {
+		pairingNodeRestorePairedHead(restoredHeadMac);
+		(void)espnowEnsurePeer(restoredHeadMac, ESPNOW_CHANNEL, false);
+		s_autoJoinTriggered = true;
+		Serial.println("PAIRING(NODE): restored paired head from NVS");
+	}
 	telemetryInit();
 	ledsInit(LED_DEFAULT_CONFIG.pin, LED_DEFAULT_CONFIG.activeHigh);
 	buttonInit(BUTTON_SENSOR_CONFIG.pin, BUTTON_SENSOR_CONFIG.activeLow, BUTTON_SENSOR_CONFIG.usePullup);
@@ -105,26 +113,41 @@ void loop() {
 	}
 
 	static bool wasPaired = false;
+	static bool pairStateInitialized = false;
 	static bool lastJoinModeActive = false;
 	const bool isPaired = pairingNodeIsPaired();
 	bool joinModeActive = pairingNodeIsInJoinMode();
 
+	if (!pairStateInitialized) {
+		wasPaired = isPaired;
+		pairStateInitialized = true;
+	}
+
 	if (buttonConsumeLongPress()) {
 		Serial.println("PAIRING(NODE): factory reset requested");
-		pairingNodeFactoryReset();
-		ledsSetMode(LED_MODE_FACTORY_RESET_ONCE);
+		pairingNodeSetUnpaired();
+		if (!pairingNvsClearNode()) {
+			Serial.println("PAIRING(NODE): NVS clear failed");
+		}
+		ledsTriggerOnce(LED_MODE_FACTORY_RESET_ONCE);
 	}
 
 	if (!wasPaired && isPaired) {
+		uint8_t headMac[6] = {0};
+		if (pairingNodeHeadMac(headMac)) {
+			if (!pairingNvsSaveNode(headMac)) {
+				Serial.println("PAIRING(NODE): NVS save failed");
+			}
+		}
 		Serial.println("PAIRING(NODE): join success");
-		ledsSetMode(LED_MODE_SUCCESS_ONCE);
+		ledsTriggerOnce(LED_MODE_SUCCESS_ONCE);
 	}
 	wasPaired = isPaired;
 
 	if (!isPaired && joinModeActive && pairingNodeJoinExpired(now)) {
 		pairingNodeExitJoinMode();
 		Serial.println("PAIRING(NODE): join window expired");
-		ledsSetMode(LED_MODE_ERROR_ONCE);
+		ledsTriggerOnce(LED_MODE_ERROR_ONCE);
 		joinModeActive = false;
 	}
 
@@ -134,26 +157,26 @@ void loop() {
 		} else if (pairingNodeIsInJoinMode()) {
 			pairingNodeExitJoinMode();
 			Serial.println("PAIRING(NODE): join window canceled by user");
-			ledsSetMode(LED_MODE_ERROR_ONCE);
+			ledsTriggerOnce(LED_MODE_ERROR_ONCE);
 			joinModeActive = false;
 		} else {
 			pairingNodeEnterJoinMode(now);
 			Serial.println("PAIRING(NODE): join window opened");
-			ledsSetMode(LED_MODE_JOINING);
+			ledsSetBaseMode(LED_MODE_JOINING);
 			joinModeActive = true;
 		}
 	}
 
 	if (buttonConsumeDebugEnabledEvent()) {
 		Serial.println("DEBUG gate: enabled for this boot");
-		ledsSetMode(LED_MODE_DEBUG_CONFIRM);
+		ledsTriggerOnce(LED_MODE_DEBUG_CONFIRM);
 	}
 
 	const bool joinModeNow = pairingNodeIsInJoinMode();
 	if (joinModeNow && !lastJoinModeActive) {
-		ledsSetMode(LED_MODE_JOINING);
+		ledsSetBaseMode(LED_MODE_JOINING);
 	} else if (!joinModeNow && lastJoinModeActive) {
-		ledsSetMode(LED_MODE_OFF);
+		ledsSetBaseMode(LED_MODE_OFF);
 	}
 	lastJoinModeActive = joinModeNow;
 
