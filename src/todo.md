@@ -3,6 +3,7 @@
 - [x] Project skeleton: common config structs, logging, build flags (roles: HEAD/SENSOR/CONTROL)
 - [x] ESP-NOW basics: init, channel, send, receive callbacks, peer management
 - [ ] Pairing protocol (service messages): beacon/join/offer/confirm/ack
+  - [x] Pairing 2.0 MVP: always-open handshake (no buttons, no NVS)
   - [ ] Button + LED UX
   - [ ] NVS persistence for paired state
   - [ ] Safe rules: no accidental rebind; factory reset flow
@@ -69,6 +70,14 @@ Head networking mode = SoftAP always (local UI), STA hotspot only for upload (ma
 ### 2. Pairing Protocol
 
 **Done when:**
+
+- [x] Pairing 2.0 MVP (always-open, no buttons, no NVS):
+  - [x] Head sends periodic BEACON (broadcast)
+  - [x] Node sends JOIN_REQ (broadcast)
+  - [x] Head replies OFFER (unicast)
+  - [x] Node sends CONFIRM (unicast)
+  - [x] Head sends ACK (unicast)
+  - [x] Both sides store paired state in RAM until reboot
 
 - [ ] UX
   - [ ] Head short press -> pairing open 120s
