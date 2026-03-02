@@ -7,6 +7,10 @@ static constexpr uint8_t PROTO_VER = 1;
 static constexpr uint8_t MSG_TELEMETRY = 10;
 static constexpr uint8_t MSG_TELEMETRY_ACK = 11;
 
+static constexpr uint8_t FLAG_DIAG_RAW_PRESENT = 0x01;
+static constexpr uint8_t FLAG_CAL_VALID = 0x02;
+static constexpr uint8_t FLAG_BATT_EST_VALID = 0x04;
+
 #pragma pack(push, 1)
 
 struct MsgHdr {

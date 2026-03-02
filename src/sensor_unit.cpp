@@ -5,6 +5,8 @@
 #include <WiFi.h>
 #include "pairing.h"
 #include "telemetry.h"
+#include "leds.h"
+#include "button.h"
 
 #if defined(DEVICE_ROLE_SENSOR)
 
@@ -16,9 +18,6 @@ static const char *DEVICE_ROLE = "SENSOR";
 static const char *DEVICE_ID = "3";
 
 static const unsigned long MEASUREMENT_INTERVAL_MS = 1000;
-
-static const uint8_t SENSOR_LED_PIN = 8;
-static const bool SENSOR_LED_ACTIVE_LOW = true;
 static SensorMeasurement latestMeasurement{};
 static bool haveMeasurement = false;
 
@@ -78,6 +77,8 @@ void setup() {
 
 	pairingInitNode(ROLE_SENSOR);
 	telemetryInit();
+	ledsInit(LED_SENSOR_CONFIG.pin, LED_SENSOR_CONFIG.activeHigh);
+	buttonInit(BUTTON_SENSOR_CONFIG.pin, BUTTON_SENSOR_CONFIG.activeLow, BUTTON_SENSOR_CONFIG.usePullup);
 
 
     Serial.println("ESP-NOW ready.");
@@ -92,6 +93,22 @@ void loop() {
 
 	static unsigned long lastMeasurement = 0;
 	const unsigned long now = millis();
+
+	buttonTick(now);
+	if (buttonConsumeDebugEnabledEvent()) {
+		Serial.println("DEBUG gate: enabled for this boot");
+		ledsSetMode(LED_MODE_DEBUG_CONFIRM);
+	}
+
+	if (pairingNodeIsPaired()) {
+		static bool idleModeSet = false;
+		if (!idleModeSet) {
+			ledsSetMode(LED_MODE_IDLE);
+			idleModeSet = true;
+		}
+	}
+
+	ledsTick(now);
 
 	if (now - lastMeasurement >= MEASUREMENT_INTERVAL_MS) {
 		lastMeasurement = now;

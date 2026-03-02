@@ -10,7 +10,7 @@
   - [ ] NVS persistence for paired state
   - [ ] Safe rules: no accidental rebind; factory reset flow
 - [ ] Base message definitions (telemetry, battery, cmd, cmd_ack), protocol versioning
-- [ ] Sensor -> head telemetry (happy path) + ack policy + retries
+- [x] Sensor -> head telemetry (happy path) + ack policy + retries
 - [ ] Power management for sensor: deep sleep cycle, wake -> measure -> transmit -> sleep
 - [ ] Battery-driven behavior: low battery thresholds, "critical" mode, messaging to head
 - [ ] Control unit: duty-cycle listen vs active mode, heartbeat, command execution state machine
@@ -100,8 +100,8 @@ Head networking mode = SoftAP always (local UI), STA hotspot only for upload (ma
     - [ ] paired flag
     - [ ] headMAC
     - [ ] nodeId
-  - [ ] Node reconnects after reboot
-  - [ ] Head accepts node after reboot
+  - [x] Node reconnects after reboot
+  - [x] Head accepts node after reboot
 - [ ] Safety
   - [ ] Paired node does NOT rebind by short press
   - [ ] Rebind only after factory reset
@@ -122,9 +122,9 @@ Head networking mode = SoftAP always (local UI), STA hotspot only for upload (ma
   - [ ] invalid size
   - [ ] unknown type
 - [ ] Telemetry includes:
-  - [ ] moisture raw
-  - [ ] battery voltage
-  - [ ] status flags
+  - [x] moisture raw
+  - [x] battery voltage
+  - [x] status flags
 - [ ] Commands include:
   - [ ] cmdId
 - [ ] Command ACK includes:
@@ -135,16 +135,16 @@ Head networking mode = SoftAP always (local UI), STA hotspot only for upload (ma
 
 **Done when:**
 
-- [ ] Sensor sends telemetry successfully
-- [ ] ACK received from head
+- [x] Sensor sends telemetry successfully
+- [x] ACK received from head
 - [ ] Transmission cycle <500 ms
 - [ ] Retries:
-  - [ ] Retries implemented
+  - [x] Retries implemented
   - [ ] Sensor sleeps after failure
-- [ ] Duplicates:
-  - [ ] Head ignores duplicate packets
-- [ ] Failure test:
-  - [ ] Sensor survives head being offline
+- [x] Duplicates:
+  - [x] Head ignores duplicate packets
+- [x] Failure test:
+  - [x] Sensor survives head being offline
 
 ### 5. Sensor Power Management
 
@@ -207,7 +207,7 @@ Head networking mode = SoftAP always (local UI), STA hotspot only for upload (ma
 **Done when:**
 
 - [ ] Recovery:
-  - [ ] Sensors reconnect after head reboot
+  - [x] Sensors reconnect after head reboot
   - [ ] Control reconnects after head reboot
 - [ ] Registry:
   - [ ] lastSeen stored

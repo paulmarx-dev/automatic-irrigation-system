@@ -10,15 +10,13 @@
 
 #if defined(DEVICE_ROLE_SENSOR)
 #include "sensors.h"
+#include "button.h"
+#include "leds.h"
 
 static const unsigned long TELEMETRY_INTERVAL_MS = 5000;
 static const unsigned long ACK_TIMEOUT_MS = 200;
 static const uint8_t MAX_RETRIES = 3;
 static const uint8_t MAX_NO_ACK_CYCLES_BEFORE_REJOIN = 3;
-
-static const int32_t MOISTURE_DRY_RAW_MV = 2770;
-static const int32_t MOISTURE_WET_RAW_MV = 1120;
-static const uint32_t BATTERY_EST_RATIO_PERMILLE = 2066;
 
 static uint16_t s_telemetrySeq = 0;
 static uint16_t s_lastSentSeq = 0;
@@ -36,25 +34,6 @@ static bool sendPendingTelemetry()
 {
   (void)espnowEnsurePeer(s_pendingHeadMac, ESPNOW_CHANNEL, false);
   return espnowSend(s_pendingHeadMac, reinterpret_cast<const uint8_t*>(&s_pendingTelemetry), sizeof(s_pendingTelemetry));
-}
-
-static uint16_t computeMoisturePermille(uint16_t moistureRawMv)
-{
-  const int32_t denominator = MOISTURE_DRY_RAW_MV - MOISTURE_WET_RAW_MV;
-  if (denominator == 0) {
-    return 0;
-  }
-
-  const int32_t numerator = (int32_t)(MOISTURE_DRY_RAW_MV - (int32_t)moistureRawMv) * 1000;
-  int32_t permille = numerator / denominator;
-  permille = constrain(permille, 0, 1000);
-  return (uint16_t)permille;
-}
-
-static uint16_t computeBatteryEstimatedMv(uint16_t batteryRawMv)
-{
-  const uint32_t scaled = (uint32_t)batteryRawMv * BATTERY_EST_RATIO_PERMILLE;
-  return (uint16_t)((scaled + 500U) / 1000U);
 }
 
 static uint32_t retryBackoffMs(uint8_t retryIndex)
@@ -113,6 +92,10 @@ void telemetryOnRecv(const uint8_t* src_mac, const uint8_t* data, int len)
   s_waitingAck = false;
   s_noAckCycles = 0;
 
+  if (buttonIsDebugEnabled()) {
+    ledsPulseOnce(30);
+  }
+
   Serial.print("TELEMETRY_ACK ok=1 seq=");
   Serial.print((unsigned long)ack->ackSeq);
   Serial.print(" nodeId=");
@@ -150,6 +133,9 @@ void telemetryTickSensor(const SensorMeasurement* measurement, bool hasMeasureme
         Serial.print((unsigned long)s_lastSentSeq);
         Serial.print(" retries=");
         Serial.println((unsigned long)s_retryCount);
+        if (buttonIsDebugEnabled()) {
+          ledsPulseOnce(120);
+        }
         s_waitingAck = false;
         if (s_noAckCycles < 255) {
           s_noAckCycles++;
@@ -185,16 +171,19 @@ void telemetryTickSensor(const SensorMeasurement* measurement, bool hasMeasureme
   s_pendingTelemetry.hdr.seq = ++s_telemetrySeq;
   s_pendingTelemetry.hdr.nodeId = pairingNodeId();
 
-  s_pendingTelemetry.moisturePermille = computeMoisturePermille(measurement->moistureRaw);
-  s_pendingTelemetry.moistureRawMv = measurement->moistureRaw;
-  s_pendingTelemetry.batteryRawMv = measurement->batteryRaw;
-  s_pendingTelemetry.batteryEstMv = computeBatteryEstimatedMv(measurement->batteryRaw);
-  s_pendingTelemetry.flags = 0;
+  s_pendingTelemetry.moisturePermille = measurement->moisturePermille;
+  s_pendingTelemetry.moistureRawMv = measurement->moistureRawMv;
+  s_pendingTelemetry.batteryRawMv = measurement->batteryRawMv;
+  s_pendingTelemetry.batteryEstMv = measurement->batteryEstMv;
+  s_pendingTelemetry.flags = FLAG_DIAG_RAW_PRESENT | FLAG_BATT_EST_VALID;
   s_pendingTelemetry.reserved = 0;
 
   memcpy(s_pendingHeadMac, headMac, 6);
 
   const bool sent = sendPendingTelemetry();
+  if (buttonIsDebugEnabled()) {
+    ledsPulseOnce(20);
+  }
   s_lastSentSeq = s_pendingTelemetry.hdr.seq;
   s_waitingAck = true;
   s_retryCount = 0;
@@ -291,8 +280,21 @@ static void logTelemetry(const MsgTelemetry* telemetry, const uint8_t src_mac[6]
   Serial.print((unsigned long)telemetry->batteryRawMv);
   Serial.print(" batteryEstMv=");
   Serial.print((unsigned long)telemetry->batteryEstMv);
-  Serial.print(" flags=");
-  Serial.println((unsigned long)telemetry->flags);
+  const bool rawPresent = (telemetry->flags & FLAG_DIAG_RAW_PRESENT) != 0;
+  const bool calValid = (telemetry->flags & FLAG_CAL_VALID) != 0;
+  const bool battEstValid = (telemetry->flags & FLAG_BATT_EST_VALID) != 0;
+
+  Serial.print(" flags=0x");
+  if (telemetry->flags < 0x10) {
+    Serial.print('0');
+  }
+  Serial.print((unsigned long)telemetry->flags, HEX);
+  Serial.print(" rawPresent=");
+  Serial.print(rawPresent ? 1 : 0);
+  Serial.print(" battEstValid=");
+  Serial.print(battEstValid ? 1 : 0);
+  Serial.print(" calValid=");
+  Serial.println(calValid ? 1 : 0);
 }
 
 static void sendTelemetryAck(const uint8_t src_mac[6], uint16_t nodeId, uint16_t telemetrySeq)

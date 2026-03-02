@@ -4,6 +4,8 @@
 #include <WiFi.h>
 #include "pairing.h"
 #include "telemetry.h"
+#include "leds.h"
+#include "button.h"
 
 
 #if defined(DEVICE_ROLE_HEAD)
@@ -62,6 +64,9 @@ void setup() {
 
     pairingInitHead(1);
     telemetryInit();
+    ledsInit(LED_HEAD_CONFIG.pin, LED_HEAD_CONFIG.activeHigh);
+    buttonInit(BUTTON_HEAD_CONFIG.pin, BUTTON_HEAD_CONFIG.activeLow, BUTTON_HEAD_CONFIG.usePullup);
+    ledsSetMode(LED_MODE_IDLE);
 
 
   Serial.println("ESP-NOW ready.");
@@ -70,6 +75,13 @@ void setup() {
 }
 
 void loop() {
+    const uint32_t now = millis();
+    buttonTick(now);
+    if (buttonConsumeDebugEnabledEvent()) {
+      Serial.println("DEBUG gate: enabled for this boot");
+      ledsSetMode(LED_MODE_DEBUG_CONFIRM);
+    }
+    ledsTick(now);
     pairingTick();
     delay(10);
 }
