@@ -4,5 +4,11 @@
   "platformio-ide.useBuiltinPIOCore": true,
   "platformio-ide.useBuiltinPython": false,
   "platformio-ide.autoPreloadEnvTasks": false,
-  "platformio-ide.customPATH": "/Users/marx/.local/bin:/opt/anaconda3/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+  "platformio-ide.customPATH": "/Users/marx/.local/bin:/opt/anaconda3/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+  "chat.tools.terminal.autoApprove": {
+    "/^source ~/\\.zprofile && platformio run -e sensor_c3_mini$/": {
+      "approve": true,
+      "matchCommandLine": true
+    }
+  }
 }

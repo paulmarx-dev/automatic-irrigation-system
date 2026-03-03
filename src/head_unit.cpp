@@ -2,24 +2,58 @@
 #include "esp_now_helpers.h"
 #include "common_config.h"
 #include <WiFi.h>
-
+#include "pairing.h"
+#include "telemetry.h"
+#include "leds.h"
+#include "button.h"
+#include "app_log.h"
 
 
 #if defined(DEVICE_ROLE_HEAD)
 
+static const uint32_t MULTIPRESS_WINDOW_MS = 1400;
 
-static constexpr uint8_t MSG_PING = 1;
-static constexpr uint8_t MSG_PONG = 2;
+struct HeadPressEvents {
+  bool single;
+  bool debug;
+};
 
-static volatile uint16_t g_lastPongSeq = 0;
-static volatile bool g_pongReceived = false;
+static uint8_t s_headPressCount = 0;
+static uint32_t s_headPressWindowDeadlineMs = 0;
 
-static uint16_t g_seq = 0;
-static uint32_t g_sent = 0;
-static uint32_t g_ok = 0;
-static uint32_t g_missed = 0;
+static void resetHeadMultipress()
+{
+  s_headPressCount = 0;
+  s_headPressWindowDeadlineMs = 0;
+}
 
-static uint32_t g_pingSentAtMs = 0;
+static HeadPressEvents processHeadMultipress(bool shortPress, uint32_t now)
+{
+  HeadPressEvents events{false, false};
+
+  if (shortPress) {
+    if (s_headPressCount < 255) {
+      s_headPressCount++;
+    }
+    s_headPressWindowDeadlineMs = now + MULTIPRESS_WINDOW_MS;
+  }
+
+  if (s_headPressCount == 0) {
+    return events;
+  }
+  if ((int32_t)(now - s_headPressWindowDeadlineMs) < 0) {
+    return events;
+  }
+
+  if (s_headPressCount >= 5) {
+    events.debug = true;
+  } else if (s_headPressCount == 1) {
+    events.single = true;
+  }
+
+  s_headPressCount = 0;
+  return events;
+}
 
 
 /*
@@ -27,19 +61,10 @@ static uint32_t g_pingSentAtMs = 0;
 */
 static void onRecv(const uint8_t* src_mac, const uint8_t* data, int len)
 {
-    (void)src_mac;
-
-    if (!data || len < (int)sizeof(PongMsg)) {
-        return;
-    }
-
-    const PongMsg* msg = reinterpret_cast<const PongMsg*>(data);
-    if (msg->ver != PROTOCOL_VERSION || msg->type != MSG_PONG) {
-        return;
-    }
-
-    g_lastPongSeq = msg->seq;
-    g_pongReceived = true;
+  if (pairingOnRecv(src_mac, data, len)) {
+    return;
+  }
+  telemetryOnRecv(src_mac, data, len);
 }
 
 /*
@@ -65,99 +90,104 @@ static void printMac(const char* label, const uint8_t mac[6])
 void setup() {
   Serial.begin(115200);
 
+#if defined(HEAD_WAIT_FOR_SERIAL_DEV)
   unsigned long start = millis();
   while (!Serial && (millis() - start < 8000)) {
     delay(10);
   }
-  
-  Serial.println("BOOT");
+#endif
 
   Serial.println();
-  Serial.println("HEAD: Milestone 1 PING/PONG test");
+    Serial.println("HEAD: Pairing 2.0 always-open");
 
-  printMac("HEAD MAC:   ", MAC_HEAD);
-  printMac("SENSOR MAC: ", MAC_SENSOR1);
+    printMac("HEAD custom MAC: ", MAC_HEAD);
 
   if (!espnowInit(ESPNOW_CHANNEL, MAC_HEAD, onRecv, onSend)) {
       Serial.println("espnowInit() failed");
       while (true) { delay(1000); }
   }
 
-  if (!espnowAddPeer(MAC_SENSOR1, ESPNOW_CHANNEL, false)) {
-      Serial.println("espnowAddPeer(sensor) failed");
-      while (true) { delay(1000); }
-  }
+    pairingInitHead(1);
+    pairingHeadSetOpen(false);
+    logStartupCommon("HEAD", true, pairingHeadHasPairedNode());
+    telemetryInit();
+    ledsInit(LED_DEFAULT_CONFIG.pin, LED_DEFAULT_CONFIG.activeHigh);
+    buttonInit(BUTTON_HEAD_CONFIG.pin, BUTTON_HEAD_CONFIG.activeLow, BUTTON_HEAD_CONFIG.usePullup);
+    ledsSetBaseMode(LED_MODE_IDLE);
+
 
   Serial.println("ESP-NOW ready.");
   Serial.println("USED MAC: " + WiFi.macAddress());
 
 }
 
-
-
-static bool sendPing(uint16_t seq)
-{
-    PingMsg msg{};
-    msg.ver = PROTOCOL_VERSION;
-    msg.type = MSG_PING;
-    msg.seq = seq;
-
-    const bool ok = espnowSend(MAC_SENSOR1, reinterpret_cast<const uint8_t*>(&msg), sizeof(msg));
-    return ok;
-}
-
-
-
 void loop() {
-	/*
-      Send a PING, wait for matching PONG, repeat until 100 successes.
-      Timeout: 200 ms per attempt.
-    */
-    if (g_ok >= 100) {
-        Serial.println("DONE: 100/100 round-trips OK.");
-        while (true) { delay(1000); }
+    const uint32_t now = millis();
+    buttonTick(now);
+  const bool rawShortPress = buttonConsumeShortPress();
+    bool shortPressConsumedForClose = false;
+    if (rawShortPress && pairingHeadIsOpen()) {
+      pairingHeadSetOpen(false);
+      resetHeadMultipress();
+      shortPressConsumedForClose = true;
+      Serial.println("PAIRING(HEAD): pairing window closed by user");
+      ledsTriggerOnce(LED_MODE_ERROR_ONCE);
+    }
+    const bool shortPressForArb = rawShortPress && !shortPressConsumedForClose;
+    const HeadPressEvents pressEvents = processHeadMultipress(shortPressForArb, now);
+
+    static bool lastOpenState = false;
+    pairingHeadTick(now);
+
+    if (buttonConsumeLongPress()) {
+      Serial.println("PAIRING(HEAD): factory reset requested");
+      pairingHeadFactoryReset();
+      ledsTriggerOnce(LED_MODE_FACTORY_RESET_ONCE);
     }
 
-    g_seq++;
-    g_pongReceived = false;
-    g_lastPongSeq = 0;
-
-    const bool sendOk = sendPing(g_seq);
-    g_sent++;
-
-    if (!sendOk) {
-        g_missed++;
-        Serial.print("PING send failed, seq=");
-        Serial.println(g_seq);
-        delay(200);
-        return;
+    if (pressEvents.single) {
+      if (pairingHeadIsOpen()) {
+        pairingHeadSetOpen(false);
+        resetHeadMultipress();
+        Serial.println("PAIRING(HEAD): pairing window closed by user");
+        ledsTriggerOnce(LED_MODE_ERROR_ONCE);
+      } else {
+        pairingHeadSetOpen(true);
+        Serial.println("PAIRING(HEAD): pairing window opened");
+        ledsSetBaseMode(LED_MODE_PAIRING_OPEN);
+      }
     }
 
-    g_pingSentAtMs = millis();
-
-    while (millis() - g_pingSentAtMs < 200) {
-        if (g_pongReceived && g_lastPongSeq == g_seq) {
-            g_ok++;
-            const uint32_t rtt = millis() - g_pingSentAtMs;
-
-            Serial.print("OK ");
-            Serial.print(g_ok);
-            Serial.print("/100, seq=");
-            Serial.print(g_seq);
-            Serial.print(", rtt_ms=");
-            Serial.println(rtt);
-
-            delay(50);
-            return;
-        }
-        delay(1);
+    if (pressEvents.debug) {
+      buttonEnableDebug();
+    }
+    if (pressEvents.debug || buttonConsumeDebugEnabledEvent()) {
+      Serial.println("DEBUG gate: enabled for this boot");
+      ledsTriggerOnce(LED_MODE_DEBUG_CONFIRM);
     }
 
-    g_missed++;
-    Serial.print("MISS, seq=");
-    Serial.println(g_seq);
+    if (pairingHeadConsumePairSuccessEvent()) {
+      const bool openNow = pairingHeadIsOpen();
+      if (openNow) {
+        ledsSetBaseMode(LED_MODE_PAIRING_OPEN);
+      } else {
+        ledsSetBaseMode(LED_MODE_OFF);
+      }
+      ledsTriggerOnce(LED_MODE_SUCCESS_DOUBLE);
+      Serial.println("PAIRING(HEAD): pair success indication");
+    }
 
-    delay(100);
+    const bool isOpen = pairingHeadIsOpen();
+    if (isOpen && !lastOpenState) {
+      ledsSetBaseMode(LED_MODE_PAIRING_OPEN);
+    } else if (!isOpen && lastOpenState) {
+      ledsSetBaseMode(LED_MODE_OFF);
+    }
+    lastOpenState = isOpen;
+
+    ledsTick(now);
+    pairingTick();
+    delay(10);
 }
 
 #endif

@@ -165,41 +165,6 @@ bool espnowAddPeer(const uint8_t peer_mac[6], uint8_t channel, bool encrypt)
     return (err == ESP_OK);
 }
 
-bool espnowIsPeer(const uint8_t peer_mac[6])
-{
-    if (!peer_mac) {
-        return false;
-    }
-
-    return esp_now_is_peer_exist(peer_mac);
-}
-
-bool espnowEnsurePeer(const uint8_t peer_mac[6], uint8_t channel, bool encrypt)
-{
-    if (!peer_mac) {
-        return false;
-    }
-
-    if (espnowIsPeer(peer_mac)) {
-        return true;
-    }
-
-    return espnowAddPeer(peer_mac, channel, encrypt);
-}
-
-bool espnowRemovePeer(const uint8_t peer_mac[6])
-{
-    if (!peer_mac) {
-        return false;
-    }
-
-    if (!espnowIsPeer(peer_mac)) {
-        return true;
-    }
-
-    return (esp_now_del_peer(peer_mac) == ESP_OK);
-}
-
 bool espnowSend(const uint8_t dst_mac[6], const uint8_t* data, size_t len)
 {
     if (!dst_mac || !data || len == 0) {

@@ -2,30 +2,6 @@
 
 #include <Arduino.h>
 
-#ifndef LED_PIN
-  #define LED_PIN 8
-#endif
-
-#ifndef LED_ACTIVE_HIGH
-  #if defined(DEVICE_ROLE_SENSOR)
-    #define LED_ACTIVE_HIGH 0
-  #else
-    #define LED_ACTIVE_HIGH 1
-  #endif
-#endif
-
-#ifndef HAS_RGB_LED
-  #if defined(DEVICE_ROLE_HEAD)
-    #define HAS_RGB_LED 1
-  #else
-    #define HAS_RGB_LED 0
-  #endif
-#endif
-
-#ifndef RGB_LED_BRIGHTNESS
-  #define RGB_LED_BRIGHTNESS 32
-#endif
-
 static const uint8_t SYS_ID = 0x10;
 
 /*
@@ -40,8 +16,6 @@ static const uint8_t MAC_CONTROL1[6]= {0x02, 0x10, 0x02, 0x01, 0x00, 0x01};
   Fixed ESPNOW channel for the whole system.
 */
 static constexpr uint8_t ESPNOW_CHANNEL = 6;
-static constexpr uint32_t PAIRING_HEAD_OPEN_MS = 120000;
-static constexpr uint32_t PAIRING_NODE_JOIN_MS = 60000;
 
 /*
   Protocol version (will be used later in all messages).
