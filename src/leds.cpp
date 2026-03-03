@@ -35,7 +35,7 @@ static const LedPatternStep PATTERN_JOINING[] = {
 };
 
 static const LedPatternStep PATTERN_SUCCESS[] = {
-  {true, 1500}, {false, 300}
+  {true, 3000}, {false, 600}
 };
 
 static const LedPatternStep PATTERN_SUCCESS_DOUBLE[] = {
@@ -61,7 +61,7 @@ static const LedPatternStep PATTERN_CAL_MEASURE[] = {
 };
 
 static const LedPatternStep PATTERN_CAL_PROMPT_WET[] = {
-  {true, 200}, {false, 200}, {true, 200}, {false, 400}
+  {true, 400}, {false, 400}, {true, 400}, {false, 800}
 };
 
 static void writeLed(bool on)
