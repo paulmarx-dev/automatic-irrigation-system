@@ -194,11 +194,16 @@ static PressArbEvents processMultipressArbitration(bool shortPress, uint32_t now
 	}
 
 	if (s_pressCount >= 5) {
+		Serial.printf("BTN_ARB: window closed, count=%u -> debug\n", s_pressCount);
 		events.debug = true;
 	} else if (s_pressCount == 3) {
+		Serial.println("BTN_ARB: window closed, count=3 -> calibration");
 		events.triple = true;
 	} else if (s_pressCount == 1) {
+		Serial.println("BTN_ARB: window closed, count=1 -> single");
 		events.single = true;
+	} else {
+		Serial.printf("BTN_ARB: window closed, count=%u -> ignored\n", s_pressCount);
 	}
 
 	s_pressCount = 0;
@@ -396,6 +401,7 @@ void loop() {
 	}
 
 	if (!s_calibrationActive && pressEvents.triple) {
+		Serial.println("CAL: triple detected, entering calibration");
 		calibrationEnter(now);
 		ledsTick(now);
 		return;

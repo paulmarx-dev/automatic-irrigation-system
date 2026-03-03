@@ -21,6 +21,12 @@ struct HeadPressEvents {
 static uint8_t s_headPressCount = 0;
 static uint32_t s_headPressWindowDeadlineMs = 0;
 
+static void resetHeadMultipress()
+{
+  s_headPressCount = 0;
+  s_headPressWindowDeadlineMs = 0;
+}
+
 static HeadPressEvents processHeadMultipress(bool shortPress, uint32_t now)
 {
   HeadPressEvents events{false, false};
@@ -119,7 +125,16 @@ void loop() {
     const uint32_t now = millis();
     buttonTick(now);
   const bool rawShortPress = buttonConsumeShortPress();
-  const HeadPressEvents pressEvents = processHeadMultipress(rawShortPress, now);
+    bool shortPressConsumedForClose = false;
+    if (rawShortPress && pairingHeadIsOpen()) {
+      pairingHeadSetOpen(false);
+      resetHeadMultipress();
+      shortPressConsumedForClose = true;
+      Serial.println("PAIRING(HEAD): pairing window closed by user");
+      ledsTriggerOnce(LED_MODE_ERROR_ONCE);
+    }
+    const bool shortPressForArb = rawShortPress && !shortPressConsumedForClose;
+    const HeadPressEvents pressEvents = processHeadMultipress(shortPressForArb, now);
 
     static bool lastOpenState = false;
     pairingHeadTick(now);
@@ -133,6 +148,7 @@ void loop() {
     if (pressEvents.single) {
       if (pairingHeadIsOpen()) {
         pairingHeadSetOpen(false);
+        resetHeadMultipress();
         Serial.println("PAIRING(HEAD): pairing window closed by user");
         ledsTriggerOnce(LED_MODE_ERROR_ONCE);
       } else {

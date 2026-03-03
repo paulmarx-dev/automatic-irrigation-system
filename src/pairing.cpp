@@ -377,10 +377,11 @@ static void headHandleJoinReq(const uint8_t* src_mac, const MsgJoinReq* join)
   }
 
   if (s_headPaired) {
-    if (!s_headRebindArmed) {
-      return;
-    }
-    if (!macEq(src_mac, s_headPairedNodeMac)) {
+    const bool samePairedNode = macEq(src_mac, s_headPairedNodeMac);
+    if (!samePairedNode) {
+      if (!s_headRebindArmed) {
+        return;
+      }
       return;
     }
   }

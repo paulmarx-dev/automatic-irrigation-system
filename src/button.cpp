@@ -2,8 +2,8 @@
 
 #include <Arduino.h>
 
-static const uint16_t BOOT_WINDOW_MS = 5000;
 static const uint8_t REQUIRED_PRESSES = 5;
+static const uint16_t MULTIPRESS_WINDOW_MS = 1400;
 static const uint16_t DEBOUNCE_MS = 30;
 static const uint16_t LONG_PRESS_MS = 3000;
 
@@ -14,8 +14,8 @@ static bool s_lastRawPressed = false;
 static bool s_stablePressed = false;
 static uint32_t s_lastRawChangeMs = 0;
 
-static uint32_t s_bootWindowEndMs = 0;
 static uint8_t s_pressCount = 0;
+static uint32_t s_pressWindowDeadlineMs = 0;
 static bool s_debugEnabled = false;
 static bool s_debugEventPending = false;
 static bool s_shortPressPending = false;
@@ -48,8 +48,8 @@ void buttonInit(uint8_t pin, bool activeLow, bool usePullup)
   s_stablePressed = s_lastRawPressed;
   s_lastRawChangeMs = nowMs;
 
-  s_bootWindowEndMs = nowMs + BOOT_WINDOW_MS;
   s_pressCount = 0;
+  s_pressWindowDeadlineMs = 0;
   s_debugEnabled = false;
   s_debugEventPending = false;
   s_shortPressPending = false;
@@ -73,24 +73,32 @@ void buttonTick(uint32_t nowMs)
       s_pressStartedMs = nowMs;
       s_longPressFired = false;
 
-      if ((int32_t)(s_bootWindowEndMs - nowMs) >= 0) {
-        if (s_pressCount < 255) {
-          s_pressCount++;
-        }
-
-        if (!s_debugEnabled && s_pressCount >= REQUIRED_PRESSES) {
-          s_debugEnabled = true;
-          s_debugEventPending = true;
-        }
+      if (s_pressCount < 255) {
+        s_pressCount++;
       }
+      s_pressWindowDeadlineMs = nowMs + MULTIPRESS_WINDOW_MS;
+      Serial.printf("BTN: press down, count=%u\n", s_pressCount);
     } else if (!s_longPressFired) {
       s_shortPressPending = true;
+      Serial.println("BTN: short press");
     }
+  }
+
+  if (s_pressCount > 0 && (int32_t)(nowMs - s_pressWindowDeadlineMs) >= 0) {
+    Serial.printf("BTN: multipress window closed, count=%u\n", s_pressCount);
+    if (!s_debugEnabled && s_pressCount >= REQUIRED_PRESSES) {
+      s_debugEnabled = true;
+      s_debugEventPending = true;
+      Serial.println("BTN: debug gate enabled by multipress");
+    }
+    s_pressCount = 0;
+    s_pressWindowDeadlineMs = 0;
   }
 
   if (s_stablePressed && !s_longPressFired && (nowMs - s_pressStartedMs >= LONG_PRESS_MS)) {
     s_longPressFired = true;
     s_longPressPending = true;
+    Serial.println("BTN: long press");
   }
 }
 
@@ -118,6 +126,7 @@ void buttonEnableDebug()
   if (!s_debugEnabled) {
     s_debugEnabled = true;
     s_debugEventPending = true;
+    Serial.println("BTN: debug gate enabled by API");
   }
 }
 
