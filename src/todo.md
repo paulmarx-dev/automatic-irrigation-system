@@ -120,7 +120,7 @@ Head networking mode = SoftAP always (local UI), STA hotspot only for upload (ma
 - [x] Milestone 6.2: NOT_PAIRED rebind flow (head short candidate window + sensor immediate rejoin)
   - [x] Implementation note: `TELEMETRY_ACK status=NOT_PAIRED` triggers sensor local unpair + immediate join
   - [x] Implementation note: head candidate rebind window = 10s, cooldown = 30s, candidate-MAC filter
-  - [x] Implementation note: detailed reproducible flow documented in `paring.md`
+  - [x] Implementation note: detailed reproducible flow documented in `pairing.md`
 - [x] Multi-head safety
   - [x] Node refuses pairing if multiple heads in pairing mode
 - [ ] Milestone 6.3: Multi-device pairing + persistence beyond SENSOR
@@ -130,13 +130,13 @@ Head networking mode = SoftAP always (local UI), STA hotspot only for upload (ma
 
 ### 2.1. Moisture Sensor Calibrarion 
 
-- [ ] cal_enter         : 5 fast blinks (80 ON / 80 OFF ×4 once)
-- [ ] cal_measure_dry   : slow pulse repeat (500 ON / 500 OFF loop)
-- [ ] cal_prompt_wet    : double tap repeat (200 ON / 200 OFF / 200 ON / 400 OFF loop until unser presses the button)
-- [ ] cal_measure_wet   : slow pulse repeat (500 ON / 500 OFF loop)
-- [ ] cal_done          : success
-- [ ] cal_error         : error once (e.g. when the difference between wet and dry is too low)
-- [ ] cal_cancel        : error once
+- [x] cal_enter         : 5 fast blinks (80 ON / 80 OFF ×4 once)
+- [x] cal_measure_dry   : slow pulse repeat (500 ON / 500 OFF loop)
+- [x] cal_prompt_wet    : double tap repeat (400 ON / 400 OFF / 400 ON / 800 OFF loop, timeout 20s)
+- [x] cal_measure_wet   : slow pulse repeat (500 ON / 500 OFF loop)
+- [x] cal_done          : success
+- [x] cal_error         : error once (e.g. when the difference between wet and dry is too low)
+- [x] cal_cancel        : error once
 
 
 ### 3. Base Message Protocol

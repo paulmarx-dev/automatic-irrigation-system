@@ -113,6 +113,14 @@ bool buttonIsDebugEnabled()
   return s_debugEnabled;
 }
 
+void buttonEnableDebug()
+{
+  if (!s_debugEnabled) {
+    s_debugEnabled = true;
+    s_debugEventPending = true;
+  }
+}
+
 bool buttonConsumeDebugEnabledEvent()
 {
   const bool pending = s_debugEventPending;

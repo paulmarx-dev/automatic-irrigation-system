@@ -17,4 +17,5 @@ void buttonTick(uint32_t nowMs);
 bool buttonConsumeShortPress();
 bool buttonConsumeLongPress();
 bool buttonIsDebugEnabled();
+void buttonEnableDebug();
 bool buttonConsumeDebugEnabledEvent();

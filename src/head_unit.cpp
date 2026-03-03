@@ -11,6 +11,44 @@
 
 #if defined(DEVICE_ROLE_HEAD)
 
+static const uint32_t MULTIPRESS_WINDOW_MS = 1400;
+
+struct HeadPressEvents {
+  bool single;
+  bool debug;
+};
+
+static uint8_t s_headPressCount = 0;
+static uint32_t s_headPressWindowDeadlineMs = 0;
+
+static HeadPressEvents processHeadMultipress(bool shortPress, uint32_t now)
+{
+  HeadPressEvents events{false, false};
+
+  if (shortPress) {
+    if (s_headPressCount < 255) {
+      s_headPressCount++;
+    }
+    s_headPressWindowDeadlineMs = now + MULTIPRESS_WINDOW_MS;
+  }
+
+  if (s_headPressCount == 0) {
+    return events;
+  }
+  if ((int32_t)(now - s_headPressWindowDeadlineMs) < 0) {
+    return events;
+  }
+
+  if (s_headPressCount >= 5) {
+    events.debug = true;
+  } else if (s_headPressCount == 1) {
+    events.single = true;
+  }
+
+  s_headPressCount = 0;
+  return events;
+}
+
 
 /*
   Receive handler.
@@ -80,6 +118,8 @@ void setup() {
 void loop() {
     const uint32_t now = millis();
     buttonTick(now);
+  const bool rawShortPress = buttonConsumeShortPress();
+  const HeadPressEvents pressEvents = processHeadMultipress(rawShortPress, now);
 
     static bool lastOpenState = false;
     pairingHeadTick(now);
@@ -90,7 +130,7 @@ void loop() {
       ledsTriggerOnce(LED_MODE_FACTORY_RESET_ONCE);
     }
 
-    if (buttonConsumeShortPress()) {
+    if (pressEvents.single) {
       if (pairingHeadIsOpen()) {
         pairingHeadSetOpen(false);
         Serial.println("PAIRING(HEAD): pairing window closed by user");
@@ -102,7 +142,10 @@ void loop() {
       }
     }
 
-    if (buttonConsumeDebugEnabledEvent()) {
+    if (pressEvents.debug) {
+      buttonEnableDebug();
+    }
+    if (pressEvents.debug || buttonConsumeDebugEnabledEvent()) {
       Serial.println("DEBUG gate: enabled for this boot");
       ledsTriggerOnce(LED_MODE_DEBUG_CONFIRM);
     }

@@ -459,6 +459,9 @@ void loop() {
 	}
 
 	if (pressEvents.debug || buttonConsumeDebugEnabledEvent()) {
+		if (pressEvents.debug) {
+			buttonEnableDebug();
+		}
 		Serial.println("DEBUG gate: enabled for this boot");
 		ledsTriggerOnce(LED_MODE_DEBUG_CONFIRM);
 	}
