@@ -31,7 +31,6 @@ static uint16_t s_pendingNodeId = 0;
 static uint32_t s_pendingSessionId = 0;
 static uint8_t s_pendingNodeUid[6] = {0};
 static uint8_t s_pendingNodeMac[6] = {0};
-static bool s_pendingConfirmed = false;
 
 static constexpr uint8_t MAX_HEAD_PAIRED_NODES = 8;
 
@@ -413,7 +412,6 @@ void pairingHeadFactoryReset()
   s_pendingSessionId = 0;
   memset(s_pendingNodeUid, 0, sizeof(s_pendingNodeUid));
   memset(s_pendingNodeMac, 0, sizeof(s_pendingNodeMac));
-  s_pendingConfirmed = false;
   s_nextNodeId = 1;
   s_headSessionId = esp_random();
   pairingHeadSetOpen(false);
@@ -470,18 +468,6 @@ static void fillBase(PairBase& base, uint8_t messageType, uint32_t sessionId)
   memcpy(base.deviceUid, s_localFactoryUid, sizeof(base.deviceUid));
 }
 
-static void headSendAckForConfirm(const uint8_t* src_mac, const MsgConfirm* confirm)
-{
-  MsgAck ack{};
-  fillBase(ack.base, MSG_ACK, confirm->base.sessionId);
-  memcpy(ack.base.deviceUid, confirm->base.deviceUid, sizeof(ack.base.deviceUid));
-  ack.nodeId = confirm->nodeId;
-  ack.ok = 1;
-
-  (void)espnowEnsurePeer(src_mac, ESPNOW_CHANNEL, false);
-  (void)espnowSend(src_mac, reinterpret_cast<const uint8_t*>(&ack), sizeof(ack));
-}
-
 void pairingInitHead(uint8_t headId)
 {
   s_isHead = true;
@@ -500,7 +486,6 @@ void pairingInitHead(uint8_t headId)
   s_pendingSessionId = 0;
   memset(s_pendingNodeUid, 0, sizeof(s_pendingNodeUid));
   memset(s_pendingNodeMac, 0, sizeof(s_pendingNodeMac));
-  s_pendingConfirmed = false;
 
   s_headPaired = false;
   s_headPairedNodeId = 0;
@@ -654,7 +639,6 @@ static void headHandleJoinReq(const uint8_t* src_mac, const MsgJoinReq* join)
   s_pendingSessionId = join->base.sessionId;
   macCopy(s_pendingNodeUid, join->base.deviceUid);
   macCopy(s_pendingNodeMac, src_mac);
-  s_pendingConfirmed = false;
 
   MsgOffer offer{};
   fillBase(offer.base, MSG_OFFER, s_pendingSessionId);
@@ -689,13 +673,6 @@ static void headHandleConfirm(const uint8_t* src_mac, const MsgConfirm* confirm)
     return;
   }
 
-  // CONFIRM may be retransmitted by the node. ACK duplicates, but keep pair side effects one-shot.
-  if (s_pendingConfirmed) {
-    headSendAckForConfirm(src_mac, confirm);
-    return;
-  }
-  s_pendingConfirmed = true;
-
   s_headPaired = true;
   s_headPairedNodeId = confirm->nodeId;
   macCopy(s_headPairedNodeMac, src_mac);
@@ -706,7 +683,14 @@ static void headHandleConfirm(const uint8_t* src_mac, const MsgConfirm* confirm)
     s_headPairSuccessEvent = true;
   }
 
-  headSendAckForConfirm(src_mac, confirm);
+  MsgAck ack{};
+  fillBase(ack.base, MSG_ACK, confirm->base.sessionId);
+  memcpy(ack.base.deviceUid, confirm->base.deviceUid, sizeof(ack.base.deviceUid));
+  ack.nodeId = confirm->nodeId;
+  ack.ok = 1;
+
+  (void)espnowEnsurePeer(src_mac, ESPNOW_CHANNEL, false);
+  (void)espnowSend(src_mac, reinterpret_cast<const uint8_t*>(&ack), sizeof(ack));
 
   Serial.print("PAIRING(HEAD): Paired nodeId=");
   Serial.println((unsigned long)s_headPairedNodeId);
