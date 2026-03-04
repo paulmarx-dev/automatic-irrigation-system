@@ -2,6 +2,8 @@
 
 #include <Preferences.h>
 
+#include "app_log.h"
+
 namespace {
 
 static constexpr const char* NVS_NS_PAIR_NODE = "pair_node";
@@ -18,6 +20,14 @@ static constexpr const char* NVS_NS_PAIR_HEAD = "pair_head";
 static constexpr const char* KEY_HEAD_BLOB = "blob";
 
 static constexpr uint8_t HEAD_SCHEMA_VER = 1;
+
+// Fault injection for NVS robustness tests (HEAD registry blob path only):
+//   0: disabled (default)
+//   1: write full blob with intentionally invalid CRC
+//   2: write truncated blob (simulates torn/partial write)
+#ifndef PAIRING_NVS_FAULT_INJECT_MODE
+  #define PAIRING_NVS_FAULT_INJECT_MODE 0
+#endif
 
 struct HeadRegistryBlob {
   uint8_t version;
@@ -186,7 +196,18 @@ bool pairingNvsSaveHead(const PairingHeadNodeNvsRecord nodes[PAIRING_NVS_MAX_HEA
   // CRC is stored with payload to detect torn/corrupted writes on load.
   blob.crc32 = crc32Compute(reinterpret_cast<const uint8_t*>(&blob), sizeof(blob) - sizeof(blob.crc32));
 
-  const bool blobOk = prefs.putBytes(KEY_HEAD_BLOB, &blob, sizeof(blob)) == sizeof(blob);
+#if PAIRING_NVS_FAULT_INJECT_MODE == 1
+  blob.crc32 ^= 0x1u;
+  LOGW("PAIRING_NVS: fault inject mode=1 (forcing CRC mismatch)");
+#endif
+
+  size_t writeLen = sizeof(blob);
+#if PAIRING_NVS_FAULT_INJECT_MODE == 2
+  writeLen = sizeof(blob) - sizeof(uint32_t);
+  LOGW("PAIRING_NVS: fault inject mode=2 (writing truncated blob len=%u)", static_cast<unsigned>(writeLen));
+#endif
+
+  const bool blobOk = prefs.putBytes(KEY_HEAD_BLOB, &blob, writeLen) == writeLen;
   prefs.end();
 
   return blobOk;
