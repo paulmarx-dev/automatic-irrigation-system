@@ -178,6 +178,7 @@ void loop() {
     lastOpenState = isOpen;
 
     ledsTick(now);
+    telemetryTickHead(now);
     pairingTick();
     delay(10);
 }
