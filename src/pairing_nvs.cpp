@@ -81,7 +81,7 @@ bool pairingNvsSaveNode(const uint8_t headMac[6], uint16_t nodeId)
 
   const bool verOk = prefs.putUChar(KEY_VER, SCHEMA_VER) == 1;
   const bool pairedOk = prefs.putUChar(KEY_PAIRED, PAIRED_TRUE) == 1;
-  const bool nodeIdOk = prefs.putUShort(KEY_NODE_ID, nodeId) == nodeId;
+  const bool nodeIdOk = prefs.putUShort(KEY_NODE_ID, nodeId) == sizeof(uint16_t);
   const bool headMacOk = prefs.putBytes(KEY_HEAD_MAC, headMac, HEAD_MAC_SIZE) == HEAD_MAC_SIZE;
   prefs.end();
 
@@ -164,7 +164,7 @@ bool pairingNvsSaveHead(const PairingHeadNodeNvsRecord nodes[PAIRING_NVS_MAX_HEA
 
   const bool verOk = prefs.putUChar(KEY_HEAD_VER, HEAD_SCHEMA_VER) == 1;
   const bool countOk = prefs.putUChar(KEY_HEAD_COUNT, count) == 1;
-  const bool nextIdOk = prefs.putUShort(KEY_HEAD_NEXT_ID, nextNodeId) == nextNodeId;
+  const bool nextIdOk = prefs.putUShort(KEY_HEAD_NEXT_ID, nextNodeId) == sizeof(uint16_t);
   const size_t expectedLen = sizeof(PairingHeadNodeNvsRecord) * PAIRING_NVS_MAX_HEAD_NODES;
   const bool nodesOk = prefs.putBytes(KEY_HEAD_NODES, nodes, expectedLen) == expectedLen;
   prefs.end();

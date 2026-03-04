@@ -56,6 +56,13 @@ static bool s_headCandidateFilterActive = false;
 static uint8_t s_headCandidateMac[6] = {0};
 static uint32_t s_headCandidateLastOpenMs = 0;
 
+static bool s_headNvsDirty = false;
+static uint32_t s_headNvsSaveDueMs = 0;
+static uint8_t s_headNvsRetryCount = 0;
+static constexpr uint32_t HEAD_NVS_SAVE_DELAY_MS = 400;
+static constexpr uint32_t HEAD_NVS_RETRY_BASE_MS = 500;
+static constexpr uint8_t HEAD_NVS_RETRY_MAX = 4;
+
 static bool s_nodePaired = false;
 static uint16_t s_nodeId = 0;
 static uint8_t s_nodeHeadMac[6] = {0};
@@ -126,7 +133,7 @@ static void headClearPairedRegistry()
   s_headPairedCount = 0;
 }
 
-static void headPersistPairedRegistry()
+static bool headPersistPairedRegistryNow()
 {
   PairingHeadNodeNvsRecord records[PAIRING_NVS_MAX_HEAD_NODES] = {};
   for (uint8_t index = 0; index < MAX_HEAD_PAIRED_NODES; ++index) {
@@ -138,9 +145,42 @@ static void headPersistPairedRegistry()
     memcpy(records[index].uid, s_headPairedNodes[index].uid, 6);
   }
 
-  if (!pairingNvsSaveHead(records, s_headPairedCount, s_nextNodeId)) {
-    Serial.println("PAIRING(HEAD): NVS save failed");
+  return pairingNvsSaveHead(records, s_headPairedCount, s_nextNodeId);
+}
+
+static void headSchedulePersist(uint32_t nowMs)
+{
+  s_headNvsDirty = true;
+  s_headNvsSaveDueMs = nowMs + HEAD_NVS_SAVE_DELAY_MS;
+}
+
+static void headPersistTick(uint32_t nowMs)
+{
+  if (!s_headNvsDirty) {
+    return;
   }
+
+  if ((int32_t)(nowMs - s_headNvsSaveDueMs) < 0) {
+    return;
+  }
+
+  if (headPersistPairedRegistryNow()) {
+    s_headNvsDirty = false;
+    s_headNvsSaveDueMs = 0;
+    s_headNvsRetryCount = 0;
+    return;
+  }
+
+  if (s_headNvsRetryCount < HEAD_NVS_RETRY_MAX) {
+    s_headNvsRetryCount++;
+  }
+
+  const uint8_t backoffPow = s_headNvsRetryCount > 3 ? 3 : s_headNvsRetryCount;
+  const uint32_t backoffMs = HEAD_NVS_RETRY_BASE_MS << backoffPow;
+  s_headNvsSaveDueMs = nowMs + backoffMs;
+
+  Serial.print("PAIRING(HEAD): NVS save failed, retry in ms=");
+  Serial.println((unsigned long)backoffMs);
 }
 
 static void headRestorePairedRegistry()
@@ -192,7 +232,7 @@ static void headRestorePairedRegistry()
   Serial.println((unsigned long)count);
 }
 
-static void headUpsertPairedNode(uint16_t nodeId, const uint8_t mac[6], const uint8_t uid[6])
+static bool headUpsertPairedNode(uint16_t nodeId, const uint8_t mac[6], const uint8_t uid[6])
 {
   int8_t slot = headFindPairedSlotByNodeIdMac(nodeId, mac);
   if (slot < 0) {
@@ -205,11 +245,18 @@ static void headUpsertPairedNode(uint16_t nodeId, const uint8_t mac[6], const ui
     slot = headFindFreePairedSlot();
   }
   if (slot < 0) {
-    return;
+    return false;
   }
 
   HeadPairedNode* entry = &s_headPairedNodes[slot];
   const bool wasUsed = entry->used;
+  const bool unchanged = wasUsed &&
+                         entry->nodeId == nodeId &&
+                         memcmp(entry->mac, mac, 6) == 0 &&
+                         memcmp(entry->uid, uid, 6) == 0;
+  if (unchanged) {
+    return false;
+  }
 
   entry->used = true;
   entry->nodeId = nodeId;
@@ -219,6 +266,8 @@ static void headUpsertPairedNode(uint16_t nodeId, const uint8_t mac[6], const ui
   if (!wasUsed && s_headPairedCount < 255) {
     s_headPairedCount++;
   }
+
+  return true;
 }
 
 void pairingHeadSetOpen(bool open)
@@ -363,6 +412,9 @@ void pairingHeadFactoryReset()
   pairingHeadSetOpen(false);
   s_headRebindArmed = false;
   s_headCandidateLastOpenMs = 0;
+  s_headNvsDirty = false;
+  s_headNvsSaveDueMs = 0;
+  s_headNvsRetryCount = 0;
   if (!pairingNvsClearHead()) {
     Serial.println("PAIRING(HEAD): NVS clear failed");
   }
@@ -442,6 +494,9 @@ void pairingInitHead(uint8_t headId)
   s_headCandidateFilterActive = false;
   memset(s_headCandidateMac, 0, sizeof(s_headCandidateMac));
   s_headCandidateLastOpenMs = 0;
+  s_headNvsDirty = false;
+  s_headNvsSaveDueMs = 0;
+  s_headNvsRetryCount = 0;
 
   headRestorePairedRegistry();
 
@@ -526,6 +581,7 @@ void pairingTick()
 {
   if (s_isHead) {
     const uint32_t now = millis();
+    headPersistTick(now);
     if (now - s_lastBeaconMs >= 500U) {
       s_lastBeaconMs = now;
       sendHeadBeacon();
@@ -616,9 +672,11 @@ static void headHandleConfirm(const uint8_t* src_mac, const MsgConfirm* confirm)
   s_headPairedNodeId = confirm->nodeId;
   macCopy(s_headPairedNodeMac, src_mac);
   macCopy(s_headPairedNodeUid, confirm->base.deviceUid);
-  headUpsertPairedNode(confirm->nodeId, src_mac, confirm->base.deviceUid);
-  headPersistPairedRegistry();
-  s_headPairSuccessEvent = true;
+  const bool changed = headUpsertPairedNode(confirm->nodeId, src_mac, confirm->base.deviceUid);
+  if (changed) {
+    headSchedulePersist(millis());
+    s_headPairSuccessEvent = true;
+  }
 
   MsgAck ack{};
   fillBase(ack.base, MSG_ACK, confirm->base.sessionId);
