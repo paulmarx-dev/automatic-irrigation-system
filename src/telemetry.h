@@ -4,12 +4,23 @@
 
 struct SensorMeasurement;
 
+enum TelemetryHeadNodeState : uint8_t {
+  TELEMETRY_HEAD_NODE_ONLINE = 0,
+  TELEMETRY_HEAD_NODE_SUSPECT = 1,
+  TELEMETRY_HEAD_NODE_OFFLINE = 2,
+};
+
 struct TelemetryHeadNodePresence {
 	bool used;
-	bool online;
+	TelemetryHeadNodeState state;
 	uint16_t nodeId;
 	uint8_t mac[6];
 	uint32_t lastSeenMs;
+	uint32_t rxPackets;
+	uint32_t rxDuplicates;
+	uint32_t rxInvalid;
+	uint32_t ackOkSent;
+	uint32_t ackNotPairedSent;
 };
 
 void telemetryInit();

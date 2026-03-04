@@ -4,6 +4,7 @@
 #include <WiFi.h>
 #include "pairing.h"
 #include "telemetry.h"
+#include "head_observability.h"
 #include "leds.h"
 #include "button.h"
 #include "app_log.h"
@@ -103,6 +104,7 @@ void setup() {
     pairingHeadSetOpen(false);
     logStartupCommon("HEAD", true, pairingHeadHasPairedNode());
     telemetryInit();
+    headObservabilityInit();
     ledsInit(LED_DEFAULT_CONFIG.pin, LED_DEFAULT_CONFIG.activeHigh);
     buttonInit(BUTTON_HEAD_CONFIG.pin, BUTTON_HEAD_CONFIG.activeLow, BUTTON_HEAD_CONFIG.usePullup);
     ledsSetBaseMode(LED_MODE_IDLE);
@@ -179,6 +181,7 @@ void loop() {
 
     ledsTick(now);
     telemetryTickHead(now);
+    headObservabilityTick();
     pairingTick();
     delay(10);
 }

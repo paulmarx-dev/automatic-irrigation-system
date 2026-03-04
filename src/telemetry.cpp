@@ -235,16 +235,37 @@ void telemetryTickSensor(const SensorMeasurement* measurement, bool hasMeasureme
 #include "leds.h"
 
 static const uint8_t MAX_NODE_REGISTRY = 8;
-static const uint32_t NODE_OFFLINE_TIMEOUT_MS = 15000;
+static const uint32_t EXPECTED_TELEMETRY_PERIOD_MS = 5000;
+static const uint32_t NODE_SUSPECT_TIMEOUT_MS = 2 * EXPECTED_TELEMETRY_PERIOD_MS;
+static const uint32_t NODE_OFFLINE_TIMEOUT_MS = 5 * EXPECTED_TELEMETRY_PERIOD_MS;
+
+static const char* nodeStateToText(TelemetryHeadNodeState state)
+{
+  switch (state) {
+    case TELEMETRY_HEAD_NODE_ONLINE:
+      return "online";
+    case TELEMETRY_HEAD_NODE_SUSPECT:
+      return "suspect";
+    case TELEMETRY_HEAD_NODE_OFFLINE:
+      return "offline";
+    default:
+      return "unknown";
+  }
+}
 
 struct NodeTelemetryState {
   bool used;
-  bool online;
+  TelemetryHeadNodeState state;
   bool hasLastSeq;
   uint16_t nodeId;
   uint8_t mac[6];
   uint32_t lastSeenMs;
   uint16_t lastSeq;
+  uint32_t rxPackets;
+  uint32_t rxDuplicates;
+  uint32_t rxInvalid;
+  uint32_t ackOkSent;
+  uint32_t ackNotPairedSent;
 };
 
 static NodeTelemetryState s_nodes[MAX_NODE_REGISTRY] = {};
@@ -266,7 +287,6 @@ static NodeTelemetryState* getOrCreateNodeState(uint16_t nodeId, const uint8_t s
     if (entry->used) {
       if (entry->nodeId == nodeId) {
         memcpy(entry->mac, src_mac, 6);
-        entry->lastSeenMs = nowMs;
         return entry;
       }
       if (entry->lastSeenMs < oldestSlot->lastSeenMs) {
@@ -279,13 +299,32 @@ static NodeTelemetryState* getOrCreateNodeState(uint16_t nodeId, const uint8_t s
 
   NodeTelemetryState* target = emptySlot ? emptySlot : oldestSlot;
   target->used = true;
-  target->online = true;
+  target->state = TELEMETRY_HEAD_NODE_ONLINE;
   target->hasLastSeq = false;
   target->nodeId = nodeId;
   memcpy(target->mac, src_mac, 6);
   target->lastSeenMs = nowMs;
   target->lastSeq = 0;
+  target->rxPackets = 0;
+  target->rxDuplicates = 0;
+  target->rxInvalid = 0;
+  target->ackOkSent = 0;
+  target->ackNotPairedSent = 0;
   return target;
+}
+
+static NodeTelemetryState* findNodeState(uint16_t nodeId, const uint8_t src_mac[6])
+{
+  for (uint8_t i = 0; i < MAX_NODE_REGISTRY; ++i) {
+    NodeTelemetryState* entry = &s_nodes[i];
+    if (!entry->used) {
+      continue;
+    }
+    if (entry->nodeId == nodeId && memcmp(entry->mac, src_mac, 6) == 0) {
+      return entry;
+    }
+  }
+  return nullptr;
 }
 
 static void logTelemetry(const MsgTelemetry* telemetry, const uint8_t src_mac[6])
@@ -338,6 +377,15 @@ static void sendTelemetryAck(const uint8_t src_mac[6], uint16_t nodeId, uint16_t
   (void)espnowEnsurePeer(src_mac, ESPNOW_CHANNEL, false);
   const bool sent = espnowSend(src_mac, reinterpret_cast<const uint8_t*>(&ack), sizeof(ack));
 
+  NodeTelemetryState* nodeState = findNodeState(nodeId, src_mac);
+  if (nodeState) {
+    if (status == TELEMETRY_ACK_STATUS_OK) {
+      nodeState->ackOkSent++;
+    } else if (status == TELEMETRY_ACK_STATUS_NOT_PAIRED) {
+      nodeState->ackNotPairedSent++;
+    }
+  }
+
   char macBuf[18] = {0};
   macToString(src_mac, macBuf, sizeof(macBuf));
   Serial.print("[nodeId=");
@@ -354,19 +402,16 @@ static void sendTelemetryAck(const uint8_t src_mac[6], uint16_t nodeId, uint16_t
 
 void telemetryOnRecv(const uint8_t* src_mac, const uint8_t* data, int len)
 {
-  if (!src_mac || !data || len != (int)sizeof(MsgTelemetry)) {
+  if (!src_mac || !data) {
+    return;
+  }
+
+  if (len != (int)sizeof(MsgTelemetry)) {
     return;
   }
 
   const MsgTelemetry* telemetry = reinterpret_cast<const MsgTelemetry*>(data);
   if (telemetry->hdr.ver != PROTO_VER || telemetry->hdr.type != MSG_TELEMETRY) {
-    return;
-  }
-
-  const bool fromCurrentPair = pairingHeadIsKnownNode(telemetry->hdr.nodeId, src_mac);
-
-  if (!fromCurrentPair) {
-    sendTelemetryAck(src_mac, telemetry->hdr.nodeId, telemetry->hdr.seq, TELEMETRY_ACK_STATUS_NOT_PAIRED);
     return;
   }
 
@@ -376,8 +421,16 @@ void telemetryOnRecv(const uint8_t* src_mac, const uint8_t* data, int len)
     return;
   }
 
-  if (!nodeState->online) {
-    nodeState->online = true;
+  const bool fromCurrentPair = pairingHeadIsKnownNode(telemetry->hdr.nodeId, src_mac);
+
+  if (!fromCurrentPair) {
+    nodeState->rxInvalid++;
+    sendTelemetryAck(src_mac, telemetry->hdr.nodeId, telemetry->hdr.seq, TELEMETRY_ACK_STATUS_NOT_PAIRED);
+    return;
+  }
+
+  if (nodeState->state != TELEMETRY_HEAD_NODE_ONLINE) {
+    nodeState->state = TELEMETRY_HEAD_NODE_ONLINE;
     char macBuf[18] = {0};
     macToString(src_mac, macBuf, sizeof(macBuf));
     Serial.print("[nodeId=");
@@ -387,10 +440,15 @@ void telemetryOnRecv(const uint8_t* src_mac, const uint8_t* data, int len)
     Serial.println("] online");
   }
 
+  nodeState->lastSeenMs = nowMs;
+
   const bool isDuplicate = nodeState->hasLastSeq && (nodeState->lastSeq == telemetry->hdr.seq);
-  if (!isDuplicate) {
+  if (isDuplicate) {
+    nodeState->rxDuplicates++;
+  } else {
     nodeState->hasLastSeq = true;
     nodeState->lastSeq = telemetry->hdr.seq;
+    nodeState->rxPackets++;
     logTelemetry(telemetry, src_mac);
   }
 
@@ -405,23 +463,30 @@ void telemetryTickHead(uint32_t nowMs)
 {
   for (uint8_t i = 0; i < MAX_NODE_REGISTRY; ++i) {
     NodeTelemetryState* entry = &s_nodes[i];
-    if (!entry->used || !entry->online) {
+    if (!entry->used) {
       continue;
     }
 
-    if ((int32_t)(nowMs - entry->lastSeenMs) < (int32_t)NODE_OFFLINE_TIMEOUT_MS) {
-      continue;
+    const uint32_t sinceLastMs = static_cast<uint32_t>(nowMs - entry->lastSeenMs);
+
+    TelemetryHeadNodeState nextState = TELEMETRY_HEAD_NODE_ONLINE;
+    if (sinceLastMs >= NODE_OFFLINE_TIMEOUT_MS) {
+      nextState = TELEMETRY_HEAD_NODE_OFFLINE;
+    } else if (sinceLastMs >= NODE_SUSPECT_TIMEOUT_MS) {
+      nextState = TELEMETRY_HEAD_NODE_SUSPECT;
     }
 
-    entry->online = false;
-    char macBuf[18] = {0};
-    macToString(entry->mac, macBuf, sizeof(macBuf));
-    Serial.print("[nodeId=");
-    Serial.print((unsigned long)entry->nodeId);
-    Serial.print(" mac=");
-    Serial.print(macBuf);
-    Serial.print("] offline timeoutMs=");
-    Serial.println((unsigned long)NODE_OFFLINE_TIMEOUT_MS);
+    if (nextState != entry->state) {
+      entry->state = nextState;
+      char macBuf[18] = {0};
+      macToString(entry->mac, macBuf, sizeof(macBuf));
+      Serial.print("[nodeId=");
+      Serial.print((unsigned long)entry->nodeId);
+      Serial.print(" mac=");
+      Serial.print(macBuf);
+      Serial.print("] ");
+      Serial.println(nodeStateToText(entry->state));
+    }
   }
 }
 
@@ -439,10 +504,15 @@ uint8_t telemetryHeadGetPresence(TelemetryHeadNodePresence* outNodes, uint8_t ma
     }
 
     outNodes[written].used = true;
-    outNodes[written].online = entry->online;
+    outNodes[written].state = entry->state;
     outNodes[written].nodeId = entry->nodeId;
     memcpy(outNodes[written].mac, entry->mac, 6);
     outNodes[written].lastSeenMs = entry->lastSeenMs;
+    outNodes[written].rxPackets = entry->rxPackets;
+    outNodes[written].rxDuplicates = entry->rxDuplicates;
+    outNodes[written].rxInvalid = entry->rxInvalid;
+    outNodes[written].ackOkSent = entry->ackOkSent;
+    outNodes[written].ackNotPairedSent = entry->ackNotPairedSent;
     written++;
   }
   return written;
