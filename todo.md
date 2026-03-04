@@ -20,8 +20,11 @@
 - [ ] Control unit: duty-cycle listen vs active mode, heartbeat, command execution state machine
 - [ ] Head logic: command decisions (manual/web + automation), scheduling, irrigation state
 - [ ] Reliability: rejoin after head reboot, stale peer cleanup, registry maintenance
+  - [ ] Release smoke checklist (HEAD+2 SENSOR): pair -> reboot -> auto-restore -> telemetry ACK=OK
+  - [ ] Presence smoke checklist: node offline timeout log + online recovery log after return
 - [ ] Optional: time sync, irrigation-phase sampling
 - [ ] Web server for head: status page, manual control, pairing management, OTA updates
+  - [ ] JSON API for node presence (`lastSeenMs`, `online`, `nodeId`, `mac`) for UI integration
 - [ ] WiFi upload of data to server on availability
 - [ ] LoRa backup communication channel for critical messages (e.g. low battery alert)
 
