@@ -62,6 +62,7 @@ static uint8_t s_headNvsRetryCount = 0;
 static constexpr uint32_t HEAD_NVS_SAVE_DELAY_MS = 400;
 static constexpr uint32_t HEAD_NVS_RETRY_BASE_MS = 500;
 static constexpr uint8_t HEAD_NVS_RETRY_MAX = 4;
+static constexpr uint32_t HEAD_NVS_RETRY_SLOW_MS = 300000;
 
 static bool s_nodePaired = false;
 static uint16_t s_nodeId = 0;
@@ -152,6 +153,7 @@ static void headSchedulePersist(uint32_t nowMs)
 {
   s_headNvsDirty = true;
   s_headNvsSaveDueMs = nowMs + HEAD_NVS_SAVE_DELAY_MS;
+  s_headNvsRetryCount = 0;
 }
 
 static void headPersistTick(uint32_t nowMs)
@@ -173,14 +175,17 @@ static void headPersistTick(uint32_t nowMs)
 
   if (s_headNvsRetryCount < HEAD_NVS_RETRY_MAX) {
     s_headNvsRetryCount++;
+    const uint8_t backoffPow = s_headNvsRetryCount > 3 ? 3 : s_headNvsRetryCount;
+    const uint32_t backoffMs = HEAD_NVS_RETRY_BASE_MS << backoffPow;
+    s_headNvsSaveDueMs = nowMs + backoffMs;
+    Serial.print("PAIRING(HEAD): NVS save failed, retry in ms=");
+    Serial.println((unsigned long)backoffMs);
+    return;
   }
 
-  const uint8_t backoffPow = s_headNvsRetryCount > 3 ? 3 : s_headNvsRetryCount;
-  const uint32_t backoffMs = HEAD_NVS_RETRY_BASE_MS << backoffPow;
-  s_headNvsSaveDueMs = nowMs + backoffMs;
-
-  Serial.print("PAIRING(HEAD): NVS save failed, retry in ms=");
-  Serial.println((unsigned long)backoffMs);
+  s_headNvsSaveDueMs = nowMs + HEAD_NVS_RETRY_SLOW_MS;
+  Serial.print("PAIRING(HEAD): NVS save failed, entering slow retry ms=");
+  Serial.println((unsigned long)HEAD_NVS_RETRY_SLOW_MS);
 }
 
 static void headRestorePairedRegistry()

@@ -10,7 +10,7 @@
   - [x] NVS persistence for paired state (Milestone 6: pair_node namespace, ver/paired/headMac)
   - [x] Safe rules: no accidental rebind; factory reset flow
   - [ ] Multi-device pairing: head supports pairing/handling multiple nodes (SENSOR + CONTROL)
-  - [ ] NVS on HEAD: persist paired nodes registry (MAC/role/nodeId/lastSeen)
+  - [x] NVS on HEAD: persist paired nodes registry (MAC/role/nodeId/lastSeen)
   - [ ] NVS on CONTROL: persist paired head state and restore after reboot
 - [ ] Base message definitions (telemetry, battery, cmd, cmd_ack), protocol versioning
 - [x] Sensor -> head telemetry (happy path) + ack policy + retries
@@ -108,7 +108,7 @@ Head networking mode = SoftAP always (local UI), STA hotspot only for upload (ma
   - [ ] Node stores in NVS:
     - [x] paired flag
     - [x] headMAC
-    - [ ] nodeId (not persisted in Milestone 6 scope)
+    - [x] nodeId
   - [x] Node reconnects after reboot
   - [x] Head accepts node after reboot
 - [ ] Safety
@@ -125,8 +125,13 @@ Head networking mode = SoftAP always (local UI), STA hotspot only for upload (ma
   - [x] Node refuses pairing if multiple heads in pairing mode
 - [ ] Milestone 6.3: Multi-device pairing + persistence beyond SENSOR
   - [ ] Head supports multiple paired devices concurrently (at least SENSOR + CONTROL)
-  - [ ] Head stores paired devices registry in NVS and restores on reboot
-  - [ ] Control stores paired HEAD info in NVS and restores on reboot
+  - [x] Head stores paired devices registry in NVS and restores on reboot
+  - [x] Control stores paired HEAD info in NVS and restores on reboot (code ready)
+  - [ ] CONTROL hardware validation pending (run when module is available):
+    - [ ] Pair CONTROL with HEAD, verify join success + NVS save
+    - [ ] Reboot CONTROL and confirm auto-restore from NVS without manual join
+    - [ ] Reboot HEAD and confirm CONTROL is accepted from restored head registry
+    - [ ] Factory reset HEAD and verify CONTROL gets NOT_PAIRED and requires manual pair
 
 ### 2.1. Moisture Sensor Calibrarion 
 
