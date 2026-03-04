@@ -78,26 +78,9 @@ static bool setStaChannel(uint8_t channel)
     return (err == ESP_OK);
 }
 
-static bool setCustomStaMacIfProvided(const uint8_t* custom_sta_mac)
-{
-    if (!custom_sta_mac) {
-        return true;
-    }
-
-    /*
-      Custom MAC must be:
-      - unicast (LSB of first byte = 0)
-      - locally administered recommended (bit1 of first byte = 1), e.g. 0x02
-    */
-    esp_err_t err = esp_wifi_set_mac(WIFI_IF_STA, custom_sta_mac);
-    return (err == ESP_OK);
-}
-
-
 static bool s_initialized = false;
 
 bool espnowInit(uint8_t channel, 
-                const uint8_t* custom_sta_mac, 
                 EspNowRecvCb recv_cb,
                 EspNowSendCb send_cb)
 {
@@ -109,14 +92,12 @@ bool espnowInit(uint8_t channel,
 
     /*
       1) Put WiFi into STA mode (required for ESP-NOW).
-      2) Set custom MAC before esp_now_init().
-      3) Set fixed channel before peer operations.
+            2) Use factory STA MAC.
+            3) Set fixed channel before peer operations.
     */
     WiFi.mode(WIFI_STA);
     //WiFi.disconnect(true, true);
     Serial.println("REAL MAC: " + WiFi.macAddress());
-
-    if (!setCustomStaMacIfProvided(custom_sta_mac)) { return false; }
 
     // Ensure WiFi driver is started
     // if (esp_wifi_start() != ESP_OK) { return false; }

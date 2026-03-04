@@ -77,14 +77,6 @@ static void onSend(const uint8_t* dst_mac, bool success)
     (void)success;
 }
 
-static void printMac(const char* label, const uint8_t mac[6])
-{
-    char buf[18] = {0};
-    macToString(mac, buf, sizeof(buf));
-    Serial.print(label);
-    Serial.println(buf);
-}
-
 
 
 void setup() {
@@ -100,9 +92,9 @@ void setup() {
   Serial.println();
     Serial.println("HEAD: Pairing 2.0 always-open");
 
-    printMac("HEAD custom MAC: ", MAC_HEAD);
+    Serial.println("HEAD: using factory STA MAC");
 
-  if (!espnowInit(ESPNOW_CHANNEL, MAC_HEAD, onRecv, onSend)) {
+  if (!espnowInit(ESPNOW_CHANNEL, onRecv, onSend)) {
       Serial.println("espnowInit() failed");
       while (true) { delay(1000); }
   }
@@ -173,7 +165,7 @@ void loop() {
       } else {
         ledsSetBaseMode(LED_MODE_OFF);
       }
-      ledsTriggerOnce(LED_MODE_SUCCESS_DOUBLE);
+      ledsTriggerOnce(LED_MODE_SUCCESS_ONCE);
       Serial.println("PAIRING(HEAD): pair success indication");
     }
 

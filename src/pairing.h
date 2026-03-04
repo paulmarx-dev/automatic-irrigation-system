@@ -74,13 +74,14 @@ bool pairingNodeJoinExpired(uint32_t nowMs);
 void pairingNodeTick(uint32_t nowMs);
 void pairingHeadFactoryReset();
 void pairingNodeFactoryReset();
-void pairingNodeRestorePairedHead(const uint8_t headMac[6]);
+void pairingNodeRestorePairedHead(const uint8_t headMac[6], uint16_t nodeId);
 void pairingNodeSetUnpaired();
 
 bool pairingHeadHasPairedNode();
 bool pairingHeadConsumePairSuccessEvent();
 uint16_t pairingHeadPairedNodeId();
 bool pairingHeadPairedNodeMac(uint8_t out_mac[6]);
+bool pairingHeadIsKnownNode(uint16_t nodeId, const uint8_t mac[6]);
 
 bool pairingNodeIsPaired();
 uint16_t pairingNodeId();

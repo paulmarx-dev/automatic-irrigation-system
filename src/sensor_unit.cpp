@@ -333,9 +333,9 @@ void setup() {
     Serial.println();
     Serial.println("SENSOR: Pairing 2.0 always-open");
 
-    printMac("SENSOR custom MAC: ", MAC_SENSOR1);
+	Serial.println("SENSOR: using factory STA MAC");
 
-    if (!espnowInit(ESPNOW_CHANNEL, MAC_SENSOR1, onRecv, onSend)) {
+	if (!espnowInit(ESPNOW_CHANNEL, onRecv, onSend)) {
         Serial.println("espnowInit() failed");
         while (true) { delay(1000); }
     }
@@ -352,11 +352,12 @@ void setup() {
 	}
 
 	uint8_t restoredHeadMac[6] = {0};
-	if (pairingNvsLoadNode(restoredHeadMac)) {
-		pairingNodeRestorePairedHead(restoredHeadMac);
+	uint16_t restoredNodeId = 0;
+	if (pairingNvsLoadNode(restoredHeadMac, &restoredNodeId)) {
+		pairingNodeRestorePairedHead(restoredHeadMac, restoredNodeId);
 		(void)espnowEnsurePeer(restoredHeadMac, ESPNOW_CHANNEL, false);
 		s_autoJoinTriggered = true;
-		Serial.println("PAIRING(NODE): restored paired head from NVS");
+		Serial.printf("PAIRING(NODE): restored pair from NVS nodeId=%u\n", (unsigned)restoredNodeId);
 	}
 	logStartupCommon("SENSOR", true, pairingNodeIsPaired());
 	telemetryInit();
@@ -431,13 +432,14 @@ void loop() {
 
 	if (!wasPaired && isPaired) {
 		uint8_t headMac[6] = {0};
+		const uint16_t nodeId = pairingNodeId();
 		if (pairingNodeHeadMac(headMac)) {
-			if (!pairingNvsSaveNode(headMac)) {
+			if (!pairingNvsSaveNode(headMac, nodeId)) {
 				Serial.println("PAIRING(NODE): NVS save failed");
 			}
 		}
 		Serial.println("PAIRING(NODE): join success");
-		ledsTriggerOnce(LED_MODE_SUCCESS_ONCE);
+		ledsTriggerOnce(LED_MODE_SUCCESS_DOUBLE);
 	}
 	wasPaired = isPaired;
 

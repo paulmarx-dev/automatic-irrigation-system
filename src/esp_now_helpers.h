@@ -38,7 +38,6 @@ typedef void (*EspNowSendCb)(const uint8_t* dst_mac,
   Initialize ESP-NOW layer.
 */
 bool espnowInit(uint8_t channel,
-                const uint8_t* custom_sta_mac,
                 EspNowRecvCb recv_cb,
                 EspNowSendCb send_cb);
 

@@ -95,7 +95,7 @@ void telemetryOnRecv(const uint8_t* src_mac, const uint8_t* data, int len)
     if (!pairingNvsClearNode()) {
       Serial.println("PAIRING(NODE): NVS clear failed");
     }
-    pairingNodeEnterJoinMode(millis());
+    Serial.println("PAIRING(NODE): waiting for manual pairing action");
     ledsTriggerOnce(LED_MODE_ERROR_ONCE);
     s_waitingAck = false;
     s_noAckCycles = 0;
@@ -235,8 +235,6 @@ void telemetryTickSensor(const SensorMeasurement* measurement, bool hasMeasureme
 #include "leds.h"
 
 static const uint8_t MAX_NODE_REGISTRY = 8;
-static const uint32_t REBIND_OPEN_MS = 10000;
-static const uint32_t REBIND_COOLDOWN_MS = 30000;
 
 struct NodeTelemetryState {
   bool used;
@@ -362,24 +360,10 @@ void telemetryOnRecv(const uint8_t* src_mac, const uint8_t* data, int len)
     return;
   }
 
-  const uint16_t pairedNodeId = pairingHeadPairedNodeId();
-  uint8_t pairedMac[6] = {0};
-  const bool hasPairedMac = pairingHeadPairedNodeMac(pairedMac);
-  const bool fromCurrentPair = pairedNodeId != 0 &&
-                               hasPairedMac &&
-                               memcmp(src_mac, pairedMac, 6) == 0 &&
-                               telemetry->hdr.nodeId == pairedNodeId;
+  const bool fromCurrentPair = pairingHeadIsKnownNode(telemetry->hdr.nodeId, src_mac);
 
   if (!fromCurrentPair) {
     sendTelemetryAck(src_mac, telemetry->hdr.nodeId, telemetry->hdr.seq, TELEMETRY_ACK_STATUS_NOT_PAIRED);
-
-    const bool opened = pairingHeadOpenCandidateWindow(src_mac, millis(), REBIND_OPEN_MS, REBIND_COOLDOWN_MS);
-    if (opened) {
-      char macBuf[18] = {0};
-      macToString(src_mac, macBuf, sizeof(macBuf));
-      Serial.print("PAIRING(HEAD): rebind window opened for candidate mac=");
-      Serial.println(macBuf);
-    }
     return;
   }
 

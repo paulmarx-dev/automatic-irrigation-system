@@ -31,6 +31,18 @@ static uint32_t s_pendingSessionId = 0;
 static uint8_t s_pendingNodeUid[6] = {0};
 static uint8_t s_pendingNodeMac[6] = {0};
 
+static constexpr uint8_t MAX_HEAD_PAIRED_NODES = 8;
+
+struct HeadPairedNode {
+  bool used;
+  uint16_t nodeId;
+  uint8_t mac[6];
+  uint8_t uid[6];
+};
+
+static HeadPairedNode s_headPairedNodes[MAX_HEAD_PAIRED_NODES] = {};
+static uint8_t s_headPairedCount = 0;
+
 static bool s_headPaired = false;
 static uint16_t s_headPairedNodeId = 0;
 static uint8_t s_headPairedNodeMac[6] = {0};
@@ -57,6 +69,90 @@ static bool s_joinSent = false;
 static uint32_t s_lastJoinMs = 0;
 static uint16_t s_offerNodeId = 0;
 static bool s_offerReceived = false;
+
+static int8_t headFindPairedSlotByNodeIdMac(uint16_t nodeId, const uint8_t mac[6])
+{
+  for (uint8_t index = 0; index < MAX_HEAD_PAIRED_NODES; ++index) {
+    if (!s_headPairedNodes[index].used) {
+      continue;
+    }
+    if (s_headPairedNodes[index].nodeId == nodeId && memcmp(s_headPairedNodes[index].mac, mac, 6) == 0) {
+      return static_cast<int8_t>(index);
+    }
+  }
+  return -1;
+}
+
+static int8_t headFindPairedSlotByMac(const uint8_t mac[6])
+{
+  for (uint8_t index = 0; index < MAX_HEAD_PAIRED_NODES; ++index) {
+    if (!s_headPairedNodes[index].used) {
+      continue;
+    }
+    if (memcmp(s_headPairedNodes[index].mac, mac, 6) == 0) {
+      return static_cast<int8_t>(index);
+    }
+  }
+  return -1;
+}
+
+static int8_t headFindPairedSlotByUid(const uint8_t uid[6])
+{
+  for (uint8_t index = 0; index < MAX_HEAD_PAIRED_NODES; ++index) {
+    if (!s_headPairedNodes[index].used) {
+      continue;
+    }
+    if (memcmp(s_headPairedNodes[index].uid, uid, 6) == 0) {
+      return static_cast<int8_t>(index);
+    }
+  }
+  return -1;
+}
+
+static int8_t headFindFreePairedSlot()
+{
+  for (uint8_t index = 0; index < MAX_HEAD_PAIRED_NODES; ++index) {
+    if (!s_headPairedNodes[index].used) {
+      return static_cast<int8_t>(index);
+    }
+  }
+  return -1;
+}
+
+static void headClearPairedRegistry()
+{
+  memset(s_headPairedNodes, 0, sizeof(s_headPairedNodes));
+  s_headPairedCount = 0;
+}
+
+static void headUpsertPairedNode(uint16_t nodeId, const uint8_t mac[6], const uint8_t uid[6])
+{
+  int8_t slot = headFindPairedSlotByNodeIdMac(nodeId, mac);
+  if (slot < 0) {
+    slot = headFindPairedSlotByMac(mac);
+  }
+  if (slot < 0) {
+    slot = headFindPairedSlotByUid(uid);
+  }
+  if (slot < 0) {
+    slot = headFindFreePairedSlot();
+  }
+  if (slot < 0) {
+    return;
+  }
+
+  HeadPairedNode* entry = &s_headPairedNodes[slot];
+  const bool wasUsed = entry->used;
+
+  entry->used = true;
+  entry->nodeId = nodeId;
+  memcpy(entry->mac, mac, 6);
+  memcpy(entry->uid, uid, 6);
+
+  if (!wasUsed && s_headPairedCount < 255) {
+    s_headPairedCount++;
+  }
+}
 
 void pairingHeadSetOpen(bool open)
 {
@@ -157,14 +253,14 @@ void pairingNodeTick(uint32_t nowMs)
   }
 }
 
-void pairingNodeRestorePairedHead(const uint8_t headMac[6])
+void pairingNodeRestorePairedHead(const uint8_t headMac[6], uint16_t nodeId)
 {
-  if (!headMac) {
+  if (!headMac || nodeId == 0) {
     return;
   }
 
   s_nodePaired = true;
-  s_nodeId = 1;
+  s_nodeId = nodeId;
   memcpy(s_nodeHeadMac, headMac, sizeof(s_nodeHeadMac));
   pairingNodeExitJoinMode();
   s_offerNodeId = 0;
@@ -189,6 +285,7 @@ void pairingHeadFactoryReset()
   s_headPairedNodeId = 0;
   memset(s_headPairedNodeMac, 0, sizeof(s_headPairedNodeMac));
   memset(s_headPairedNodeUid, 0, sizeof(s_headPairedNodeUid));
+  headClearPairedRegistry();
   s_headPairSuccessEvent = false;
   s_pendingNodeId = 0;
   s_pendingSessionId = 0;
@@ -267,6 +364,7 @@ void pairingInitHead(uint8_t headId)
   s_headPairedNodeId = 0;
   memset(s_headPairedNodeMac, 0, sizeof(s_headPairedNodeMac));
   memset(s_headPairedNodeUid, 0, sizeof(s_headPairedNodeUid));
+  headClearPairedRegistry();
   s_headPairSuccessEvent = false;
   s_headOpen = false;
   s_headOpenDeadlineMs = 0;
@@ -376,16 +474,6 @@ static void headHandleJoinReq(const uint8_t* src_mac, const MsgJoinReq* join)
     return;
   }
 
-  if (s_headPaired) {
-    const bool samePairedNode = macEq(src_mac, s_headPairedNodeMac);
-    if (!samePairedNode) {
-      if (!s_headRebindArmed) {
-        return;
-      }
-      return;
-    }
-  }
-
   if (!s_headOpen) {
     return;
   }
@@ -398,7 +486,21 @@ static void headHandleJoinReq(const uint8_t* src_mac, const MsgJoinReq* join)
     s_headRebindArmed = false;
   }
 
-  const uint16_t assignedNodeId = s_nextNodeId++;
+  uint16_t assignedNodeId = 0;
+  int8_t existingSlot = headFindPairedSlotByMac(src_mac);
+  if (existingSlot < 0) {
+    existingSlot = headFindPairedSlotByUid(join->base.deviceUid);
+  }
+
+  if (existingSlot >= 0) {
+    assignedNodeId = s_headPairedNodes[existingSlot].nodeId;
+  } else {
+    if (s_headPairedCount >= MAX_HEAD_PAIRED_NODES) {
+      Serial.println("PAIRING(HEAD): paired registry full, JOIN_REQ ignored");
+      return;
+    }
+    assignedNodeId = s_nextNodeId++;
+  }
 
   s_pendingNodeId = assignedNodeId;
   s_pendingSessionId = join->base.sessionId;
@@ -442,6 +544,7 @@ static void headHandleConfirm(const uint8_t* src_mac, const MsgConfirm* confirm)
   s_headPairedNodeId = confirm->nodeId;
   macCopy(s_headPairedNodeMac, src_mac);
   macCopy(s_headPairedNodeUid, confirm->base.deviceUid);
+  headUpsertPairedNode(confirm->nodeId, src_mac, confirm->base.deviceUid);
   s_headPairSuccessEvent = true;
 
   MsgAck ack{};
@@ -649,7 +752,7 @@ bool pairingOnRecv(const uint8_t* src_mac, const uint8_t* data, int len)
 
 bool pairingHeadHasPairedNode()
 {
-  return s_headPaired;
+  return s_headPairedCount > 0;
 }
 
 bool pairingHeadConsumePairSuccessEvent()
@@ -672,6 +775,15 @@ bool pairingHeadPairedNodeMac(uint8_t out_mac[6])
 
   memcpy(out_mac, s_headPairedNodeMac, 6);
   return true;
+}
+
+bool pairingHeadIsKnownNode(uint16_t nodeId, const uint8_t mac[6])
+{
+  if (nodeId == 0 || !mac) {
+    return false;
+  }
+
+  return headFindPairedSlotByNodeIdMac(nodeId, mac) >= 0;
 }
 
 bool pairingNodeIsPaired()
