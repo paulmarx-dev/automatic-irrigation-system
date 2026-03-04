@@ -1,6 +1,7 @@
 #include "pairing.h"
 #include "esp_now_helpers.h"
 #include "common_config.h"
+#include "pairing_nvs.h"
 
 #include <Arduino.h>
 #include <string.h>
@@ -123,6 +124,72 @@ static void headClearPairedRegistry()
 {
   memset(s_headPairedNodes, 0, sizeof(s_headPairedNodes));
   s_headPairedCount = 0;
+}
+
+static void headPersistPairedRegistry()
+{
+  PairingHeadNodeNvsRecord records[PAIRING_NVS_MAX_HEAD_NODES] = {};
+  for (uint8_t index = 0; index < MAX_HEAD_PAIRED_NODES; ++index) {
+    if (!s_headPairedNodes[index].used) {
+      continue;
+    }
+    records[index].nodeId = s_headPairedNodes[index].nodeId;
+    memcpy(records[index].mac, s_headPairedNodes[index].mac, 6);
+    memcpy(records[index].uid, s_headPairedNodes[index].uid, 6);
+  }
+
+  if (!pairingNvsSaveHead(records, s_headPairedCount, s_nextNodeId)) {
+    Serial.println("PAIRING(HEAD): NVS save failed");
+  }
+}
+
+static void headRestorePairedRegistry()
+{
+  PairingHeadNodeNvsRecord records[PAIRING_NVS_MAX_HEAD_NODES] = {};
+  uint8_t count = 0;
+  uint16_t nextNodeId = 1;
+  if (!pairingNvsLoadHead(records, &count, &nextNodeId)) {
+    return;
+  }
+
+  headClearPairedRegistry();
+  uint16_t maxNodeId = 0;
+  uint8_t restoredCount = 0;
+  for (uint8_t index = 0; index < MAX_HEAD_PAIRED_NODES; ++index) {
+    if (records[index].nodeId == 0) {
+      continue;
+    }
+    s_headPairedNodes[index].used = true;
+    s_headPairedNodes[index].nodeId = records[index].nodeId;
+    memcpy(s_headPairedNodes[index].mac, records[index].mac, 6);
+    memcpy(s_headPairedNodes[index].uid, records[index].uid, 6);
+    restoredCount++;
+    if (records[index].nodeId > maxNodeId) {
+      maxNodeId = records[index].nodeId;
+    }
+  }
+
+  s_headPairedCount = restoredCount;
+  if (s_headPairedCount > 0) {
+    s_headPaired = true;
+    for (uint8_t index = 0; index < MAX_HEAD_PAIRED_NODES; ++index) {
+      if (!s_headPairedNodes[index].used) {
+        continue;
+      }
+      s_headPairedNodeId = s_headPairedNodes[index].nodeId;
+      memcpy(s_headPairedNodeMac, s_headPairedNodes[index].mac, 6);
+      memcpy(s_headPairedNodeUid, s_headPairedNodes[index].uid, 6);
+      break;
+    }
+  }
+
+  uint16_t fallbackNext = maxNodeId > 0 ? static_cast<uint16_t>(maxNodeId + 1) : 1;
+  s_nextNodeId = nextNodeId > fallbackNext ? nextNodeId : fallbackNext;
+
+  Serial.print("PAIRING(HEAD): restored paired nodes from NVS count=");
+  Serial.print((unsigned long)s_headPairedCount);
+  Serial.print(" storedCount=");
+  Serial.println((unsigned long)count);
 }
 
 static void headUpsertPairedNode(uint16_t nodeId, const uint8_t mac[6], const uint8_t uid[6])
@@ -296,6 +363,9 @@ void pairingHeadFactoryReset()
   pairingHeadSetOpen(false);
   s_headRebindArmed = false;
   s_headCandidateLastOpenMs = 0;
+  if (!pairingNvsClearHead()) {
+    Serial.println("PAIRING(HEAD): NVS clear failed");
+  }
   Serial.println("PAIRING(HEAD): factory reset complete");
 }
 
@@ -372,6 +442,8 @@ void pairingInitHead(uint8_t headId)
   s_headCandidateFilterActive = false;
   memset(s_headCandidateMac, 0, sizeof(s_headCandidateMac));
   s_headCandidateLastOpenMs = 0;
+
+  headRestorePairedRegistry();
 
   (void)espnowEnsurePeer(ESPNOW_BROADCAST_MAC, ESPNOW_CHANNEL, false);
 
@@ -545,6 +617,7 @@ static void headHandleConfirm(const uint8_t* src_mac, const MsgConfirm* confirm)
   macCopy(s_headPairedNodeMac, src_mac);
   macCopy(s_headPairedNodeUid, confirm->base.deviceUid);
   headUpsertPairedNode(confirm->nodeId, src_mac, confirm->base.deviceUid);
+  headPersistPairedRegistry();
   s_headPairSuccessEvent = true;
 
   MsgAck ack{};
