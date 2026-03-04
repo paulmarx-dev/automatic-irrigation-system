@@ -11,7 +11,7 @@
   - [x] Safe rules: no accidental rebind; factory reset flow
   - [ ] Multi-device pairing: head supports pairing/handling multiple nodes (SENSOR + CONTROL)
   - [x] NVS on HEAD: persist paired nodes registry (MAC/role/nodeId/lastSeen)
-  - [x] NVS on HEAD: atomic registry save/load (single blob + CRC32, with legacy fallback migration)
+  - [x] NVS on HEAD: atomic registry save/load (single blob + CRC32)
   - [ ] NVS on CONTROL: persist paired head state and restore after reboot
 - [ ] Base message definitions (telemetry, battery, cmd, cmd_ack), protocol versioning
 - [x] Sensor -> head telemetry (happy path) + ack policy + retries
