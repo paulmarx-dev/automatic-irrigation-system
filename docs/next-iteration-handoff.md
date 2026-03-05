@@ -57,7 +57,7 @@ Operator policy decisions (confirmed):
 - Full captive portal/DNS hijack.
 - Cloud sync logic.
 - Sensor/control firmware changes.
-- Coupling Wi-Fi credential wipe to existing long-press sensor reset action.
+- Do NOT wipe Wi-Fi credentials in the existing long-press sensor reset flow.
 
 ---
 

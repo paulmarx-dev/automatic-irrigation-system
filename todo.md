@@ -16,12 +16,15 @@
 - [ ] Base message definitions (telemetry, battery, cmd, cmd_ack), protocol versioning
 - [x] Sensor -> head telemetry (happy path) + ack policy + retries
 - [ ] Power management for sensor: deep sleep cycle, wake -> measure -> transmit -> sleep
+  - [ ] Make node presence thresholds configurable for field mode (SUSPECT/OFFLINE), not debug-fixed seconds
+  - [ ] Tie presence thresholds to real telemetry period after sleep/power management is implemented
 - [ ] Battery-driven behavior: low battery thresholds, "critical" mode, messaging to head
 - [ ] Control unit: duty-cycle listen vs active mode, heartbeat, command execution state machine
 - [ ] Head logic: command decisions (manual/web + automation), scheduling, irrigation state
 - [ ] Reliability: rejoin after head reboot, stale peer cleanup, registry maintenance
   - [ ] Release smoke checklist (HEAD+2 SENSOR): pair -> reboot -> auto-restore -> telemetry ACK=OK
   - [ ] Presence smoke checklist: node offline timeout log + online recovery log after return
+  - [ ] Registry slot policy: slot0 is currently NOT reserved; when reserving slot0 for CONTROL, add explicit migration/backward-compat flow
 - [ ] Optional: time sync, irrigation-phase sampling
 - [ ] Web server for head: status page, manual control, pairing management, OTA updates
   - [ ] JSON API for node presence (`lastSeenMs`, `online`, `nodeId`, `mac`) for UI integration
