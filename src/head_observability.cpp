@@ -5,10 +5,9 @@
 #include <Arduino.h>
 #include <WebServer.h>
 #include <WiFi.h>
-#include <esp_mac.h>
 
-#include "common_config.h"
 #include "esp_now_helpers.h"
+#include "head_wifi_provisioning.h"
 #include "telemetry.h"
 
 namespace {
@@ -75,29 +74,17 @@ static void onNodesApi()
 
 void headObservabilityInit()
 {
-  char ssid[32] = {0};
-  uint8_t mac[6] = {0};
-  esp_read_mac(mac, ESP_MAC_WIFI_STA);
-  (void)snprintf(ssid, sizeof(ssid), "irrig-head-%02X%02X", mac[4], mac[5]);
-
-  WiFi.mode(WIFI_AP_STA);
-  if (WiFi.softAP(ssid, nullptr, ESPNOW_CHANNEL, false, 1)) {
-    Serial.print("OBS: AP started ssid=");
-    Serial.println(ssid);
-    Serial.print("OBS: AP IP=");
-    Serial.println(WiFi.softAPIP());
-  } else {
-    Serial.println("OBS: AP start failed");
-  }
-
+  WiFi.mode(WIFI_STA);
   s_server.on("/api/nodes", HTTP_GET, onNodesApi);
+  headProvisioningInit(&s_server);
   s_server.begin();
-  Serial.println("OBS: HTTP /api/nodes ready");
+  Serial.println("OBS: HTTP /api/nodes + provisioning ready");
 }
 
 void headObservabilityTick()
 {
   s_server.handleClient();
+  headProvisioningTick(millis());
 }
 
 #else

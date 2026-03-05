@@ -5,6 +5,7 @@
 #include "pairing.h"
 #include "telemetry.h"
 #include "head_observability.h"
+#include "head_wifi_provisioning.h"
 #include "leds.h"
 #include "button.h"
 #include "app_log.h"
@@ -16,6 +17,7 @@ static const uint32_t MULTIPRESS_WINDOW_MS = 1400;
 
 struct HeadPressEvents {
   bool single;
+  bool triple;
   bool debug;
 };
 
@@ -30,7 +32,7 @@ static void resetHeadMultipress()
 
 static HeadPressEvents processHeadMultipress(bool shortPress, uint32_t now)
 {
-  HeadPressEvents events{false, false};
+  HeadPressEvents events{false, false, false};
 
   if (shortPress) {
     if (s_headPressCount < 255) {
@@ -48,6 +50,8 @@ static HeadPressEvents processHeadMultipress(bool shortPress, uint32_t now)
 
   if (s_headPressCount >= 5) {
     events.debug = true;
+  } else if (s_headPressCount == 3) {
+    events.triple = true;
   } else if (s_headPressCount == 1) {
     events.single = true;
   }
@@ -122,6 +126,9 @@ void loop() {
     bool shortPressConsumedForClose = false;
     if (rawShortPress && pairingHeadIsOpen()) {
       pairingHeadSetOpen(false);
+      if (!headProvisioningIsSetupStarted()) {
+        headProvisioningCloseSession();
+      }
       resetHeadMultipress();
       shortPressConsumedForClose = true;
       Serial.println("PAIRING(HEAD): pairing window closed by user");
@@ -139,14 +146,28 @@ void loop() {
       ledsTriggerOnce(LED_MODE_FACTORY_RESET_ONCE);
     }
 
+    if (pressEvents.triple) {
+      if (headProvisioningHandleTriplePressReset(now, pairingHeadIsOpen())) {
+        Serial.println("PROV: Wi-Fi credentials reset by triple press");
+        ledsTriggerOnce(LED_MODE_SUCCESS_ONCE);
+      } else {
+        Serial.println("PROV: triple press ignored (outside pairing/provisioning window)");
+        ledsTriggerOnce(LED_MODE_ERROR_ONCE);
+      }
+    }
+
     if (pressEvents.single) {
       if (pairingHeadIsOpen()) {
         pairingHeadSetOpen(false);
+        if (!headProvisioningIsSetupStarted()) {
+          headProvisioningCloseSession();
+        }
         resetHeadMultipress();
         Serial.println("PAIRING(HEAD): pairing window closed by user");
         ledsTriggerOnce(LED_MODE_ERROR_ONCE);
       } else {
         pairingHeadSetOpen(true);
+        headProvisioningOpenSession(now);
         Serial.println("PAIRING(HEAD): pairing window opened");
         ledsSetBaseMode(LED_MODE_PAIRING_OPEN);
       }
@@ -175,6 +196,9 @@ void loop() {
     if (isOpen && !lastOpenState) {
       ledsSetBaseMode(LED_MODE_PAIRING_OPEN);
     } else if (!isOpen && lastOpenState) {
+      if (!headProvisioningIsSetupStarted()) {
+        headProvisioningCloseSession();
+      }
       ledsSetBaseMode(LED_MODE_OFF);
     }
     lastOpenState = isOpen;

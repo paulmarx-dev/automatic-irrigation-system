@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Irrigation Setup</title>
+  <link rel="stylesheet" href="/provisioning/style.css" />
+</head>
+<body>
+  <main class="wrap">
+    <h1>Irrigation Setup</h1>
+    <p class="sub">Configure Wi-Fi for head unit.</p>
+
+    <section class="card">
+      <form id="cfgForm">
+        <label>
+          SSID
+          <input id="ssid" name="ssid" required maxlength="32" autocomplete="off" />
+        </label>
+
+        <label>
+          Password
+          <input id="password" name="password" type="password" maxlength="64" autocomplete="off" />
+        </label>
+
+        <div class="actions">
+          <button type="submit">Save and Connect</button>
+          <button type="button" id="resetBtn" class="ghost">Reset Wi-Fi NVS</button>
+        </div>
+      </form>
+      <pre id="status">Loading...</pre>
+    </section>
+  </main>
+
+  <script src="/provisioning/app.js"></script>
+</body>
+</html>
