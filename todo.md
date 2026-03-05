@@ -50,6 +50,11 @@ Head networking mode = SoftAP always (local UI), STA hotspot only for upload (ma
 ### Open Issues:
 - [x] Sensor UX on head factory reset resolved: sensor handles NOT_PAIRED ACK, clears local pairing, enters join mode; head opens short candidate rebind window.
 
+### Head Web Operating Policy (current):
+- AP-first local web console for user operations and debug; router/internet not required for normal work.
+- Internet sync is explicitly deferred to a late phase and must be implemented as a short, explicit mode that may pause ESPNOW.
+- See: `docs/head-web-operating-model.md`
+
 
 ## ACCEPTANCE CRITERIA
 
