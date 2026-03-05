@@ -44,6 +44,7 @@ Operator policy decisions (confirmed):
 ### In scope
 - HEAD-only provisioning flow.
 - AP onboarding page/API for SSID+password.
+- Static provisioning UI in filesystem files under `data/` (no inline HTML in C++ handlers).
 - Save/load credentials in NVS (`wifi_cfg` namespace).
 - Controlled STA connect attempt + result reporting.
 - Fallback to AP provisioning if STA connect fails.
@@ -72,6 +73,7 @@ Operator policy decisions (confirmed):
 ## Architecture notes to preserve
 - Use simple synchronous `WebServer` in this iteration.
 - Keep a clear seam so migration to async server later is low-risk (same endpoint contracts, isolated provisioning module).
+- Pin filesystem choice explicitly in config (avoid relying on implicit defaults).
 - No dynamic allocations in hot receive paths.
 - Maintain existing telemetry/pairing APIs and semantics.
 - Do not mix provisioning refactor with unrelated features.
@@ -105,10 +107,22 @@ Transitions:
 - `src/head_unit.cpp` (state orchestration)
 - `src/head_observability.cpp/.h` (server endpoints integration)
 - new: `src/head_wifi_provisioning.cpp/.h` (credentials + state + connect attempts)
+- new: `data/provisioning/index.html`
+- new: `data/provisioning/app.js`
+- new: `data/provisioning/style.css`
+- `platformio.ini` (filesystem type and upload flow)
 - maybe: `src/common_config.h` (small constants)
 - maybe: `todo.md` (mark progress)
 
 Note: keep provisioning logic in dedicated module files; avoid spreading state transitions across unrelated units.
+
+---
+
+## Filesystem + static delivery rules
+- Serve provisioning UI from filesystem files (`/provisioning/index.html`, etc.), not C++ string literals.
+- Keep API routes and static route handling separate.
+- Add a repeatable upload step for FS image (`uploadfs`) for head environment.
+- During dev and release validation, run both firmware upload and FS upload when UI changes.
 
 ---
 
@@ -184,8 +198,11 @@ Mitigation:
 1. Add `wifi_cfg` NVS helpers.
 2. Add provisioning state machine in HEAD (button-triggered temporary AP windows).
 3. Add triple-press Wi-Fi credential reset path scoped to pairing/provisioning window.
-4. Add minimal provisioning endpoints.
-5. Integrate with existing server lifecycle.
-6. Build all envs.
-7. Hardware tests from checklist.
-8. Commit and push with short, focused message.
+4. Add static provisioning UI files under `data/provisioning`.
+5. Configure filesystem explicitly in `platformio.ini` and ensure `uploadfs` flow exists for head.
+6. Add minimal provisioning endpoints.
+7. Integrate with existing server lifecycle.
+8. Build all envs.
+9. Upload firmware + FS image to head for UI validation.
+10. Hardware tests from checklist.
+11. Commit and push with short, focused message.
