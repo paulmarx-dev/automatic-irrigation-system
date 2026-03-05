@@ -31,6 +31,13 @@ Need a practical first-time setup UX via browser:
 
 This should be done with minimal scope and no protocol redesign.
 
+Operator policy decisions (confirmed):
+- Provisioning AP name: `Irrigation-Setup-XXXX` (last 4 HEX from HEAD MAC).
+- Provisioning AP should be temporary and user-triggered by the same button used for sensor pairing.
+- AP open window: 2 minutes by default (press button again to reopen).
+- If provisioning was started but not completed, close session after 5-10 minutes.
+- Main irrigation/sensor function always has higher priority than web/provisioning activity.
+
 ---
 
 ## Scope (MVP only)
@@ -41,6 +48,7 @@ This should be done with minimal scope and no protocol redesign.
 - Controlled STA connect attempt + result reporting.
 - Fallback to AP provisioning if STA connect fails.
 - Keep `/api/nodes` working in AP mode.
+- Wi-Fi credential reset by button pattern only during active pairing/provisioning window (triple press).
 
 ### Out of scope (do not implement now)
 - Rich web UI, charts, themes.
@@ -48,6 +56,7 @@ This should be done with minimal scope and no protocol redesign.
 - Full captive portal/DNS hijack.
 - Cloud sync logic.
 - Sensor/control firmware changes.
+- Coupling Wi-Fi credential wipe to existing long-press sensor reset action.
 
 ---
 
@@ -56,11 +65,13 @@ This should be done with minimal scope and no protocol redesign.
 2. Provisioning mode and normal runtime must be explicit states.
 3. No extra NVS write storms.
 4. Keep RAM/flash overhead modest (current app already ~80% of app partition).
+5. Wi-Fi credentials must not be erased when user performs sensor reset flows.
 
 ---
 
 ## Architecture notes to preserve
-- Use **simple synchronous `WebServer`** (already chosen for MVP simplicity).
+- Use simple synchronous `WebServer` in this iteration.
+- Keep a clear seam so migration to async server later is low-risk (same endpoint contracts, isolated provisioning module).
 - No dynamic allocations in hot receive paths.
 - Maintain existing telemetry/pairing APIs and semantics.
 - Do not mix provisioning refactor with unrelated features.
@@ -75,9 +86,11 @@ This should be done with minimal scope and no protocol redesign.
 
 Transitions:
 - First boot / no creds -> `PROV_AP_ACTIVE`
+- Pairing button press in normal mode -> open temporary provisioning AP (2 min window)
 - Credentials submitted -> `PROV_CONNECTING_STA`
 - STA success -> `RUN_NORMAL`
-- STA timeout/fail -> `PROV_AP_ACTIVE`
+- STA timeout/fail -> back to `PROV_AP_ACTIVE` while provisioning window remains active
+- Provisioning inactivity timeout (5-10 min) -> close AP and return to `RUN_NORMAL`
 
 ---
 
@@ -95,6 +108,8 @@ Transitions:
 - maybe: `src/common_config.h` (small constants)
 - maybe: `todo.md` (mark progress)
 
+Note: keep provisioning logic in dedicated module files; avoid spreading state transitions across unrelated units.
+
 ---
 
 ## Data model (NVS)
@@ -107,6 +122,7 @@ Namespace: `wifi_cfg`
 Behavior:
 - Write only on user submit / explicit reset.
 - Avoid rewriting unchanged creds.
+- Explicit reset path: triple button press during active pairing/provisioning window only.
 
 ---
 
@@ -114,7 +130,7 @@ Behavior:
 - `GET /api/nodes` (already exists; keep)
 - `GET /api/provisioning/status`
 - `POST /api/provisioning/config` (ssid/password)
-- optional `POST /api/provisioning/reset`
+- optional `POST /api/provisioning/reset` (debug only; button flow is primary UX)
 
 Minimal response shape example:
 ```json
@@ -135,6 +151,8 @@ Minimal response shape example:
 4. Existing pairing/telemetry still works as before in normal mode.
 5. `/api/nodes` still returns valid JSON.
 6. No repeated NVS writes during steady operation.
+7. Long-press sensor reset does not clear Wi-Fi credentials.
+8. Triple-press reset during pairing/provisioning clears only Wi-Fi credentials.
 
 ---
 
@@ -145,6 +163,8 @@ Minimal response shape example:
 4. Submit wrong password: confirm timeout and AP fallback.
 5. Pair sensors and verify telemetry/ACK unaffected.
 6. Power-cycle stress x5 to ensure deterministic mode transitions.
+7. Verify long-press sensor reset keeps Wi-Fi credentials intact.
+8. Verify triple press during pairing/provisioning clears Wi-Fi credentials and reopens setup AP.
 
 ---
 
@@ -162,9 +182,10 @@ Mitigation:
 
 ## Execution order (recommended)
 1. Add `wifi_cfg` NVS helpers.
-2. Add provisioning state machine in HEAD.
-3. Add minimal provisioning endpoints.
-4. Integrate with existing server lifecycle.
-5. Build all envs.
-6. Hardware tests from checklist.
-7. Commit and push with short, focused message.
+2. Add provisioning state machine in HEAD (button-triggered temporary AP windows).
+3. Add triple-press Wi-Fi credential reset path scoped to pairing/provisioning window.
+4. Add minimal provisioning endpoints.
+5. Integrate with existing server lifecycle.
+6. Build all envs.
+7. Hardware tests from checklist.
+8. Commit and push with short, focused message.
