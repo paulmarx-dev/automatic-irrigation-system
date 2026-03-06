@@ -3,6 +3,7 @@
 #if defined(DEVICE_ROLE_HEAD)
 
 #include <Arduino.h>
+#include <Preferences.h>
 #include <WebServer.h>
 #include <WiFi.h>
 #include <ctype.h>
@@ -18,6 +19,20 @@ namespace {
 static WebServer s_server(80);
 static constexpr uint8_t MAX_SENSOR_LABELS = 8;
 static constexpr size_t SENSOR_NAME_MAX = 32;
+static constexpr uint16_t SENSOR_LABELS_NVS_VERSION = 1;
+static const char* SENSOR_LABELS_NVS_NAMESPACE = "sensor_labels";
+static const char* SENSOR_LABELS_NVS_KEY = "labels_blob";
+
+struct SensorLabelRecord {
+  uint16_t nodeId;
+  char name[SENSOR_NAME_MAX];
+};
+
+struct SensorLabelsNvsBlob {
+  uint16_t version;
+  uint16_t reserved;
+  SensorLabelRecord records[MAX_SENSOR_LABELS];
+};
 
 struct SensorLabel {
   bool used;
@@ -26,6 +41,8 @@ struct SensorLabel {
 };
 
 static SensorLabel s_sensorLabels[MAX_SENSOR_LABELS] = {};
+static Preferences s_sensorLabelsPrefs;
+static bool s_sensorLabelsPrefsReady = false;
 
 static const char* nodeStateToText(TelemetryHeadNodeState state)
 {
@@ -75,6 +92,50 @@ static int8_t findFreeSensorLabelSlot()
   return -1;
 }
 
+static bool saveSensorLabelsToNvs()
+{
+  if (!s_sensorLabelsPrefsReady) {
+    return false;
+  }
+
+  SensorLabelsNvsBlob blob{};
+  blob.version = SENSOR_LABELS_NVS_VERSION;
+  for (uint8_t i = 0; i < MAX_SENSOR_LABELS; ++i) {
+    if (!s_sensorLabels[i].used || s_sensorLabels[i].nodeId == 0) {
+      continue;
+    }
+    blob.records[i].nodeId = s_sensorLabels[i].nodeId;
+    strlcpy(blob.records[i].name, s_sensorLabels[i].name, sizeof(blob.records[i].name));
+  }
+
+  const size_t written = s_sensorLabelsPrefs.putBytes(SENSOR_LABELS_NVS_KEY, &blob, sizeof(blob));
+  return written == sizeof(blob);
+}
+
+static void loadSensorLabelsFromNvs()
+{
+  if (!s_sensorLabelsPrefsReady) {
+    return;
+  }
+
+  SensorLabelsNvsBlob blob{};
+  const size_t read = s_sensorLabelsPrefs.getBytes(SENSOR_LABELS_NVS_KEY, &blob, sizeof(blob));
+  if (read != sizeof(blob) || blob.version != SENSOR_LABELS_NVS_VERSION) {
+    memset(s_sensorLabels, 0, sizeof(s_sensorLabels));
+    return;
+  }
+
+  memset(s_sensorLabels, 0, sizeof(s_sensorLabels));
+  for (uint8_t i = 0; i < MAX_SENSOR_LABELS; ++i) {
+    if (blob.records[i].nodeId == 0 || blob.records[i].name[0] == '\0') {
+      continue;
+    }
+    s_sensorLabels[i].used = true;
+    s_sensorLabels[i].nodeId = blob.records[i].nodeId;
+    strlcpy(s_sensorLabels[i].name, blob.records[i].name, sizeof(s_sensorLabels[i].name));
+  }
+}
+
 static bool sanitizeSensorName(const String& input, char outName[SENSOR_NAME_MAX])
 {
   if (!outName) {
@@ -116,6 +177,9 @@ static bool setSensorLabel(uint16_t nodeId, const char* name)
   s_sensorLabels[slot].used = true;
   s_sensorLabels[slot].nodeId = nodeId;
   strlcpy(s_sensorLabels[slot].name, name, sizeof(s_sensorLabels[slot].name));
+  if (!saveSensorLabelsToNvs()) {
+    Serial.println("OBS: warning, sensor label not persisted");
+  }
   return true;
 }
 
@@ -126,6 +190,7 @@ static void clearSensorLabel(uint16_t nodeId)
     return;
   }
   memset(&s_sensorLabels[slot], 0, sizeof(s_sensorLabels[slot]));
+  (void)saveSensorLabelsToNvs();
 }
 
 static void resolveSensorName(uint16_t nodeId, char outName[SENSOR_NAME_MAX])
@@ -251,6 +316,9 @@ static void onNodesApi()
 
 void headObservabilityInit()
 {
+  s_sensorLabelsPrefsReady = s_sensorLabelsPrefs.begin(SENSOR_LABELS_NVS_NAMESPACE, false);
+  loadSensorLabelsFromNvs();
+
   s_server.on("/api/nodes", HTTP_GET, onNodesApi);
   s_server.on("/api/sensors/rename", HTTP_POST, onSensorRenameApi);
   s_server.on("/api/sensors/unpair", HTTP_POST, onSensorUnpairApi);
