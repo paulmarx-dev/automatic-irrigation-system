@@ -40,6 +40,9 @@ static void serveFile(const char* path, const char* contentType)
 
 static void onWebStatusApi()
 {
+  const uint32_t remainingMs = pairingHeadRemainingMs(millis());
+  const uint32_t remainingSec = (remainingMs + 999UL) / 1000UL;
+
   String body;
   body.reserve(256);
   body += "{";
@@ -52,6 +55,9 @@ static void onWebStatusApi()
   body += "\",";
   body += "\"pairingOpen\":";
   body += pairingHeadIsOpen() ? "true" : "false";
+  body += ",";
+  body += "\"pairingRemainingSec\":";
+  body += String(static_cast<unsigned long>(remainingSec));
   body += "}";
 
   s_server->send(200, "application/json", body);
@@ -60,7 +66,13 @@ static void onWebStatusApi()
 static void onPairingOpenApi()
 {
   pairingHeadSetOpen(true);
-  s_server->send(200, "application/json", "{\"ok\":1,\"pairingOpen\":true}");
+  const uint32_t remainingSec = (pairingHeadRemainingMs(millis()) + 999UL) / 1000UL;
+  String body;
+  body.reserve(96);
+  body += "{\"ok\":1,\"pairingOpen\":true,\"pairingRemainingSec\":";
+  body += String(static_cast<unsigned long>(remainingSec));
+  body += "}";
+  s_server->send(200, "application/json", body);
 }
 
 static void registerRoutes()

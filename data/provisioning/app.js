@@ -2,6 +2,7 @@ const webStatusEl = document.getElementById('webStatus');
 const nodesEl = document.getElementById('nodes');
 const addSensorBtn = document.getElementById('addSensorBtn');
 const pairingBannerEl = document.getElementById('pairingBanner');
+let pairingRemainingSec = 0;
 
 function render(el, data) {
   el.textContent = JSON.stringify(data, null, 2);
@@ -80,13 +81,24 @@ async function openPairingWindow() {
   }
 }
 
-function renderPairingBanner(webStatus) {
-  const isOpen = Boolean(webStatus && webStatus.pairingOpen);
+function renderPairingBannerState(isOpen) {
   if (!pairingBannerEl) {
     return;
   }
 
+  pairingBannerEl.textContent = isOpen
+    ? `Pairing window is open (${Math.max(0, pairingRemainingSec)}s left).`
+    : 'Pairing window is open (120s).';
   pairingBannerEl.hidden = !isOpen;
+}
+
+function syncPairingCountdown(webStatus) {
+  const isOpen = Boolean(webStatus && webStatus.pairingOpen);
+  const serverRemainingSec = Number(webStatus && webStatus.pairingRemainingSec);
+  pairingRemainingSec = isOpen && Number.isFinite(serverRemainingSec)
+    ? Math.max(0, Math.floor(serverRemainingSec))
+    : 0;
+  renderPairingBannerState(isOpen);
 }
 
 function renderNodes(nodes) {
@@ -148,12 +160,13 @@ async function tick() {
     ]);
 
     render(webStatusEl, webStatus);
-    renderPairingBanner(webStatus);
+    syncPairingCountdown(webStatus);
     renderNodes(nodes);
   } catch (error) {
     webStatusEl.textContent = `fetch error: ${error}`;
     nodesEl.textContent = '';
     if (pairingBannerEl) {
+      pairingRemainingSec = 0;
       pairingBannerEl.hidden = true;
     }
   }
@@ -183,6 +196,13 @@ nodesEl.addEventListener('click', async (event) => {
 
 setInterval(tick, 3000);
 tick();
+
+setInterval(() => {
+  if (pairingRemainingSec > 0) {
+    pairingRemainingSec -= 1;
+    renderPairingBannerState(pairingRemainingSec > 0);
+  }
+}, 1000);
 
 if (addSensorBtn) {
   addSensorBtn.addEventListener('click', async () => {

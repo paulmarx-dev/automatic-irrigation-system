@@ -330,6 +330,19 @@ bool pairingHeadIsOpen()
   return s_headOpen;
 }
 
+uint32_t pairingHeadRemainingMs(uint32_t nowMs)
+{
+  if (!s_headOpen || s_headOpenDeadlineMs == 0) {
+    return 0;
+  }
+
+  if ((int32_t)(nowMs - s_headOpenDeadlineMs) >= 0) {
+    return 0;
+  }
+
+  return static_cast<uint32_t>(s_headOpenDeadlineMs - nowMs);
+}
+
 void pairingHeadTick(uint32_t nowMs)
 {
   if (!s_headOpen) {

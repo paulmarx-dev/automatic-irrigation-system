@@ -66,6 +66,7 @@ void pairingTick();
 void pairingHeadSetOpen(bool open);
 bool pairingHeadOpenCandidateWindow(const uint8_t candidateMac[6], uint32_t nowMs, uint32_t openMs, uint32_t cooldownMs);
 bool pairingHeadIsOpen();
+uint32_t pairingHeadRemainingMs(uint32_t nowMs);
 void pairingHeadTick(uint32_t nowMs);
 void pairingNodeEnterJoinMode(uint32_t nowMs);
 void pairingNodeExitJoinMode();
