@@ -163,12 +163,12 @@ Note:
 ## 7) Implementation plan with checkboxes
 
 ## Phase A — foundation (must-have)
-- [ ] Define and freeze MVP API contracts (request/response JSON)
+- [x] Define and freeze MVP API contracts (request/response JSON)
 - [ ] Add head runtime summary endpoint (`/api/system/summary`)
 - [ ] Add irrigation config read/write endpoints + NVS persistence
 - [ ] Add manual start/stop endpoints with safety guards
 - [ ] Add pairing open/close endpoints
-- [ ] Add sensor rename/unpair endpoints
+- [x] Add sensor rename/unpair endpoints
 - [ ] Add unit rename/password endpoints
 - [ ] Add danger-zone actions with confirmation tokens
 
@@ -177,7 +177,7 @@ Note:
 - [ ] Implement Home data binding + mode controls
 - [ ] Implement Save/Saved dirty-state UX
 - [ ] Implement Sensors cards + add-new + banners
-- [ ] Implement battery status rendering in sensor cards (`OK` / `CRITICAL` / `NEEDS_REPLACEMENT`)
+- [x] Implement battery status rendering in sensor cards (`OK` / `CRITICAL` / `NEEDS_REPLACEMENT`)
 - [ ] Implement This Unit form + danger zone flows
 - [ ] Implement low-frequency auto-refresh (2-5s)
 
@@ -202,12 +202,12 @@ Note:
 - [ ] Home tab correctly shows online count and avg moisture.
 - [ ] Auto/Manual/OFF controls behave as expected and persist.
 - [ ] Sensor add/rename/unpair works via UI.
-- [ ] Each sensor card shows battery voltage + battery state.
-- [ ] Battery severity visuals are correct: `CRITICAL` = red label; `NEEDS_REPLACEMENT` = entire card danger style.
+- [x] Each sensor card shows battery voltage + battery state.
+- [x] Battery severity visuals are correct: `CRITICAL` = red label; `NEEDS_REPLACEMENT` = entire card danger style.
 - [ ] This Unit rename/password works and persists.
-- [ ] Under one active web client, ESP-NOW telemetry remains stable.
+- [x] Under one active web client, ESP-NOW telemetry remains stable.
 - [ ] Under stress (frequent refresh), system remains safe (no runtime lockups).
-- [ ] After reboot/reset, startup ordering prevents false NOT_PAIRED/offline artifacts before pairing registry restore completes.
+- [x] After reboot/reset, startup ordering prevents false NOT_PAIRED/offline artifacts before pairing registry restore completes.
 - [ ] Implementation stays within sections 2/6/7 of this spec (no internet sync, no router-dependent UX, no extra tabs/features in MVP).
 
 ---
