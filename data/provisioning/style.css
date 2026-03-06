@@ -83,6 +83,28 @@ pre {
   margin: 6px 0;
 }
 
+.sensor-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.sensor-btn {
+  border: 1px solid #c9c9cf;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 13px;
+  font-weight: 600;
+  background: #f7f7fa;
+  color: #111;
+  cursor: pointer;
+}
+
+.sensor-btn.unpair {
+  border-color: #b00020;
+  color: #b00020;
+}
+
 .battery-state {
   font-weight: 700;
 }
