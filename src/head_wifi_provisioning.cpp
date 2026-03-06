@@ -9,6 +9,7 @@
 #include <esp_mac.h>
 
 #include "common_config.h"
+#include "pairing.h"
 
 namespace {
 
@@ -48,10 +49,18 @@ static void onWebStatusApi()
   body += "\",";
   body += "\"apIp\":\"";
   body += WiFi.softAPIP().toString();
-  body += "\"";
+  body += "\",";
+  body += "\"pairingOpen\":";
+  body += pairingHeadIsOpen() ? "true" : "false";
   body += "}";
 
   s_server->send(200, "application/json", body);
+}
+
+static void onPairingOpenApi()
+{
+  pairingHeadSetOpen(true);
+  s_server->send(200, "application/json", "{\"ok\":1,\"pairingOpen\":true}");
 }
 
 static void registerRoutes()
@@ -62,6 +71,7 @@ static void registerRoutes()
   s_server->on("/provisioning/app.js", HTTP_GET, []() { serveFile("/provisioning/app.js", "application/javascript"); });
   s_server->on("/provisioning/style.css", HTTP_GET, []() { serveFile("/provisioning/style.css", "text/css"); });
   s_server->on("/api/web/status", HTTP_GET, onWebStatusApi);
+  s_server->on("/api/pairing/open", HTTP_POST, onPairingOpenApi);
 }
 
 }  // namespace

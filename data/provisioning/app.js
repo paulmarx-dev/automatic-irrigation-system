@@ -1,5 +1,7 @@
 const webStatusEl = document.getElementById('webStatus');
 const nodesEl = document.getElementById('nodes');
+const addSensorBtn = document.getElementById('addSensorBtn');
+const pairingBannerEl = document.getElementById('pairingBanner');
 
 function render(el, data) {
   el.textContent = JSON.stringify(data, null, 2);
@@ -69,6 +71,24 @@ async function unpairSensor(nodeId) {
   }
 }
 
+async function openPairingWindow() {
+  try {
+    await postForm('/api/pairing/open', {});
+    await tick();
+  } catch (error) {
+    window.alert(`Open pairing failed: ${error.message}`);
+  }
+}
+
+function renderPairingBanner(webStatus) {
+  const isOpen = Boolean(webStatus && webStatus.pairingOpen);
+  if (!pairingBannerEl) {
+    return;
+  }
+
+  pairingBannerEl.hidden = !isOpen;
+}
+
 function renderNodes(nodes) {
   if (!Array.isArray(nodes) || nodes.length === 0) {
     nodesEl.innerHTML = '<p class="empty">No sensor data yet.</p>';
@@ -128,10 +148,14 @@ async function tick() {
     ]);
 
     render(webStatusEl, webStatus);
+    renderPairingBanner(webStatus);
     renderNodes(nodes);
   } catch (error) {
     webStatusEl.textContent = `fetch error: ${error}`;
     nodesEl.textContent = '';
+    if (pairingBannerEl) {
+      pairingBannerEl.hidden = true;
+    }
   }
 }
 
@@ -159,3 +183,9 @@ nodesEl.addEventListener('click', async (event) => {
 
 setInterval(tick, 3000);
 tick();
+
+if (addSensorBtn) {
+  addSensorBtn.addEventListener('click', async () => {
+    await openPairingWindow();
+  });
+}

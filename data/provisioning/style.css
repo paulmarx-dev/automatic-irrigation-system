@@ -67,6 +67,23 @@ pre {
   margin-top: 12px;
 }
 
+.sensor-topbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+.pairing-banner {
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  border: 1px solid #0a84ff;
+  border-radius: 8px;
+  background: #eef5ff;
+  color: #0a3d91;
+  font-size: 13px;
+  font-weight: 600;
+}
+
 .sensor-card {
   border: 1px solid #d2d2d7;
   border-radius: 10px;
