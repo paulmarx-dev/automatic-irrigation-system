@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <string.h>
+#include <esp_system.h>
 
 #include "common_config.h"
 #include "esp_now_helpers.h"
@@ -15,6 +16,9 @@
 #include "pairing_nvs.h"
 
 static const unsigned long TELEMETRY_INTERVAL_MS = 5000;
+static const unsigned long TELEMETRY_INTERVAL_JITTER_MS = 1500;
+static const unsigned long TELEMETRY_FIRST_SEND_MIN_DELAY_MS = 200;
+static const unsigned long TELEMETRY_FIRST_SEND_JITTER_MS = 800;
 static const unsigned long ACK_TIMEOUT_MS = 200;
 static const uint8_t MAX_RETRIES = 3;
 static const uint8_t MAX_NO_ACK_CYCLES_BEFORE_REJOIN = 3;
@@ -26,7 +30,7 @@ static uint32_t s_ackDeadlineMs = 0;
 static uint8_t s_retryCount = 0;
 static uint32_t s_lastSendStartMs = 0;
 static uint8_t s_noAckCycles = 0;
-static uint32_t s_lastTelemetryMs = 0;
+static uint32_t s_nextTelemetryDueMs = 0;
 
 static MsgTelemetry s_pendingTelemetry{};
 static uint8_t s_pendingHeadMac[6] = {0};
@@ -37,15 +41,29 @@ static bool sendPendingTelemetry()
   return espnowSend(s_pendingHeadMac, reinterpret_cast<const uint8_t*>(&s_pendingTelemetry), sizeof(s_pendingTelemetry));
 }
 
+static uint32_t randomBoundedMs(uint32_t maxExclusive)
+{
+  if (maxExclusive == 0) {
+    return 0;
+  }
+  return static_cast<uint32_t>(esp_random() % maxExclusive);
+}
+
+static uint32_t nextTelemetryIntervalMs()
+{
+  return TELEMETRY_INTERVAL_MS + randomBoundedMs(TELEMETRY_INTERVAL_JITTER_MS + 1);
+}
+
 static uint32_t retryBackoffMs(uint8_t retryIndex)
 {
+  const uint32_t jitter = randomBoundedMs(120);
   if (retryIndex == 0) {
-    return 200;
+    return 200 + jitter;
   }
   if (retryIndex == 1) {
-    return 400;
+    return 400 + jitter;
   }
-  return 800;
+  return 800 + jitter;
 }
 
 void telemetryInit()
@@ -57,7 +75,7 @@ void telemetryInit()
   s_retryCount = 0;
   s_lastSendStartMs = 0;
   s_noAckCycles = 0;
-  s_lastTelemetryMs = 0;
+  s_nextTelemetryDueMs = 0;
   memset(&s_pendingTelemetry, 0, sizeof(s_pendingTelemetry));
   memset(s_pendingHeadMac, 0, sizeof(s_pendingHeadMac));
 }
@@ -130,6 +148,7 @@ void telemetryTickSensor(const SensorMeasurement* measurement, bool hasMeasureme
   if (!pairingNodeIsPaired()) {
     s_waitingAck = false;
     s_noAckCycles = 0;
+    s_nextTelemetryDueMs = 0;
     return;
   }
 
@@ -174,10 +193,14 @@ void telemetryTickSensor(const SensorMeasurement* measurement, bool hasMeasureme
     return;
   }
 
-  if (nowMs - s_lastTelemetryMs < TELEMETRY_INTERVAL_MS) {
+  if (s_nextTelemetryDueMs == 0) {
+    s_nextTelemetryDueMs = nowMs + TELEMETRY_FIRST_SEND_MIN_DELAY_MS + randomBoundedMs(TELEMETRY_FIRST_SEND_JITTER_MS + 1);
+  }
+
+  if ((int32_t)(nowMs - s_nextTelemetryDueMs) < 0) {
     return;
   }
-  s_lastTelemetryMs = nowMs;
+  s_nextTelemetryDueMs = nowMs + nextTelemetryIntervalMs();
 
   uint8_t headMac[6] = {0};
   if (!pairingNodeHeadMac(headMac)) {
@@ -207,6 +230,10 @@ void telemetryTickSensor(const SensorMeasurement* measurement, bool hasMeasureme
   s_retryCount = 0;
   s_ackDeadlineMs = nowMs + ACK_TIMEOUT_MS;
   s_lastSendStartMs = nowMs;
+
+  if (!sent) {
+    s_waitingAck = false;
+  }
 
   Serial.print("TELEMETRY sent=");
   Serial.print(sent ? 1 : 0);
