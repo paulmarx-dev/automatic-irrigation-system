@@ -135,6 +135,24 @@ pre {
   font-weight: 600;
 }
 
+.calibration-banner {
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  border: 1px solid #0a84ff;
+  border-radius: 8px;
+  background: #eef5ff;
+  color: #0a3d91;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: pre-line;
+}
+
+.calibration-banner.error {
+  border-color: #b00020;
+  background: #ffecec;
+  color: #8a0018;
+}
+
 .sensor-card {
   border: 1px solid #d2d2d7;
   border-radius: 10px;
@@ -171,6 +189,11 @@ pre {
 .sensor-btn.unpair {
   border-color: #b00020;
   color: #b00020;
+}
+
+.sensor-btn.calibrate[disabled] {
+  opacity: 0.7;
+  cursor: default;
 }
 
 .battery-state {

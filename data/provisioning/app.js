@@ -2,6 +2,7 @@ const webStatusEl = document.getElementById('webStatus');
 const nodesEl = document.getElementById('nodes');
 const addSensorBtn = document.getElementById('addSensorBtn');
 const pairingBannerEl = document.getElementById('pairingBanner');
+const calibrationBannerEl = document.getElementById('calibrationBanner');
 const tabsEl = document.querySelector('.tabs');
 const tabButtons = Array.from(document.querySelectorAll('.tab-btn'));
 const tabPanels = Array.from(document.querySelectorAll('.tab-panel'));
@@ -9,7 +10,12 @@ const homeOnlineEl = document.getElementById('homeOnline');
 const homeMoistureEl = document.getElementById('homeMoisture');
 const homePairingEl = document.getElementById('homePairing');
 const homeUptimeEl = document.getElementById('homeUptime');
+const calibrationStateByNode = new Map();
+let latestNodes = [];
+let activeCalibration = null;
 let pairingRemainingSec = 0;
+const CAL_RUNNING_TIMEOUT_MS = 25000;
+const CAL_ERROR_HIDE_MS = 5000;
 
 function render(el, data) {
   el.textContent = JSON.stringify(data, null, 2);
@@ -144,6 +150,119 @@ async function openPairingWindow() {
   }
 }
 
+function calibrationStateFor(nodeId) {
+  return calibrationStateByNode.get(String(nodeId)) || 'idle';
+}
+
+function resetCalibrationState(nodeId) {
+  calibrationStateByNode.delete(String(nodeId));
+}
+
+function renderCalibrationBanner() {
+  if (!calibrationBannerEl) {
+    return;
+  }
+
+  if (!activeCalibration) {
+    calibrationBannerEl.hidden = true;
+    calibrationBannerEl.classList.remove('error');
+    calibrationBannerEl.textContent = '';
+    return;
+  }
+
+  const now = Date.now();
+  const lines = [...activeCalibration.lines];
+  if (activeCalibration.phase === 'running' && activeCalibration.deadlineMs > now) {
+    const leftSec = Math.max(0, Math.ceil((activeCalibration.deadlineMs - now) / 1000));
+    lines.push(`Waiting for completion: ${leftSec}s`);
+  }
+
+  calibrationBannerEl.classList.toggle('error', activeCalibration.status === 'error');
+  calibrationBannerEl.textContent = lines.join('\n');
+  calibrationBannerEl.hidden = false;
+}
+
+function finishCalibrationWithError(message) {
+  if (!activeCalibration) {
+    return;
+  }
+
+  const nodeId = activeCalibration.nodeId;
+  resetCalibrationState(nodeId);
+  activeCalibration.status = 'error';
+  activeCalibration.phase = 'done';
+  activeCalibration.deadlineMs = 0;
+  activeCalibration.autoHideAtMs = Date.now() + CAL_ERROR_HIDE_MS;
+  activeCalibration.lines.push(message);
+  renderCalibrationBanner();
+}
+
+function startCalibrationGuide(node) {
+  const nodeId = String(node.nodeId);
+  const title = node.name || `Sensor ${nodeId}`;
+  calibrationStateByNode.clear();
+  calibrationStateByNode.set(nodeId, 'measure_wet');
+
+  activeCalibration = {
+    nodeId,
+    status: 'info',
+    phase: 'measure_wet',
+    deadlineMs: 0,
+    autoHideAtMs: 0,
+    lines: [
+      `Calibration started for ${title}.`,
+      'Step 1: press sensor button 3x quickly to start dry measurement.',
+      'Step 2: immerse sensor in a cup with water and press "Measure wet".',
+    ],
+  };
+
+  renderCalibrationBanner();
+}
+
+function continueCalibrationGuide(node) {
+  if (!activeCalibration) {
+    startCalibrationGuide(node);
+    return;
+  }
+
+  const nodeId = String(node.nodeId);
+  if (activeCalibration.nodeId !== nodeId || activeCalibration.phase !== 'measure_wet') {
+    startCalibrationGuide(node);
+    return;
+  }
+
+  calibrationStateByNode.set(nodeId, 'running');
+  activeCalibration.phase = 'running';
+  activeCalibration.status = 'info';
+  activeCalibration.deadlineMs = Date.now() + CAL_RUNNING_TIMEOUT_MS;
+  activeCalibration.lines.push('Measure wet requested. On sensor, press button once now.');
+  activeCalibration.lines.push('If calibration does not finish, state will return to Calibrate automatically.');
+  renderCalibrationBanner();
+}
+
+function reconcileCalibrationState() {
+  if (!activeCalibration) {
+    return;
+  }
+
+  const now = Date.now();
+  const nodeExists = latestNodes.some((node) => String(node.nodeId) === activeCalibration.nodeId);
+  if (!nodeExists) {
+    finishCalibrationWithError('Calibration canceled: sensor is no longer visible.');
+    return;
+  }
+
+  if (activeCalibration.phase === 'running' && activeCalibration.deadlineMs > 0 && now >= activeCalibration.deadlineMs) {
+    finishCalibrationWithError('Calibration timeout. Please restart and try again.');
+    return;
+  }
+
+  if (activeCalibration.autoHideAtMs > 0 && now >= activeCalibration.autoHideAtMs) {
+    activeCalibration = null;
+    renderCalibrationBanner();
+  }
+}
+
 function renderPairingBannerState(isOpen) {
   if (!pairingBannerEl) {
     return;
@@ -186,6 +305,13 @@ function renderNodes(nodes) {
           : batteryState === 'NEEDS_REPLACEMENT'
             ? 'battery-state needs-replacement'
             : 'battery-state';
+      const calibrationState = calibrationStateFor(node.nodeId);
+      const calibrateLabel = calibrationState === 'measure_wet'
+        ? 'Measure wet'
+        : calibrationState === 'running'
+          ? 'Calibrating...'
+          : 'Calibrate';
+      const calibrateDisabled = calibrationState === 'running' ? 'disabled' : '';
 
       return `
         <article class="${cardClasses.join(' ')}">
@@ -196,6 +322,7 @@ function renderNodes(nodes) {
           <p>Last seen: ${node.lastSeenSecAgo ?? '-'} sec ago</p>
           <div class="sensor-actions">
             <button type="button" class="sensor-btn rename" data-action="rename" data-node-id="${node.nodeId ?? ''}">Rename</button>
+            <button type="button" class="sensor-btn calibrate" data-action="calibrate" data-node-id="${node.nodeId ?? ''}" ${calibrateDisabled}>${calibrateLabel}</button>
             <button type="button" class="sensor-btn unpair" data-action="unpair" data-node-id="${node.nodeId ?? ''}">Unpair</button>
           </div>
           <p class="sensor-mac">MAC: ${node.mac ?? 'N/A'}</p>
@@ -222,19 +349,26 @@ async function tick() {
       fetchJson('/api/nodes'),
       fetchJson('/api/system/summary'),
     ]);
+    latestNodes = Array.isArray(nodes) ? nodes : [];
 
     render(webStatusEl, webStatus);
     renderHomeSummary(summary);
     syncPairingCountdown(webStatus);
     renderNodes(nodes);
+    reconcileCalibrationState();
+    renderCalibrationBanner();
   } catch (error) {
     webStatusEl.textContent = `fetch error: ${error}`;
     nodesEl.textContent = '';
+    latestNodes = [];
     renderHomeSummary(null);
     if (pairingBannerEl) {
       pairingRemainingSec = 0;
       pairingBannerEl.hidden = true;
     }
+    activeCalibration = null;
+    calibrationStateByNode.clear();
+    renderCalibrationBanner();
   }
 }
 
@@ -270,7 +404,26 @@ nodesEl.addEventListener('click', async (event) => {
     return;
   }
 
+  if (action === 'calibrate') {
+    const node = latestNodes.find((item) => String(item.nodeId) === String(nodeId));
+    if (!node) {
+      return;
+    }
+
+    if (calibrationStateFor(nodeId) === 'measure_wet') {
+      continueCalibrationGuide(node);
+    } else {
+      startCalibrationGuide(node);
+    }
+    renderNodes(latestNodes);
+    return;
+  }
+
   if (action === 'unpair') {
+    if (activeCalibration && activeCalibration.nodeId === String(nodeId)) {
+      finishCalibrationWithError('Calibration canceled: sensor was unpaired.');
+    }
+    resetCalibrationState(nodeId);
     await unpairSensor(nodeId);
   }
 });
@@ -283,6 +436,8 @@ setInterval(() => {
     pairingRemainingSec -= 1;
     renderPairingBannerState(pairingRemainingSec > 0);
   }
+  reconcileCalibrationState();
+  renderCalibrationBanner();
 }, 1000);
 
 if (addSensorBtn) {
