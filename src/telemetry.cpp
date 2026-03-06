@@ -15,10 +15,6 @@
 #include "leds.h"
 #include "pairing_nvs.h"
 
-static const unsigned long TELEMETRY_INTERVAL_MS = 5000;
-static const unsigned long TELEMETRY_INTERVAL_JITTER_MS = 1500;
-static const unsigned long TELEMETRY_FIRST_SEND_MIN_DELAY_MS = 200;
-static const unsigned long TELEMETRY_FIRST_SEND_JITTER_MS = 800;
 static const unsigned long ACK_TIMEOUT_MS = 200;
 static const uint8_t MAX_RETRIES = 3;
 static const uint8_t MAX_NO_ACK_CYCLES_BEFORE_REJOIN = 3;
@@ -49,9 +45,25 @@ static uint32_t randomBoundedMs(uint32_t maxExclusive)
   return static_cast<uint32_t>(esp_random() % maxExclusive);
 }
 
+static uint32_t deterministicNodePhaseOffsetMs()
+{
+  const uint16_t nodeId = pairingNodeId();
+  if (nodeId == 0 || TELEMETRY_SCHEDULE_MAX_NODES == 0) {
+    return 0;
+  }
+
+  uint32_t slotWidthMs = TELEMETRY_PHASE_SPREAD_MS / TELEMETRY_SCHEDULE_MAX_NODES;
+  if (slotWidthMs == 0) {
+    slotWidthMs = 1;
+  }
+
+  const uint32_t slot = (static_cast<uint32_t>(nodeId - 1) % TELEMETRY_SCHEDULE_MAX_NODES);
+  return slot * slotWidthMs;
+}
+
 static uint32_t nextTelemetryIntervalMs()
 {
-  return TELEMETRY_INTERVAL_MS + randomBoundedMs(TELEMETRY_INTERVAL_JITTER_MS + 1);
+  return TELEMETRY_BASE_INTERVAL_MS + randomBoundedMs(TELEMETRY_INTERVAL_JITTER_MS + 1);
 }
 
 static uint32_t retryBackoffMs(uint8_t retryIndex)
@@ -194,7 +206,10 @@ void telemetryTickSensor(const SensorMeasurement* measurement, bool hasMeasureme
   }
 
   if (s_nextTelemetryDueMs == 0) {
-    s_nextTelemetryDueMs = nowMs + TELEMETRY_FIRST_SEND_MIN_DELAY_MS + randomBoundedMs(TELEMETRY_FIRST_SEND_JITTER_MS + 1);
+    s_nextTelemetryDueMs = nowMs +
+                           TELEMETRY_FIRST_SEND_MIN_DELAY_MS +
+                           deterministicNodePhaseOffsetMs() +
+                           randomBoundedMs(TELEMETRY_FIRST_SEND_JITTER_MS + 1);
   }
 
   if ((int32_t)(nowMs - s_nextTelemetryDueMs) < 0) {
@@ -259,9 +274,9 @@ void telemetryTickSensor(const SensorMeasurement* measurement, bool hasMeasureme
 #include "leds.h"
 
 static const uint8_t MAX_NODE_REGISTRY = 8;
-static const uint32_t EXPECTED_TELEMETRY_PERIOD_MS = 5000;
-static const uint32_t NODE_SUSPECT_TIMEOUT_MS = 2 * EXPECTED_TELEMETRY_PERIOD_MS;
-static const uint32_t NODE_OFFLINE_TIMEOUT_MS = 5 * EXPECTED_TELEMETRY_PERIOD_MS;
+static const uint32_t EXPECTED_TELEMETRY_PERIOD_MS = TELEMETRY_BASE_INTERVAL_MS + TELEMETRY_INTERVAL_JITTER_MS;
+static const uint32_t NODE_SUSPECT_TIMEOUT_MS = 3 * EXPECTED_TELEMETRY_PERIOD_MS;
+static const uint32_t NODE_OFFLINE_TIMEOUT_MS = 8 * EXPECTED_TELEMETRY_PERIOD_MS;
 
 static const char* nodeStateToText(TelemetryHeadNodeState state)
 {

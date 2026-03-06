@@ -43,6 +43,19 @@ static constexpr uint16_t BATTERY_NEEDS_REPLACEMENT_MV = 3200;
 static constexpr uint16_t BATTERY_CRITICAL_MV = 3500;
 
 /*
+  Telemetry scheduling defaults (scalable up to 8 sensors).
+  - base interval: nominal period per node
+  - jitter: random spread to avoid repeated collisions
+  - phase spread: deterministic initial offset by nodeId slot
+*/
+static constexpr uint8_t TELEMETRY_SCHEDULE_MAX_NODES = 8;
+static constexpr uint32_t TELEMETRY_BASE_INTERVAL_MS = 5000;
+static constexpr uint32_t TELEMETRY_INTERVAL_JITTER_MS = 1500;
+static constexpr uint32_t TELEMETRY_PHASE_SPREAD_MS = 2400;
+static constexpr uint32_t TELEMETRY_FIRST_SEND_MIN_DELAY_MS = 200;
+static constexpr uint32_t TELEMETRY_FIRST_SEND_JITTER_MS = 800;
+
+/*
   Protocol version (will be used later in all messages).
 */
 static constexpr uint8_t PROTOCOL_VERSION = 1;
