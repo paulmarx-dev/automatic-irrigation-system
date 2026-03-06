@@ -11,18 +11,34 @@
     <h1>Irrigation Console</h1>
     <p class="sub">AP-only local web access for status and control.</p>
 
-    <section class="card">
-      <h2>Web Status</h2>
-      <pre id="webStatus">Loading...</pre>
+    <nav class="tabs" aria-label="Main sections">
+      <button type="button" class="tab-btn active" data-tab="home">Home</button>
+      <button type="button" class="tab-btn" data-tab="sensors">Sensors</button>
+      <button type="button" class="tab-btn" data-tab="unit">This Unit</button>
+    </nav>
+
+    <section class="card tab-panel active" id="tabHome" data-panel="home">
+      <h2>Home</h2>
+      <div class="home-grid">
+        <p class="home-item"><span>Sensors online</span><strong id="homeOnline">-</strong></p>
+        <p class="home-item"><span>Average moisture</span><strong id="homeMoisture">-</strong></p>
+        <p class="home-item"><span>Pairing</span><strong id="homePairing">-</strong></p>
+        <p class="home-item"><span>Uptime</span><strong id="homeUptime">-</strong></p>
+      </div>
     </section>
 
-    <section class="card">
+    <section class="card tab-panel" id="tabSensors" data-panel="sensors">
       <h2>Nodes</h2>
       <div id="nodes" class="sensor-list">Loading...</div>
       <p id="pairingBanner" class="pairing-banner" hidden>Pairing window is open (120s).</p>
       <div class="sensor-topbar">
         <button type="button" id="addSensorBtn">Add new</button>
       </div>
+    </section>
+
+    <section class="card tab-panel" id="tabUnit" data-panel="unit">
+      <h2>This Unit</h2>
+      <pre id="webStatus">Loading...</pre>
     </section>
   </main>
 

@@ -317,6 +317,61 @@ static void onNodesApi()
   s_server.send(200, "application/json", body);
 }
 
+static void onSystemSummaryApi()
+{
+  TelemetryHeadNodePresence nodes[8] = {};
+  const uint8_t count = telemetryHeadGetPresence(nodes, 8);
+
+  uint8_t onlineCount = 0;
+  uint8_t suspectCount = 0;
+  uint8_t offlineCount = 0;
+  uint32_t moistureSumPermille = 0;
+
+  for (uint8_t i = 0; i < count; ++i) {
+    const TelemetryHeadNodePresence& node = nodes[i];
+    if (node.state == TELEMETRY_HEAD_NODE_ONLINE) {
+      ++onlineCount;
+      moistureSumPermille += static_cast<uint32_t>(node.moisturePermille);
+      continue;
+    }
+    if (node.state == TELEMETRY_HEAD_NODE_SUSPECT) {
+      ++suspectCount;
+      continue;
+    }
+    if (node.state == TELEMETRY_HEAD_NODE_OFFLINE) {
+      ++offlineCount;
+    }
+  }
+
+  const uint32_t avgMoisturePermille =
+      (onlineCount > 0) ? (moistureSumPermille / static_cast<uint32_t>(onlineCount)) : 0;
+  const bool hasMoistureAvg = (onlineCount > 0);
+
+  const uint32_t nowMs = millis();
+  const uint32_t pairingRemainingSec = (pairingHeadRemainingMs(nowMs) + 999UL) / 1000UL;
+  const uint32_t uptimeSec = nowMs / 1000UL;
+  char avgMoisture[16] = "null";
+  if (hasMoistureAvg) {
+    (void)snprintf(avgMoisture, sizeof(avgMoisture), "%lu", static_cast<unsigned long>(avgMoisturePermille));
+  }
+
+  char body[384] = {0};
+  (void)snprintf(
+      body,
+      sizeof(body),
+      "{\"onlineSensors\":%u,\"suspectSensors\":%u,\"offlineSensors\":%u,\"totalVisibleSensors\":%u,\"avgMoisturePermille\":%s,\"pairingOpen\":%s,\"pairingRemainingSec\":%lu,\"uptimeSec\":%lu}",
+      static_cast<unsigned>(onlineCount),
+      static_cast<unsigned>(suspectCount),
+      static_cast<unsigned>(offlineCount),
+      static_cast<unsigned>(count),
+      avgMoisture,
+      pairingHeadIsOpen() ? "true" : "false",
+      static_cast<unsigned long>(pairingRemainingSec),
+      static_cast<unsigned long>(uptimeSec));
+
+  s_server.send(200, "application/json", body);
+}
+
 }  // namespace
 
 void headObservabilityInit()
@@ -325,6 +380,7 @@ void headObservabilityInit()
   loadSensorLabelsFromNvs();
 
   s_server.on("/api/nodes", HTTP_GET, onNodesApi);
+  s_server.on("/api/system/summary", HTTP_GET, onSystemSummaryApi);
   s_server.on("/api/sensors/rename", HTTP_POST, onSensorRenameApi);
   s_server.on("/api/sensors/unpair", HTTP_POST, onSensorUnpairApi);
   headProvisioningInit(&s_server);

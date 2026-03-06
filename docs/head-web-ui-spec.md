@@ -164,7 +164,7 @@ Note:
 
 ## Phase A — foundation (must-have)
 - [x] Define and freeze MVP API contracts (request/response JSON)
-- [ ] Add head runtime summary endpoint (`/api/system/summary`)
+- [x] Add head runtime summary endpoint (`/api/system/summary`)
 - [ ] Add irrigation config read/write endpoints + NVS persistence
 - [ ] Add manual start/stop endpoints with safety guards
 - [ ] Add pairing open/close endpoints
@@ -173,7 +173,7 @@ Note:
 - [ ] Add danger-zone actions with confirmation tokens
 
 ## Phase B — UI MVP
-- [ ] Create tabbed shell (Home / Sensors / This Unit)
+- [x] Create tabbed shell (Home / Sensors / This Unit)
 - [ ] Implement Home data binding + mode controls
 - [ ] Implement Save/Saved dirty-state UX
 - [ ] Implement Sensors cards + add-new + banners
@@ -199,7 +199,7 @@ Note:
 ## 8) Acceptance checklist (MVP done criteria)
 
 - [ ] User can connect to AP and open UI without button interaction.
-- [ ] Home tab correctly shows online count and avg moisture.
+- [x] Home tab correctly shows online count and avg moisture.
 - [ ] Auto/Manual/OFF controls behave as expected and persist.
 - [ ] Sensor add/rename/unpair works via UI.
 - [x] Each sensor card shows battery voltage + battery state.

@@ -2,6 +2,13 @@ const webStatusEl = document.getElementById('webStatus');
 const nodesEl = document.getElementById('nodes');
 const addSensorBtn = document.getElementById('addSensorBtn');
 const pairingBannerEl = document.getElementById('pairingBanner');
+const tabsEl = document.querySelector('.tabs');
+const tabButtons = Array.from(document.querySelectorAll('.tab-btn'));
+const tabPanels = Array.from(document.querySelectorAll('.tab-panel'));
+const homeOnlineEl = document.getElementById('homeOnline');
+const homeMoistureEl = document.getElementById('homeMoisture');
+const homePairingEl = document.getElementById('homePairing');
+const homeUptimeEl = document.getElementById('homeUptime');
 let pairingRemainingSec = 0;
 
 function render(el, data) {
@@ -16,6 +23,62 @@ function formatBatteryVolts(mv) {
 function formatMoisture(permille) {
   if (!Number.isFinite(permille)) return 'N/A';
   return `${(permille / 10).toFixed(1)}%`;
+}
+
+function formatDuration(totalSec) {
+  if (!Number.isFinite(totalSec) || totalSec < 0) {
+    return '-';
+  }
+  const seconds = Math.floor(totalSec);
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  if (hours > 0) {
+    return `${hours}h ${minutes}m`;
+  }
+  return `${minutes}m`;
+}
+
+function setActiveTab(tabName) {
+  tabButtons.forEach((button) => {
+    button.classList.toggle('active', button.dataset.tab === tabName);
+  });
+  tabPanels.forEach((panel) => {
+    panel.classList.toggle('active', panel.dataset.panel === tabName);
+  });
+}
+
+function renderHomeSummary(summary) {
+  if (!summary) {
+    if (homeOnlineEl) homeOnlineEl.textContent = '-';
+    if (homeMoistureEl) homeMoistureEl.textContent = '-';
+    if (homePairingEl) homePairingEl.textContent = '-';
+    if (homeUptimeEl) homeUptimeEl.textContent = '-';
+    return;
+  }
+
+  const online = Number.isFinite(Number(summary.onlineSensors)) ? Number(summary.onlineSensors) : 0;
+  const total = Number.isFinite(Number(summary.totalVisibleSensors)) ? Number(summary.totalVisibleSensors) : 0;
+  const avgMoisturePermille = summary.avgMoisturePermille;
+  const pairingOpen = Boolean(summary.pairingOpen);
+  const pairingSec = Number(summary.pairingRemainingSec);
+  const uptimeSec = Number(summary.uptimeSec);
+
+  if (homeOnlineEl) {
+    homeOnlineEl.textContent = `${online}/${total}`;
+  }
+  if (homeMoistureEl) {
+    homeMoistureEl.textContent = Number.isFinite(Number(avgMoisturePermille))
+      ? formatMoisture(Number(avgMoisturePermille))
+      : 'N/A';
+  }
+  if (homePairingEl) {
+    homePairingEl.textContent = pairingOpen
+      ? `Open (${Math.max(0, Math.floor(Number.isFinite(pairingSec) ? pairingSec : 0))}s)`
+      : 'Closed';
+  }
+  if (homeUptimeEl) {
+    homeUptimeEl.textContent = formatDuration(Number.isFinite(uptimeSec) ? uptimeSec : 0);
+  }
 }
 
 async function postForm(url, payload) {
@@ -154,22 +217,40 @@ async function fetchJson(url) {
 
 async function tick() {
   try {
-    const [webStatus, nodes] = await Promise.all([
+    const [webStatus, nodes, summary] = await Promise.all([
       fetchJson('/api/web/status'),
       fetchJson('/api/nodes'),
+      fetchJson('/api/system/summary'),
     ]);
 
     render(webStatusEl, webStatus);
+    renderHomeSummary(summary);
     syncPairingCountdown(webStatus);
     renderNodes(nodes);
   } catch (error) {
     webStatusEl.textContent = `fetch error: ${error}`;
     nodesEl.textContent = '';
+    renderHomeSummary(null);
     if (pairingBannerEl) {
       pairingRemainingSec = 0;
       pairingBannerEl.hidden = true;
     }
   }
+}
+
+if (tabsEl) {
+  tabsEl.addEventListener('click', (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+
+    const tabName = target.dataset.tab;
+    if (!tabName) {
+      return;
+    }
+    setActiveTab(tabName);
+  });
 }
 
 nodesEl.addEventListener('click', async (event) => {
