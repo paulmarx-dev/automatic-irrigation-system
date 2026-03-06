@@ -90,9 +90,15 @@ Show:
   - Name
   - Moisture
   - State (ONLINE/SUSPECT/OFFLINE)
+  - Battery: X.XXV (OK / CRITICAL / NEEDS_REPLACEMENT)
   - Last seen
   - Rename
   - Unpair (with confirmation)
+
+Sensor card visual priority:
+- `CRITICAL` battery: show battery status label in red (danger text/badge).
+- `NEEDS_REPLACEMENT` battery: render the entire sensor card in danger style (red-tinted card with clear emphasis).
+- Use semantic theme danger tokens (no ad-hoc colors).
 
 Actions:
 - Add new -> opens pairing window (120s)
@@ -171,6 +177,7 @@ Note:
 - [ ] Implement Home data binding + mode controls
 - [ ] Implement Save/Saved dirty-state UX
 - [ ] Implement Sensors cards + add-new + banners
+- [ ] Implement battery status rendering in sensor cards (`OK` / `CRITICAL` / `NEEDS_REPLACEMENT`)
 - [ ] Implement This Unit form + danger zone flows
 - [ ] Implement low-frequency auto-refresh (2-5s)
 
@@ -195,6 +202,8 @@ Note:
 - [ ] Home tab correctly shows online count and avg moisture.
 - [ ] Auto/Manual/OFF controls behave as expected and persist.
 - [ ] Sensor add/rename/unpair works via UI.
+- [ ] Each sensor card shows battery voltage + battery state.
+- [ ] Battery severity visuals are correct: `CRITICAL` = red label; `NEEDS_REPLACEMENT` = entire card danger style.
 - [ ] This Unit rename/password works and persists.
 - [ ] Under one active web client, ESP-NOW telemetry remains stable.
 - [ ] Under stress (frequent refresh), system remains safe (no runtime lockups).
