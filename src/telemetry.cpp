@@ -662,6 +662,10 @@ bool telemetryHeadSendRemoteButtonAction(uint16_t nodeId, uint8_t action)
     return false;
   }
 
+  if (node->state != TELEMETRY_HEAD_NODE_ONLINE) {
+    return false;
+  }
+
   MsgRemoteButton command{};
   command.hdr.ver = PROTO_VER;
   command.hdr.type = MSG_REMOTE_BUTTON;

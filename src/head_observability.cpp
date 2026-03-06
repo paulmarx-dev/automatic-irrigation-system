@@ -221,7 +221,11 @@ static bool parseNodeIdArg(uint16_t* outNodeId)
   }
 
   const String nodeIdArg = s_server.arg("nodeId");
-  const unsigned long parsed = strtoul(nodeIdArg.c_str(), nullptr, 10);
+  char* end = nullptr;
+  const unsigned long parsed = strtoul(nodeIdArg.c_str(), &end, 10);
+  if (end == nodeIdArg.c_str() || !end || *end != '\0') {
+    return false;
+  }
   if (parsed == 0 || parsed > 65535UL) {
     return false;
   }
@@ -286,6 +290,26 @@ static void onSensorCalibrateApi()
     action = REMOTE_BUTTON_CALIBRATE_MEASURE_WET;
   } else {
     s_server.send(400, "application/json", "{\"ok\":0,\"error\":\"invalid_step\"}");
+    return;
+  }
+
+  TelemetryHeadNodePresence nodes[8] = {};
+  const uint8_t count = telemetryHeadGetPresence(nodes, 8);
+  const TelemetryHeadNodePresence* targetNode = nullptr;
+  for (uint8_t i = 0; i < count; ++i) {
+    if (nodes[i].nodeId == nodeId) {
+      targetNode = &nodes[i];
+      break;
+    }
+  }
+
+  if (!targetNode) {
+    s_server.send(404, "application/json", "{\"ok\":0,\"error\":\"node_not_found\"}");
+    return;
+  }
+
+  if (targetNode->state != TELEMETRY_HEAD_NODE_ONLINE) {
+    s_server.send(409, "application/json", "{\"ok\":0,\"error\":\"node_not_online\"}");
     return;
   }
 

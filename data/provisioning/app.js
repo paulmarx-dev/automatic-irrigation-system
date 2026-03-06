@@ -294,6 +294,30 @@ function finishCalibrationGuide(node) {
   renderCalibrationBanner();
 }
 
+function moveCalibrationToSensorFinishing(node) {
+  const nodeId = String(node.nodeId);
+  const baselineRxPackets = Number.isFinite(Number(node.rxPackets)) ? Number(node.rxPackets) : 0;
+  calibrationStateByNode.set(nodeId, 'sensor_finishing');
+
+  activeCalibration = {
+    nodeId,
+    title: node.name || `Sensor ${nodeId}`,
+    status: 'info',
+    phase: 'sensor_finishing',
+    deadlineMs: 0,
+    autoHideAtMs: 0,
+    baselineRxPackets,
+    steps: [
+      { text: 'Calibrate command sent', state: 'done' },
+      { text: 'Measure wet', state: 'done' },
+      { text: 'Sensor finishes calibration', state: 'active' },
+    ],
+    note: 'Wet command sent. Waiting for sensor telemetry update.',
+  };
+
+  renderCalibrationBanner();
+}
+
 function reconcileCalibrationState() {
   if (!activeCalibration) {
     return;
@@ -309,6 +333,25 @@ function reconcileCalibrationState() {
   if (activeCalibration.phase === 'measure_wet' && activeCalibration.deadlineMs > 0 && now >= activeCalibration.deadlineMs) {
     finishCalibrationWithError('Wet-step timeout. State returned to Calibrate.');
     return;
+  }
+
+  if (activeCalibration.phase === 'sensor_finishing') {
+    const currentNode = latestNodes.find((node) => String(node.nodeId) === activeCalibration.nodeId);
+    if (!currentNode) {
+      finishCalibrationWithError('Calibration canceled: sensor is no longer visible.');
+      return;
+    }
+
+    if (currentNode.state === 'OFFLINE') {
+      finishCalibrationWithError('Calibration failed: sensor went offline.');
+      return;
+    }
+
+    const currentRxPackets = Number.isFinite(Number(currentNode.rxPackets)) ? Number(currentNode.rxPackets) : 0;
+    if (currentRxPackets > Number(activeCalibration.baselineRxPackets || 0)) {
+      finishCalibrationGuide(currentNode);
+      return;
+    }
   }
 
   if (activeCalibration.autoHideAtMs > 0 && now >= activeCalibration.autoHideAtMs) {
@@ -362,8 +405,14 @@ function renderNodes(nodes) {
       const calibrationState = calibrationStateFor(node.nodeId);
       const calibrateLabel = calibrationState === 'measure_wet'
         ? 'Measure wet'
-        : 'Calibrate';
-      const calibrateDisabled = '';
+        : calibrationState === 'sensor_finishing'
+          ? 'Calibrating...'
+          : 'Calibrate';
+      const calibrateDisabled =
+        (activeCalibration && String(activeCalibration.nodeId) !== String(node.nodeId)) ||
+        calibrationState === 'sensor_finishing'
+          ? 'disabled'
+          : '';
 
       return `
         <article class="${cardClasses.join(' ')}" data-sensor-node-id="${node.nodeId ?? ''}">
@@ -463,10 +512,15 @@ nodesEl.addEventListener('click', async (event) => {
       return;
     }
 
+    if (activeCalibration && String(activeCalibration.nodeId) !== String(nodeId)) {
+      window.alert('Calibration is already active on another sensor.');
+      return;
+    }
+
     try {
       if (calibrationStateFor(nodeId) === 'measure_wet') {
         await triggerRemoteCalibration(nodeId, 'wet');
-        finishCalibrationGuide(node);
+        moveCalibrationToSensorFinishing(node);
       } else {
         await triggerRemoteCalibration(nodeId, 'start');
         startCalibrationGuide(node);
