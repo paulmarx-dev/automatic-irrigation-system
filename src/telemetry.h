@@ -28,3 +28,4 @@ void telemetryOnRecv(const uint8_t* src_mac, const uint8_t* data, int len);
 void telemetryTickSensor(const SensorMeasurement* measurement, bool hasMeasurement, uint32_t nowMs);
 void telemetryTickHead(uint32_t nowMs);
 uint8_t telemetryHeadGetPresence(TelemetryHeadNodePresence* outNodes, uint8_t maxNodes);
+void telemetryHeadClearPresence();

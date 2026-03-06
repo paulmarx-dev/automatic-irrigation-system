@@ -74,11 +74,10 @@ static void onNodesApi()
 
 void headObservabilityInit()
 {
-  WiFi.mode(WIFI_STA);
   s_server.on("/api/nodes", HTTP_GET, onNodesApi);
   headProvisioningInit(&s_server);
   s_server.begin();
-  Serial.println("OBS: HTTP /api/nodes + provisioning ready");
+  Serial.println("OBS: HTTP /api/nodes + web console ready");
 }
 
 void headObservabilityTick()

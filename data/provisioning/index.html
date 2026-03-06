@@ -3,32 +3,22 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Irrigation Setup</title>
+  <title>Irrigation Console</title>
   <link rel="stylesheet" href="/provisioning/style.css" />
 </head>
 <body>
   <main class="wrap">
-    <h1>Irrigation Setup</h1>
-    <p class="sub">Configure Wi-Fi for head unit.</p>
+    <h1>Irrigation Console</h1>
+    <p class="sub">AP-only local web access for status and control.</p>
 
     <section class="card">
-      <form id="cfgForm">
-        <label>
-          SSID
-          <input id="ssid" name="ssid" required maxlength="32" autocomplete="off" />
-        </label>
+      <h2>Web Status</h2>
+      <pre id="webStatus">Loading...</pre>
+    </section>
 
-        <label>
-          Password
-          <input id="password" name="password" type="password" maxlength="64" autocomplete="off" />
-        </label>
-
-        <div class="actions">
-          <button type="submit">Save and Connect</button>
-          <button type="button" id="resetBtn" class="ghost">Reset Wi-Fi NVS</button>
-        </div>
-      </form>
-      <pre id="status">Loading...</pre>
+    <section class="card">
+      <h2>Nodes</h2>
+      <pre id="nodes">Loading...</pre>
     </section>
   </main>
 

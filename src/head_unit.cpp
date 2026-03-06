@@ -123,19 +123,7 @@ void loop() {
     const uint32_t now = millis();
     buttonTick(now);
   const bool rawShortPress = buttonConsumeShortPress();
-    bool shortPressConsumedForClose = false;
-    if (rawShortPress && pairingHeadIsOpen()) {
-      pairingHeadSetOpen(false);
-      if (!headProvisioningIsSetupStarted()) {
-        headProvisioningCloseSession();
-      }
-      resetHeadMultipress();
-      shortPressConsumedForClose = true;
-      Serial.println("PAIRING(HEAD): pairing window closed by user");
-      ledsTriggerOnce(LED_MODE_ERROR_ONCE);
-    }
-    const bool shortPressForArb = rawShortPress && !shortPressConsumedForClose;
-    const HeadPressEvents pressEvents = processHeadMultipress(shortPressForArb, now);
+    const HeadPressEvents pressEvents = processHeadMultipress(rawShortPress, now);
 
     static bool lastOpenState = false;
     pairingHeadTick(now);
@@ -143,15 +131,18 @@ void loop() {
     if (buttonConsumeLongPress()) {
       Serial.println("PAIRING(HEAD): factory reset requested");
       pairingHeadFactoryReset();
+      telemetryHeadClearPresence();
       ledsTriggerOnce(LED_MODE_FACTORY_RESET_ONCE);
     }
 
     if (pressEvents.triple) {
-      if (headProvisioningHandleTriplePressReset(now, pairingHeadIsOpen())) {
-        Serial.println("PROV: Wi-Fi credentials reset by triple press");
+      if (pairingHeadIsOpen()) {
+        Serial.println("PAIRING(HEAD): factory reset requested by triple press");
+        pairingHeadFactoryReset();
+        telemetryHeadClearPresence();
         ledsTriggerOnce(LED_MODE_SUCCESS_ONCE);
       } else {
-        Serial.println("PROV: triple press ignored (outside pairing/provisioning window)");
+        Serial.println("PAIRING(HEAD): triple press ignored (pairing window closed)");
         ledsTriggerOnce(LED_MODE_ERROR_ONCE);
       }
     }
@@ -159,15 +150,11 @@ void loop() {
     if (pressEvents.single) {
       if (pairingHeadIsOpen()) {
         pairingHeadSetOpen(false);
-        if (!headProvisioningIsSetupStarted()) {
-          headProvisioningCloseSession();
-        }
         resetHeadMultipress();
         Serial.println("PAIRING(HEAD): pairing window closed by user");
         ledsTriggerOnce(LED_MODE_ERROR_ONCE);
       } else {
         pairingHeadSetOpen(true);
-        headProvisioningOpenSession(now);
         Serial.println("PAIRING(HEAD): pairing window opened");
         ledsSetBaseMode(LED_MODE_PAIRING_OPEN);
       }
@@ -196,9 +183,6 @@ void loop() {
     if (isOpen && !lastOpenState) {
       ledsSetBaseMode(LED_MODE_PAIRING_OPEN);
     } else if (!isOpen && lastOpenState) {
-      if (!headProvisioningIsSetupStarted()) {
-        headProvisioningCloseSession();
-      }
       ledsSetBaseMode(LED_MODE_OFF);
     }
     lastOpenState = isOpen;

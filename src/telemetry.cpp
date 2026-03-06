@@ -416,15 +416,21 @@ void telemetryOnRecv(const uint8_t* src_mac, const uint8_t* data, int len)
   }
 
   const uint32_t nowMs = millis();
-  NodeTelemetryState* nodeState = getOrCreateNodeState(telemetry->hdr.nodeId, src_mac, nowMs);
-  if (!nodeState) {
-    return;
+  const bool fromCurrentPair = pairingHeadIsKnownNode(telemetry->hdr.nodeId, src_mac);
+  NodeTelemetryState* nodeState = nullptr;
+  if (fromCurrentPair) {
+    nodeState = getOrCreateNodeState(telemetry->hdr.nodeId, src_mac, nowMs);
+    if (!nodeState) {
+      return;
+    }
+  } else {
+    nodeState = findNodeState(telemetry->hdr.nodeId, src_mac);
   }
 
-  const bool fromCurrentPair = pairingHeadIsKnownNode(telemetry->hdr.nodeId, src_mac);
-
   if (!fromCurrentPair) {
-    nodeState->rxInvalid++;
+    if (nodeState) {
+      nodeState->rxInvalid++;
+    }
     sendTelemetryAck(src_mac, telemetry->hdr.nodeId, telemetry->hdr.seq, TELEMETRY_ACK_STATUS_NOT_PAIRED);
     return;
   }
@@ -518,6 +524,11 @@ uint8_t telemetryHeadGetPresence(TelemetryHeadNodePresence* outNodes, uint8_t ma
   return written;
 }
 
+void telemetryHeadClearPresence()
+{
+  memset(s_nodes, 0, sizeof(s_nodes));
+}
+
 void telemetryTickSensor(const SensorMeasurement* measurement, bool hasMeasurement, uint32_t nowMs)
 {
   (void)measurement;
@@ -554,5 +565,7 @@ uint8_t telemetryHeadGetPresence(TelemetryHeadNodePresence* outNodes, uint8_t ma
   (void)maxNodes;
   return 0;
 }
+
+void telemetryHeadClearPresence() {}
 
 #endif
