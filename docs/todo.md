@@ -54,7 +54,6 @@ Head networking mode = SoftAP always (local UI), STA hotspot only for upload (ma
 - AP-first local web console for user operations and debug; router/internet not required for normal work.
 - Internet sync is explicitly deferred to a late phase and must be implemented as a short, explicit mode that may pause ESPNOW.
 - See: `docs/head-web-operating-model.md`
-- Detailed implementation spec/checklist: `docs/head-web-ui-spec.md`
 
 
 ## ACCEPTANCE CRITERIA
