@@ -121,6 +121,7 @@ Danger zone:
 - Default status refresh interval: 2-5 seconds.
 - Heavy operations are explicit and confirmed.
 - Any web overload must not block irrigation runtime loop.
+- Startup ordering must restore pairing/runtime state before emitting NOT_PAIRED decisions to web-visible presence paths.
 
 ---
 
@@ -197,6 +198,8 @@ Note:
 - [ ] This Unit rename/password works and persists.
 - [ ] Under one active web client, ESP-NOW telemetry remains stable.
 - [ ] Under stress (frequent refresh), system remains safe (no runtime lockups).
+- [ ] After reboot/reset, startup ordering prevents false NOT_PAIRED/offline artifacts before pairing registry restore completes.
+- [ ] Implementation stays within sections 2/6/7 of this spec (no internet sync, no router-dependent UX, no extra tabs/features in MVP).
 
 ---
 
@@ -212,3 +215,4 @@ Note:
 ## 10) Out-of-scope reminder
 
 - Internet sync is intentionally postponed and must not be introduced in this phase.
+- Scope guard: do not add APIs/features outside MVP contracts in section 6 unless this spec is explicitly revised first.

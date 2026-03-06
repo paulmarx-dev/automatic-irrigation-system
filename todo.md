@@ -53,6 +53,8 @@ Head networking mode = SoftAP always (local UI), STA hotspot only for upload (ma
 ### Head Web Operating Policy (current):
 - AP-first local web console for user operations and debug; router/internet not required for normal work.
 - Internet sync is explicitly deferred to a late phase and must be implemented as a short, explicit mode that may pause ESPNOW.
+- Startup ordering rule: restore pairing/runtime state first; avoid false NOT_PAIRED or stale web presence during boot/restart transitions.
+- Scope guard rule: Web MVP work must stay inside `docs/head-web-ui-spec.md` sections 2/6/7; no unplanned feature expansion.
 - See: `docs/head-web-operating-model.md`
 - Detailed implementation spec/checklist: `docs/head-web-ui-spec.md`
 
