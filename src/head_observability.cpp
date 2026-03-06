@@ -118,6 +118,11 @@ static void loadSensorLabelsFromNvs()
     return;
   }
 
+  if (!s_sensorLabelsPrefs.isKey(SENSOR_LABELS_NVS_KEY)) {
+    memset(s_sensorLabels, 0, sizeof(s_sensorLabels));
+    return;
+  }
+
   SensorLabelsNvsBlob blob{};
   const size_t read = s_sensorLabelsPrefs.getBytes(SENSOR_LABELS_NVS_KEY, &blob, sizeof(blob));
   if (read != sizeof(blob) || blob.version != SENSOR_LABELS_NVS_VERSION) {
