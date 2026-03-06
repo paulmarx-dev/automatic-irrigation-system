@@ -38,3 +38,4 @@ void telemetryTickSensor(const SensorMeasurement* measurement, bool hasMeasureme
 void telemetryTickHead(uint32_t nowMs);
 uint8_t telemetryHeadGetPresence(TelemetryHeadNodePresence* outNodes, uint8_t maxNodes);
 void telemetryHeadClearPresence();
+bool telemetryHeadRemovePresenceByNodeId(uint16_t nodeId);

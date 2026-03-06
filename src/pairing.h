@@ -82,6 +82,7 @@ bool pairingHeadConsumePairSuccessEvent();
 uint16_t pairingHeadPairedNodeId();
 bool pairingHeadPairedNodeMac(uint8_t out_mac[6]);
 bool pairingHeadIsKnownNode(uint16_t nodeId, const uint8_t mac[6]);
+bool pairingHeadUnpairNode(uint16_t nodeId);
 
 bool pairingNodeIsPaired();
 uint16_t pairingNodeId();

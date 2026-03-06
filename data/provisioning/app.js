@@ -15,11 +15,16 @@ function formatMoisture(permille) {
   return `${(permille / 10).toFixed(1)}%`;
 }
 
-async function postJson(url, body) {
+async function postForm(url, payload) {
+  const body = new URLSearchParams();
+  Object.entries(payload || {}).forEach(([key, value]) => {
+    body.set(key, String(value));
+  });
+
   const response = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body ?? {}),
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+    body: body.toString(),
   });
   if (!response.ok) {
     const error = new Error(`${url} -> HTTP ${response.status}`);
@@ -35,7 +40,7 @@ async function renameSensor(nodeId) {
   }
 
   try {
-    await postJson(`/api/sensors/${encodeURIComponent(nodeId)}/rename`, { name: nextName.trim() });
+    await postForm('/api/sensors/rename', { nodeId, name: nextName.trim() });
     await tick();
   } catch (error) {
     if (error.status === 404) {
@@ -53,7 +58,7 @@ async function unpairSensor(nodeId) {
   }
 
   try {
-    await postJson(`/api/sensors/${encodeURIComponent(nodeId)}/unpair`, {});
+    await postForm('/api/sensors/unpair', { nodeId });
     await tick();
   } catch (error) {
     if (error.status === 404) {
@@ -89,7 +94,7 @@ function renderNodes(nodes) {
 
       return `
         <article class="${cardClasses.join(' ')}">
-          <h3>Sensor ${node.nodeId ?? '-'}</h3>
+          <h3>${node.name || `Sensor ${node.nodeId ?? '-'}`}</h3>
           <p>Moisture: ${formatMoisture(node.moisturePermille)}</p>
           <p>State: ${node.state ?? 'UNKNOWN'}</p>
           <p>Battery: ${formatBatteryVolts(node.batteryEstMv)} <span class="${batteryClass}">[${batteryState}]</span></p>

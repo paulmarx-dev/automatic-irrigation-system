@@ -118,6 +118,19 @@ static int8_t headFindPairedSlotByUid(const uint8_t uid[6])
   return -1;
 }
 
+static int8_t headFindPairedSlotByNodeId(uint16_t nodeId)
+{
+  for (uint8_t index = 0; index < MAX_HEAD_PAIRED_NODES; ++index) {
+    if (!s_headPairedNodes[index].used) {
+      continue;
+    }
+    if (s_headPairedNodes[index].nodeId == nodeId) {
+      return static_cast<int8_t>(index);
+    }
+  }
+  return -1;
+}
+
 static int8_t headFindFreePairedSlot()
 {
   for (uint8_t index = 0; index < MAX_HEAD_PAIRED_NODES; ++index) {
@@ -920,6 +933,50 @@ bool pairingHeadIsKnownNode(uint16_t nodeId, const uint8_t mac[6])
   }
 
   return headFindPairedSlotByNodeIdMac(nodeId, mac) >= 0;
+}
+
+bool pairingHeadUnpairNode(uint16_t nodeId)
+{
+  if (!s_isHead || nodeId == 0) {
+    return false;
+  }
+
+  const int8_t slot = headFindPairedSlotByNodeId(nodeId);
+  if (slot < 0) {
+    return false;
+  }
+
+  HeadPairedNode* entry = &s_headPairedNodes[slot];
+  if (!entry->used) {
+    return false;
+  }
+
+  memset(entry, 0, sizeof(*entry));
+  if (s_headPairedCount > 0) {
+    s_headPairedCount--;
+  }
+
+  s_headPaired = s_headPairedCount > 0;
+  s_headPairedNodeId = 0;
+  memset(s_headPairedNodeMac, 0, sizeof(s_headPairedNodeMac));
+  memset(s_headPairedNodeUid, 0, sizeof(s_headPairedNodeUid));
+
+  if (s_headPaired) {
+    for (uint8_t index = 0; index < MAX_HEAD_PAIRED_NODES; ++index) {
+      if (!s_headPairedNodes[index].used) {
+        continue;
+      }
+      s_headPairedNodeId = s_headPairedNodes[index].nodeId;
+      memcpy(s_headPairedNodeMac, s_headPairedNodes[index].mac, 6);
+      memcpy(s_headPairedNodeUid, s_headPairedNodes[index].uid, 6);
+      break;
+    }
+  }
+
+  headSchedulePersist(millis());
+  Serial.print("PAIRING(HEAD): unpaired nodeId=");
+  Serial.println((unsigned long)nodeId);
+  return true;
 }
 
 bool pairingNodeIsPaired()

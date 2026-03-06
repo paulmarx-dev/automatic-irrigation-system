@@ -549,6 +549,26 @@ void telemetryHeadClearPresence()
   memset(s_nodes, 0, sizeof(s_nodes));
 }
 
+bool telemetryHeadRemovePresenceByNodeId(uint16_t nodeId)
+{
+  if (nodeId == 0) {
+    return false;
+  }
+
+  for (uint8_t i = 0; i < MAX_NODE_REGISTRY; ++i) {
+    NodeTelemetryState* entry = &s_nodes[i];
+    if (!entry->used) {
+      continue;
+    }
+    if (entry->nodeId != nodeId) {
+      continue;
+    }
+    memset(entry, 0, sizeof(*entry));
+    return true;
+  }
+  return false;
+}
+
 void telemetryTickSensor(const SensorMeasurement* measurement, bool hasMeasurement, uint32_t nowMs)
 {
   (void)measurement;
@@ -587,5 +607,11 @@ uint8_t telemetryHeadGetPresence(TelemetryHeadNodePresence* outNodes, uint8_t ma
 }
 
 void telemetryHeadClearPresence() {}
+
+bool telemetryHeadRemovePresenceByNodeId(uint16_t nodeId)
+{
+  (void)nodeId;
+  return false;
+}
 
 #endif
