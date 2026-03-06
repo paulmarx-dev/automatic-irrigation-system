@@ -112,7 +112,7 @@ Transitions:
 - new: `data/provisioning/style.css`
 - `platformio.ini` (filesystem type and upload flow)
 - maybe: `src/common_config.h` (small constants)
-- maybe: `todo.md` (mark progress)
+- maybe: `docs/todo.md` (mark progress)
 
 Note: keep provisioning logic in dedicated module files; avoid spreading state transitions across unrelated units.
 
