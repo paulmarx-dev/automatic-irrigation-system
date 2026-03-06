@@ -34,6 +34,15 @@ static constexpr uint32_t PAIRING_HEAD_OPEN_MS = 120000;
 static constexpr uint32_t PAIRING_NODE_JOIN_MS = 60000;
 
 /*
+  Head-side battery status thresholds (estimated battery voltage in mV).
+  <= NEEDS_REPLACEMENT: hard replacement warning
+  <= CRITICAL: low battery warning
+  >  CRITICAL: OK
+*/
+static constexpr uint16_t BATTERY_NEEDS_REPLACEMENT_MV = 3200;
+static constexpr uint16_t BATTERY_CRITICAL_MV = 3500;
+
+/*
   Protocol version (will be used later in all messages).
 */
 static constexpr uint8_t PROTOCOL_VERSION = 1;

@@ -19,6 +19,7 @@ body {
   border: 1px solid #e7e7e7;
   border-radius: 10px;
   padding: 16px;
+  margin-bottom: 14px;
 }
 label {
   display: block;
@@ -58,4 +59,59 @@ pre {
   border-radius: 8px;
   min-height: 120px;
   overflow: auto;
+}
+
+.sensor-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.sensor-card {
+  border: 1px solid #d2d2d7;
+  border-radius: 10px;
+  padding: 12px;
+  background: #fff;
+}
+
+.sensor-card h3 {
+  margin: 0 0 8px;
+  font-size: 18px;
+}
+
+.sensor-card p {
+  margin: 6px 0;
+}
+
+.battery-state {
+  font-weight: 700;
+}
+
+.battery-state.critical {
+  color: #b00020;
+}
+
+.battery-state.needs-replacement {
+  color: #b00020;
+}
+
+.sensor-card.needs-replacement {
+  border-color: #b00020;
+  background: #ffecec;
+}
+
+.sensor-card.offline {
+  background: #f1f1f4;
+  border-color: #d8d8de;
+}
+
+.sensor-mac {
+  margin-top: 10px;
+  color: #7a7a82;
+  font-size: 12px;
+}
+
+.empty {
+  color: #666;
+  margin: 0;
 }

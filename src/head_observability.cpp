@@ -28,6 +28,20 @@ static const char* nodeStateToText(TelemetryHeadNodeState state)
   }
 }
 
+static const char* batteryStateToText(TelemetryHeadBatteryState state)
+{
+  switch (state) {
+    case TELEMETRY_HEAD_BATTERY_OK:
+      return "OK";
+    case TELEMETRY_HEAD_BATTERY_CRITICAL:
+      return "CRITICAL";
+    case TELEMETRY_HEAD_BATTERY_NEEDS_REPLACEMENT:
+      return "NEEDS_REPLACEMENT";
+    default:
+      return "UNKNOWN";
+  }
+}
+
 static void onNodesApi()
 {
   TelemetryHeadNodePresence nodes[8] = {};
@@ -48,12 +62,15 @@ static void onNodesApi()
     offset += static_cast<size_t>(snprintf(
         body + offset,
         sizeof(body) - offset,
-        "%s{\"slot\":%u,\"mac\":\"%s\",\"nodeId\":%u,\"state\":\"%s\",\"lastSeenSecAgo\":%lu,\"rxPackets\":%lu,\"rxDuplicates\":%lu,\"rxInvalid\":%lu,\"ackOkSent\":%lu,\"ackNotPairedSent\":%lu}",
+      "%s{\"slot\":%u,\"mac\":\"%s\",\"nodeId\":%u,\"state\":\"%s\",\"moisturePermille\":%u,\"batteryEstMv\":%u,\"batteryState\":\"%s\",\"lastSeenSecAgo\":%lu,\"rxPackets\":%lu,\"rxDuplicates\":%lu,\"rxInvalid\":%lu,\"ackOkSent\":%lu,\"ackNotPairedSent\":%lu}",
         (i == 0) ? "" : ",",
         static_cast<unsigned>(i),
         mac,
         static_cast<unsigned>(node.nodeId),
         nodeStateToText(node.state),
+      static_cast<unsigned>(node.moisturePermille),
+      static_cast<unsigned>(node.batteryEstMv),
+      batteryStateToText(node.batteryState),
         static_cast<unsigned long>(lastSeenSecAgo),
         static_cast<unsigned long>(node.rxPackets),
         static_cast<unsigned long>(node.rxDuplicates),

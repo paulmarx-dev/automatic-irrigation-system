@@ -162,11 +162,8 @@ void telemetryTickSensor(const SensorMeasurement* measurement, bool hasMeasureme
           s_noAckCycles++;
         }
         if (s_noAckCycles >= MAX_NO_ACK_CYCLES_BEFORE_REJOIN) {
-          Serial.println("PAIRING(NODE): no-ack threshold reached, force rejoin");
-          pairingInitNode(ROLE_SENSOR);
-          s_waitingAck = false;
-          s_noAckCycles = 0;
-          return;
+          Serial.println("PAIRING(NODE): no-ack threshold reached, keep paired and continue telemetry retries");
+          s_noAckCycles = MAX_NO_ACK_CYCLES_BEFORE_REJOIN;
         }
       }
     }
@@ -256,8 +253,11 @@ static const char* nodeStateToText(TelemetryHeadNodeState state)
 struct NodeTelemetryState {
   bool used;
   TelemetryHeadNodeState state;
+  TelemetryHeadBatteryState batteryState;
   bool hasLastSeq;
   uint16_t nodeId;
+  uint16_t moisturePermille;
+  uint16_t batteryEstMv;
   uint8_t mac[6];
   uint32_t lastSeenMs;
   uint16_t lastSeq;
@@ -270,6 +270,17 @@ struct NodeTelemetryState {
 
 static NodeTelemetryState s_nodes[MAX_NODE_REGISTRY] = {};
 static uint16_t s_ackSeq = 0;
+
+static TelemetryHeadBatteryState classifyBatteryState(uint16_t batteryEstMv)
+{
+  if (batteryEstMv <= BATTERY_NEEDS_REPLACEMENT_MV) {
+    return TELEMETRY_HEAD_BATTERY_NEEDS_REPLACEMENT;
+  }
+  if (batteryEstMv <= BATTERY_CRITICAL_MV) {
+    return TELEMETRY_HEAD_BATTERY_CRITICAL;
+  }
+  return TELEMETRY_HEAD_BATTERY_OK;
+}
 
 void telemetryInit()
 {
@@ -300,8 +311,11 @@ static NodeTelemetryState* getOrCreateNodeState(uint16_t nodeId, const uint8_t s
   NodeTelemetryState* target = emptySlot ? emptySlot : oldestSlot;
   target->used = true;
   target->state = TELEMETRY_HEAD_NODE_ONLINE;
+  target->batteryState = TELEMETRY_HEAD_BATTERY_OK;
   target->hasLastSeq = false;
   target->nodeId = nodeId;
+  target->moisturePermille = 0;
+  target->batteryEstMv = 0;
   memcpy(target->mac, src_mac, 6);
   target->lastSeenMs = nowMs;
   target->lastSeq = 0;
@@ -454,6 +468,9 @@ void telemetryOnRecv(const uint8_t* src_mac, const uint8_t* data, int len)
   } else {
     nodeState->hasLastSeq = true;
     nodeState->lastSeq = telemetry->hdr.seq;
+    nodeState->moisturePermille = telemetry->moisturePermille;
+    nodeState->batteryEstMv = telemetry->batteryEstMv;
+    nodeState->batteryState = classifyBatteryState(telemetry->batteryEstMv);
     nodeState->rxPackets++;
     logTelemetry(telemetry, src_mac);
   }
@@ -511,7 +528,10 @@ uint8_t telemetryHeadGetPresence(TelemetryHeadNodePresence* outNodes, uint8_t ma
 
     outNodes[written].used = true;
     outNodes[written].state = entry->state;
+    outNodes[written].batteryState = entry->batteryState;
     outNodes[written].nodeId = entry->nodeId;
+    outNodes[written].moisturePermille = entry->moisturePermille;
+    outNodes[written].batteryEstMv = entry->batteryEstMv;
     memcpy(outNodes[written].mac, entry->mac, 6);
     outNodes[written].lastSeenMs = entry->lastSeenMs;
     outNodes[written].rxPackets = entry->rxPackets;

@@ -10,10 +10,19 @@ enum TelemetryHeadNodeState : uint8_t {
   TELEMETRY_HEAD_NODE_OFFLINE = 2,
 };
 
+enum TelemetryHeadBatteryState : uint8_t {
+	TELEMETRY_HEAD_BATTERY_OK = 0,
+	TELEMETRY_HEAD_BATTERY_CRITICAL = 1,
+	TELEMETRY_HEAD_BATTERY_NEEDS_REPLACEMENT = 2,
+};
+
 struct TelemetryHeadNodePresence {
 	bool used;
 	TelemetryHeadNodeState state;
+	TelemetryHeadBatteryState batteryState;
 	uint16_t nodeId;
+	uint16_t moisturePermille;
+	uint16_t batteryEstMv;
 	uint8_t mac[6];
 	uint32_t lastSeenMs;
 	uint32_t rxPackets;
