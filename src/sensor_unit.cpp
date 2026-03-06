@@ -7,6 +7,8 @@
 #include "pairing_nvs.h"
 #include "cal_nvs.h"
 #include "telemetry.h"
+#include "protocol.h"
+#include "sensor_remote_control.h"
 #include "leds.h"
 #include "button.h"
 #include "app_log.h"
@@ -58,6 +60,8 @@ static uint32_t s_calibrationNextSampleMs = 0;
 static uint16_t s_calibrationSamples[CAL_MEDIAN_SAMPLES] = {0};
 static int32_t s_calibrationDryMv = 0;
 static int32_t s_calibrationWetMv = 0;
+static bool s_remoteCalibrateStartPending = false;
+static bool s_remoteMeasureWetPending = false;
 
 static void onRecv(const uint8_t* src_mac, const uint8_t* data, int len)
 {
@@ -309,6 +313,28 @@ static void calibrationTick(uint32_t now, bool rawShortPress, const PressArbEven
 	}
 }
 
+bool sensorHandleRemoteButtonAction(uint8_t action, uint32_t nowMs)
+{
+	(void)nowMs;
+	if (action == REMOTE_BUTTON_CALIBRATE_START) {
+		if (s_calibrationActive) {
+			return false;
+		}
+		s_remoteCalibrateStartPending = true;
+		return true;
+	}
+
+	if (action == REMOTE_BUTTON_CALIBRATE_MEASURE_WET) {
+		if (!s_calibrationActive || s_calibrationState != CAL_STATE_PROMPT_WET) {
+			return false;
+		}
+		s_remoteMeasureWetPending = true;
+		return true;
+	}
+
+	return false;
+}
+
 
 
 
@@ -394,7 +420,17 @@ void loop() {
 	bool joinModeActive = pairingNodeIsInJoinMode();
 	const bool rawShortPress = buttonConsumeShortPress();
 	const bool rawLongPress = buttonConsumeLongPress();
-	const PressArbEvents pressEvents = processMultipressArbitration(rawShortPress, now);
+	PressArbEvents pressEvents = processMultipressArbitration(rawShortPress, now);
+
+	if (s_remoteCalibrateStartPending) {
+		s_remoteCalibrateStartPending = false;
+		pressEvents.triple = true;
+	}
+
+	if (s_remoteMeasureWetPending) {
+		s_remoteMeasureWetPending = false;
+		pressEvents.single = true;
+	}
 
 	if (!pairStateInitialized) {
 		wasPaired = isPaired;

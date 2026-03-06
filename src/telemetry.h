@@ -39,3 +39,4 @@ void telemetryTickHead(uint32_t nowMs);
 uint8_t telemetryHeadGetPresence(TelemetryHeadNodePresence* outNodes, uint8_t maxNodes);
 void telemetryHeadClearPresence();
 bool telemetryHeadRemovePresenceByNodeId(uint16_t nodeId);
+bool telemetryHeadSendRemoteButtonAction(uint16_t nodeId, uint8_t action);

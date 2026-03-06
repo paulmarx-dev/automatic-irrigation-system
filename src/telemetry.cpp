@@ -14,6 +14,7 @@
 #include "button.h"
 #include "leds.h"
 #include "pairing_nvs.h"
+#include "sensor_remote_control.h"
 
 static const unsigned long ACK_TIMEOUT_MS = 200;
 static const uint8_t MAX_RETRIES = 3;
@@ -94,14 +95,41 @@ void telemetryInit()
 
 void telemetryOnRecv(const uint8_t* src_mac, const uint8_t* data, int len)
 {
-  if (!src_mac || !data || len != (int)sizeof(MsgTelemetryAck)) {
+  if (!src_mac || !data || len < (int)sizeof(MsgHdr)) {
+    return;
+  }
+
+  const MsgHdr* hdr = reinterpret_cast<const MsgHdr*>(data);
+  if (hdr->ver != PROTO_VER) {
+    return;
+  }
+
+  if (hdr->type == MSG_REMOTE_BUTTON) {
+    if (len != (int)sizeof(MsgRemoteButton)) {
+      return;
+    }
+    if (!pairingNodeIsPaired()) {
+      return;
+    }
+    if (hdr->nodeId != pairingNodeId()) {
+      return;
+    }
+
+    const MsgRemoteButton* cmd = reinterpret_cast<const MsgRemoteButton*>(data);
+    const bool accepted = sensorHandleRemoteButtonAction(cmd->action, millis());
+
+    Serial.print("REMOTE_BTN action=");
+    Serial.print((unsigned long)cmd->action);
+    Serial.print(" accepted=");
+    Serial.println(accepted ? 1 : 0);
+    return;
+  }
+
+  if (hdr->type != MSG_TELEMETRY_ACK || len != (int)sizeof(MsgTelemetryAck)) {
     return;
   }
 
   const MsgTelemetryAck* ack = reinterpret_cast<const MsgTelemetryAck*>(data);
-  if (ack->hdr.ver != PROTO_VER || ack->hdr.type != MSG_TELEMETRY_ACK) {
-    return;
-  }
 
   if (!s_waitingAck) {
     return;
@@ -611,6 +639,54 @@ bool telemetryHeadRemovePresenceByNodeId(uint16_t nodeId)
   return false;
 }
 
+bool telemetryHeadSendRemoteButtonAction(uint16_t nodeId, uint8_t action)
+{
+  if (nodeId == 0) {
+    return false;
+  }
+  if (action != REMOTE_BUTTON_CALIBRATE_START && action != REMOTE_BUTTON_CALIBRATE_MEASURE_WET) {
+    return false;
+  }
+
+  NodeTelemetryState* node = nullptr;
+  for (uint8_t i = 0; i < MAX_NODE_REGISTRY; ++i) {
+    NodeTelemetryState* entry = &s_nodes[i];
+    if (!entry->used || entry->nodeId != nodeId) {
+      continue;
+    }
+    node = entry;
+    break;
+  }
+
+  if (!node) {
+    return false;
+  }
+
+  MsgRemoteButton command{};
+  command.hdr.ver = PROTO_VER;
+  command.hdr.type = MSG_REMOTE_BUTTON;
+  command.hdr.seq = ++s_ackSeq;
+  command.hdr.nodeId = nodeId;
+  command.action = action;
+  command.reserved = 0;
+
+  (void)espnowEnsurePeer(node->mac, ESPNOW_CHANNEL, false);
+  const bool sent = espnowSend(node->mac, reinterpret_cast<const uint8_t*>(&command), sizeof(command));
+
+  char macBuf[18] = {0};
+  macToString(node->mac, macBuf, sizeof(macBuf));
+  Serial.print("[nodeId=");
+  Serial.print((unsigned long)nodeId);
+  Serial.print(" mac=");
+  Serial.print(macBuf);
+  Serial.print("] remote_btn sent=");
+  Serial.print(sent ? 1 : 0);
+  Serial.print(" action=");
+  Serial.println((unsigned long)action);
+
+  return sent;
+}
+
 void telemetryTickSensor(const SensorMeasurement* measurement, bool hasMeasurement, uint32_t nowMs)
 {
   (void)measurement;
@@ -653,6 +729,13 @@ void telemetryHeadClearPresence() {}
 bool telemetryHeadRemovePresenceByNodeId(uint16_t nodeId)
 {
   (void)nodeId;
+  return false;
+}
+
+bool telemetryHeadSendRemoteButtonAction(uint16_t nodeId, uint8_t action)
+{
+  (void)nodeId;
+  (void)action;
   return false;
 }
 

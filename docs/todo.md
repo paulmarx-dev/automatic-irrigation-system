@@ -52,6 +52,11 @@ Head networking mode = SoftAP always (local UI), STA hotspot only for upload (ma
 
 ### Open Issues:
 - [x] Sensor UX on head factory reset resolved: sensor handles NOT_PAIRED ACK, clears local pairing, enters join mode; head opens short candidate rebind window.
+- [x] Calibration reset remains sensor-local in MVP (no web reset action).
+  - "если юзерам надо будет, а мы как инженеры решили, что не надо" — revisit only when user demand appears.
+- [ ] UX polish (deferred): preserve sensor display names across re-pair by MAC mapping.
+  - Scope: at least in-memory for current runtime session; optional NVS persistence later.
+  - Goal: if same physical sensor re-pairs (same MAC), restore previous custom name automatically.
 
 ### Head Web Operating Policy (current):
 - AP-first local web console for user operations and debug; router/internet not required for normal work.
@@ -283,15 +288,15 @@ Head networking mode = SoftAP always (local UI), STA hotspot only for upload (ma
 **Done when:**
 
 - [ ] Status page shows:
-  - [ ] Devices list
-  - [ ] lastSeen
-  - [ ] battery
-  - [ ] moisture
+  - [x] Devices list
+  - [x] lastSeen
+  - [x] battery
+  - [x] moisture
   - [ ] irrigation state
 - [ ] Controls:
   - [ ] Start irrigation
   - [ ] Stop irrigation
-  - [ ] Open pairing
+  - [x] Open pairing
   - [ ] Close pairing
 - [ ] OTA:
   - [ ] Firmware update works

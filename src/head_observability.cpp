@@ -12,6 +12,7 @@
 #include "esp_now_helpers.h"
 #include "head_wifi_provisioning.h"
 #include "pairing.h"
+#include "protocol.h"
 #include "telemetry.h"
 
 namespace {
@@ -269,6 +270,33 @@ static void onSensorUnpairApi()
   s_server.send(200, "application/json", "{\"ok\":1}");
 }
 
+static void onSensorCalibrateApi()
+{
+  uint16_t nodeId = 0;
+  if (!parseNodeIdArg(&nodeId) || !s_server.hasArg("step")) {
+    s_server.send(400, "application/json", "{\"ok\":0,\"error\":\"invalid_args\"}");
+    return;
+  }
+
+  const String step = s_server.arg("step");
+  uint8_t action = 0;
+  if (step == "start") {
+    action = REMOTE_BUTTON_CALIBRATE_START;
+  } else if (step == "wet") {
+    action = REMOTE_BUTTON_CALIBRATE_MEASURE_WET;
+  } else {
+    s_server.send(400, "application/json", "{\"ok\":0,\"error\":\"invalid_step\"}");
+    return;
+  }
+
+  if (!telemetryHeadSendRemoteButtonAction(nodeId, action)) {
+    s_server.send(404, "application/json", "{\"ok\":0,\"error\":\"node_not_available\"}");
+    return;
+  }
+
+  s_server.send(200, "application/json", "{\"ok\":1}");
+}
+
 static void onNodesApi()
 {
   TelemetryHeadNodePresence nodes[8] = {};
@@ -383,6 +411,7 @@ void headObservabilityInit()
   s_server.on("/api/system/summary", HTTP_GET, onSystemSummaryApi);
   s_server.on("/api/sensors/rename", HTTP_POST, onSensorRenameApi);
   s_server.on("/api/sensors/unpair", HTTP_POST, onSensorUnpairApi);
+  s_server.on("/api/sensors/calibrate", HTTP_POST, onSensorCalibrateApi);
   headProvisioningInit(&s_server);
   s_server.begin();
   Serial.println("OBS: HTTP /api/nodes + web console ready");

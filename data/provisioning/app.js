@@ -14,8 +14,9 @@ const calibrationStateByNode = new Map();
 let latestNodes = [];
 let activeCalibration = null;
 let pairingRemainingSec = 0;
-const CAL_RUNNING_TIMEOUT_MS = 25000;
+const CAL_PROMPT_TIMEOUT_MS = 20000;
 const CAL_ERROR_HIDE_MS = 5000;
+const CAL_INFO_HIDE_MS = 5000;
 
 function render(el, data) {
   el.textContent = JSON.stringify(data, null, 2);
@@ -150,12 +151,25 @@ async function openPairingWindow() {
   }
 }
 
+async function triggerRemoteCalibration(nodeId, step) {
+  await postForm('/api/sensors/calibrate', { nodeId, step });
+}
+
 function calibrationStateFor(nodeId) {
   return calibrationStateByNode.get(String(nodeId)) || 'idle';
 }
 
 function resetCalibrationState(nodeId) {
   calibrationStateByNode.delete(String(nodeId));
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
 }
 
 function renderCalibrationBanner() {
@@ -166,20 +180,53 @@ function renderCalibrationBanner() {
   if (!activeCalibration) {
     calibrationBannerEl.hidden = true;
     calibrationBannerEl.classList.remove('error');
-    calibrationBannerEl.textContent = '';
+    calibrationBannerEl.innerHTML = '';
     return;
   }
 
   const now = Date.now();
-  const lines = [...activeCalibration.lines];
-  if (activeCalibration.phase === 'running' && activeCalibration.deadlineMs > now) {
+  let noteText = activeCalibration.note || '';
+  if (activeCalibration.phase === 'measure_wet' && activeCalibration.deadlineMs > now) {
     const leftSec = Math.max(0, Math.ceil((activeCalibration.deadlineMs - now) / 1000));
-    lines.push(`Waiting for completion: ${leftSec}s`);
+    noteText = `${noteText} (${leftSec}s left)`;
   }
 
+  const title = activeCalibration.title || `Sensor ${activeCalibration.nodeId}`;
+  const stepsHtml = activeCalibration.steps
+    .map((step) => `<li class="calibration-step ${escapeHtml(step.state)}">${escapeHtml(step.text)}</li>`)
+    .join('');
+  const noteHtml = noteText ? `<p class="calibration-note">${escapeHtml(noteText)}</p>` : '';
+
   calibrationBannerEl.classList.toggle('error', activeCalibration.status === 'error');
-  calibrationBannerEl.textContent = lines.join('\n');
+  calibrationBannerEl.innerHTML = `
+    <p class="calibration-title">Calibration · ${escapeHtml(title)}</p>
+    <ul class="calibration-steps">${stepsHtml}</ul>
+    ${noteHtml}
+  `;
   calibrationBannerEl.hidden = false;
+}
+
+function placeCalibrationBanner() {
+  if (!calibrationBannerEl) {
+    return;
+  }
+
+  if (!activeCalibration) {
+    return;
+  }
+
+  const targetCard = nodesEl.querySelector(`[data-sensor-node-id="${activeCalibration.nodeId}"]`);
+  if (!targetCard) {
+    return;
+  }
+
+  const actions = targetCard.querySelector('.sensor-actions');
+  if (actions) {
+    actions.insertAdjacentElement('afterend', calibrationBannerEl);
+    return;
+  }
+
+  targetCard.appendChild(calibrationBannerEl);
 }
 
 function finishCalibrationWithError(message) {
@@ -193,7 +240,11 @@ function finishCalibrationWithError(message) {
   activeCalibration.phase = 'done';
   activeCalibration.deadlineMs = 0;
   activeCalibration.autoHideAtMs = Date.now() + CAL_ERROR_HIDE_MS;
-  activeCalibration.lines.push(message);
+  activeCalibration.note = message;
+  activeCalibration.steps = activeCalibration.steps.map((step) => ({
+    ...step,
+    state: step.state === 'done' ? 'done' : 'pending',
+  }));
   renderCalibrationBanner();
 }
 
@@ -205,38 +256,41 @@ function startCalibrationGuide(node) {
 
   activeCalibration = {
     nodeId,
+    title,
     status: 'info',
     phase: 'measure_wet',
-    deadlineMs: 0,
+    deadlineMs: Date.now() + CAL_PROMPT_TIMEOUT_MS,
     autoHideAtMs: 0,
-    lines: [
-      `Calibration started for ${title}.`,
-      'Step 1: press sensor button 3x quickly to start dry measurement.',
-      'Step 2: immerse sensor in a cup with water and press "Measure wet".',
+    steps: [
+      { text: 'Calibrate command sent', state: 'done' },
+      { text: 'Measure wet', state: 'active' },
+      { text: 'Sensor finishes calibration', state: 'pending' },
     ],
+    note: 'Dry measurement completed. Place sensor in water and tap "Measure wet".',
   };
 
   renderCalibrationBanner();
 }
 
-function continueCalibrationGuide(node) {
-  if (!activeCalibration) {
-    startCalibrationGuide(node);
-    return;
-  }
-
+function finishCalibrationGuide(node) {
   const nodeId = String(node.nodeId);
-  if (activeCalibration.nodeId !== nodeId || activeCalibration.phase !== 'measure_wet') {
-    startCalibrationGuide(node);
-    return;
-  }
+  resetCalibrationState(nodeId);
 
-  calibrationStateByNode.set(nodeId, 'running');
-  activeCalibration.phase = 'running';
-  activeCalibration.status = 'info';
-  activeCalibration.deadlineMs = Date.now() + CAL_RUNNING_TIMEOUT_MS;
-  activeCalibration.lines.push('Measure wet requested. On sensor, press button once now.');
-  activeCalibration.lines.push('If calibration does not finish, state will return to Calibrate automatically.');
+  activeCalibration = {
+    nodeId,
+    title: node.name || `Sensor ${nodeId}`,
+    status: 'info',
+    phase: 'done',
+    deadlineMs: 0,
+    autoHideAtMs: Date.now() + CAL_INFO_HIDE_MS,
+    steps: [
+      { text: 'Calibrate command sent', state: 'done' },
+      { text: 'Measure wet', state: 'done' },
+      { text: 'Sensor finishes calibration', state: 'active' },
+    ],
+    note: 'Wet measurement command sent. Sensor now completes calibration.',
+  };
+
   renderCalibrationBanner();
 }
 
@@ -252,8 +306,8 @@ function reconcileCalibrationState() {
     return;
   }
 
-  if (activeCalibration.phase === 'running' && activeCalibration.deadlineMs > 0 && now >= activeCalibration.deadlineMs) {
-    finishCalibrationWithError('Calibration timeout. Please restart and try again.');
+  if (activeCalibration.phase === 'measure_wet' && activeCalibration.deadlineMs > 0 && now >= activeCalibration.deadlineMs) {
+    finishCalibrationWithError('Wet-step timeout. State returned to Calibrate.');
     return;
   }
 
@@ -308,13 +362,11 @@ function renderNodes(nodes) {
       const calibrationState = calibrationStateFor(node.nodeId);
       const calibrateLabel = calibrationState === 'measure_wet'
         ? 'Measure wet'
-        : calibrationState === 'running'
-          ? 'Calibrating...'
-          : 'Calibrate';
-      const calibrateDisabled = calibrationState === 'running' ? 'disabled' : '';
+        : 'Calibrate';
+      const calibrateDisabled = '';
 
       return `
-        <article class="${cardClasses.join(' ')}">
+        <article class="${cardClasses.join(' ')}" data-sensor-node-id="${node.nodeId ?? ''}">
           <h3>${node.name || `Sensor ${node.nodeId ?? '-'}`}</h3>
           <p>Moisture: ${formatMoisture(node.moisturePermille)}</p>
           <p>State: ${node.state ?? 'UNKNOWN'}</p>
@@ -357,6 +409,7 @@ async function tick() {
     renderNodes(nodes);
     reconcileCalibrationState();
     renderCalibrationBanner();
+    placeCalibrationBanner();
   } catch (error) {
     webStatusEl.textContent = `fetch error: ${error}`;
     nodesEl.textContent = '';
@@ -410,12 +463,23 @@ nodesEl.addEventListener('click', async (event) => {
       return;
     }
 
-    if (calibrationStateFor(nodeId) === 'measure_wet') {
-      continueCalibrationGuide(node);
-    } else {
-      startCalibrationGuide(node);
+    try {
+      if (calibrationStateFor(nodeId) === 'measure_wet') {
+        await triggerRemoteCalibration(nodeId, 'wet');
+        finishCalibrationGuide(node);
+      } else {
+        await triggerRemoteCalibration(nodeId, 'start');
+        startCalibrationGuide(node);
+      }
+    } catch (error) {
+      finishCalibrationWithError(`Calibration command failed: ${error.message}`);
+      renderNodes(latestNodes);
+      return;
     }
+
     renderNodes(latestNodes);
+    renderCalibrationBanner();
+    placeCalibrationBanner();
     return;
   }
 
@@ -438,6 +502,7 @@ setInterval(() => {
   }
   reconcileCalibrationState();
   renderCalibrationBanner();
+  placeCalibrationBanner();
 }, 1000);
 
 if (addSensorBtn) {

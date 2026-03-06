@@ -1,6 +1,6 @@
 ## TODO
 
-- [ ] Sensor calibration flow (button-triggered): dry/wet points, NVS storage, moisture normalization
+- [x] Sensor calibration flow (button-triggered): dry/wet points, NVS storage, moisture normalization
 
 
 ## ACCEPTANCE CRITERIA
@@ -12,19 +12,19 @@
 
 #### Trigger & UX
 
-- [ ] Calibration mode can be started by triple short button press within 2 seconds
-- [ ] Sensor indicates entering calibration mode via LED pattern
-- [ ] Calibration can be aborted by long button press
-- [ ] Abort leaves previous calibration intact
+- [x] Calibration mode can be started by triple short button press within 2 seconds
+- [x] Sensor indicates entering calibration mode via LED pattern
+- [x] Calibration can be aborted by long button press
+- [x] Abort leaves previous calibration intact
 
 
 #### Dry Measurement Phase
 
-- [ ] Sensor enters dry measurement phase (air)
-- [ ] LED indicates dry measurement in progress
+- [x] Sensor enters dry measurement phase (air)
+- [x] LED indicates dry measurement in progress
 - [ ] Dry measurement duration ≥ 2 seconds
 - [ ] Multiple samples collected (≥ 20 samples)
-- [ ] Dry value computed as stable average or median
+- [x] Dry value computed as stable average or median
 - [ ] Dry value stored as:
 
     cal_dry_raw
@@ -34,11 +34,11 @@
 
 #### Wet Measurement Phase
 
-- [ ] Sensor prompts user via LED to place probe into water
-- [ ] Sensor enters wet measurement phase automatically after delay or button press
+- [x] Sensor prompts user via LED to place probe into water
+- [x] Sensor enters wet measurement phase automatically after delay or button press
 - [ ] Wet measurement duration ≥ 2 seconds
 - [ ] Multiple samples collected (≥ 20 samples)
-- [ ] Wet value computed as stable average or median
+- [x] Wet value computed as stable average or median
 - [ ] Wet value stored as:
 
     cal_wet_raw
@@ -48,12 +48,12 @@
 
 #### Validation
 
-- [ ] Calibration rejected if:
+- [x] Calibration rejected if:
 
     abs(cal_wet_raw - cal_dry_raw) < MIN_CALIBRATION_SPAN
 
-- [ ] LED indicates calibration error if rejected
-- [ ] Previous calibration remains valid if rejected
+- [x] LED indicates calibration error if rejected
+- [x] Previous calibration remains valid if rejected
 
 Recommended initial constant:
 
@@ -64,27 +64,27 @@ Recommended initial constant:
 
 #### Persistence (NVS)
 
-- [ ] Sensor stores in NVS:
+- [x] Sensor stores in NVS:
 
     cal_valid
     cal_dry_raw
     cal_wet_raw
 
-- [ ] Calibration values restored after reboot
+- [x] Calibration values restored after reboot
 - [ ] Calibration values restored after deep sleep
 
 
 #### Moisture Calculation
 
-- [ ] Sensor computes normalized moisture value:
+- [x] Sensor computes normalized moisture value:
 
     moisture = (raw - cal_dry_raw) / (cal_wet_raw - cal_dry_raw)
 
-- [ ] Moisture value clamped to:
+- [x] Moisture value clamped to:
 
     0.0 ≤ moisture ≤ 1.0
 
-- [ ] Moisture percentage available:
+- [x] Moisture percentage available:
 
     0–100%
 
@@ -93,7 +93,7 @@ Recommended initial constant:
 
 - [ ] Calibration survives ≥100 deep sleep cycles
 - [ ] Calibration works with battery supply
-- [ ] Calibration works without head unit present
+- [x] Calibration works without head unit present
 
 
 ### LED Behaviour (Reference)

@@ -176,10 +176,10 @@ Note:
 - [x] Create tabbed shell (Home / Sensors / This Unit)
 - [ ] Implement Home data binding + mode controls
 - [ ] Implement Save/Saved dirty-state UX
-- [ ] Implement Sensors cards + add-new + banners
+- [x] Implement Sensors cards + add-new + banners
 - [x] Implement battery status rendering in sensor cards (`OK` / `CRITICAL` / `NEEDS_REPLACEMENT`)
 - [ ] Implement This Unit form + danger zone flows
-- [ ] Implement low-frequency auto-refresh (2-5s)
+- [x] Implement low-frequency auto-refresh (2-5s)
 
 ## Phase C — reliability hardening
 - [ ] Add API rate limits / client limit
@@ -198,17 +198,17 @@ Note:
 
 ## 8) Acceptance checklist (MVP done criteria)
 
-- [ ] User can connect to AP and open UI without button interaction.
+- [x] User can connect to AP and open UI without button interaction.
 - [x] Home tab correctly shows online count and avg moisture.
 - [ ] Auto/Manual/OFF controls behave as expected and persist.
-- [ ] Sensor add/rename/unpair works via UI.
+- [x] Sensor add/rename/unpair works via UI.
 - [x] Each sensor card shows battery voltage + battery state.
 - [x] Battery severity visuals are correct: `CRITICAL` = red label; `NEEDS_REPLACEMENT` = entire card danger style.
 - [ ] This Unit rename/password works and persists.
 - [x] Under one active web client, ESP-NOW telemetry remains stable.
 - [ ] Under stress (frequent refresh), system remains safe (no runtime lockups).
 - [x] After reboot/reset, startup ordering prevents false NOT_PAIRED/offline artifacts before pairing registry restore completes.
-- [ ] Implementation stays within sections 2/6/7 of this spec (no internet sync, no router-dependent UX, no extra tabs/features in MVP).
+- [x] Implementation stays within sections 2/6/7 of this spec (no internet sync, no router-dependent UX, no extra tabs/features in MVP).
 
 ---
 
@@ -218,6 +218,9 @@ Note:
 - [ ] Exact max clients allowed in AP mode
 - [ ] Polling-only in MVP or SSE for read-only status stream
 - [ ] Final wording and localization (RU/EN) for user-facing text
+- [x] Calibration reset from web UI in MVP
+  - Decision: do not add reset-calibration action to web UI in MVP; keep it sensor-local only.
+  - Note: "если юзерам надо будет, а мы как инженеры решили, что не надо" -> revisit only after real user demand.
 
 ---
 

@@ -136,7 +136,7 @@ pre {
 }
 
 .calibration-banner {
-  margin: 10px 0 0;
+  margin: 8px 0 0;
   padding: 8px 10px;
   border: 1px solid #0a84ff;
   border-radius: 8px;
@@ -144,12 +144,48 @@ pre {
   color: #0a3d91;
   font-size: 13px;
   font-weight: 600;
-  white-space: pre-line;
+}
+
+.calibration-title {
+  margin: 0 0 6px;
+  font-weight: 700;
+}
+
+.calibration-steps {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.calibration-step {
+  margin: 2px 0;
+}
+
+.calibration-step.done {
+  color: #7a7a82;
+}
+
+.calibration-step.active {
+  color: #0a3d91;
+  font-weight: 700;
+}
+
+.calibration-step.pending {
+  color: #7a7a82;
+}
+
+.calibration-note {
+  margin: 8px 0 0;
 }
 
 .calibration-banner.error {
   border-color: #b00020;
   background: #ffecec;
+  color: #8a0018;
+}
+
+.calibration-banner.error .calibration-step.active,
+.calibration-banner.error .calibration-step.done,
+.calibration-banner.error .calibration-step.pending {
   color: #8a0018;
 }
 
