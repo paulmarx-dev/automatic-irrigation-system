@@ -26,7 +26,9 @@ static const char* SENSOR_LABELS_NVS_KEY = "labels_blob";
 static constexpr uint16_t IRRIGATION_CONFIG_NVS_VERSION = 1;
 static const char* IRRIGATION_CONFIG_NVS_NAMESPACE = "irrigation_cfg";
 static const char* IRRIGATION_CONFIG_NVS_KEY = "config_blob";
-static constexpr uint32_t IRRIGATION_SYNC_PERIOD_MS = 5000;
+static const char* IRRIGATION_LEASE_ID_NVS_KEY = "lease_id";
+static constexpr uint32_t IRRIGATION_SYNC_PERIOD_MS = 2000;
+static constexpr uint32_t IRRIGATION_LEASE_HORIZON_MS = 120000;
 
 struct SensorLabelRecord {
   uint16_t nodeId;
@@ -67,6 +69,28 @@ static IrrigationMode s_irrigationMode = IRRIGATION_MODE_AUTO;
 static bool s_manualIrrigationActive = false;
 static bool s_irrigationSyncDirty = true;
 static uint32_t s_lastIrrigationSyncMs = 0;
+static uint32_t s_irrigationLeaseId = 1;
+static bool s_lastLeaseDesiredActiveInitialized = false;
+static bool s_lastLeaseDesiredActive = false;
+
+static bool saveIrrigationLeaseIdToNvs()
+{
+  if (!s_irrigationPrefsReady || s_irrigationLeaseId == 0) {
+    return false;
+  }
+  return s_irrigationPrefs.putULong(IRRIGATION_LEASE_ID_NVS_KEY, s_irrigationLeaseId) == sizeof(uint32_t);
+}
+
+static void loadIrrigationLeaseIdFromNvs()
+{
+  s_irrigationLeaseId = 1;
+  if (!s_irrigationPrefsReady) {
+    return;
+  }
+
+  const uint32_t stored = s_irrigationPrefs.getULong(IRRIGATION_LEASE_ID_NVS_KEY, 1);
+  s_irrigationLeaseId = (stored == 0) ? 1 : stored;
+}
 
 static const char* nodeStateToText(TelemetryHeadNodeState state)
 {
@@ -137,10 +161,21 @@ static bool desiredIrrigationActive()
 
 static bool sendDesiredIrrigationState()
 {
-  const uint8_t action = desiredIrrigationActive()
-                             ? REMOTE_BUTTON_IRRIGATION_START
-                             : REMOTE_BUTTON_IRRIGATION_STOP;
-  return telemetryHeadSendRemoteButtonAction(0, action);
+  const bool desiredActive = desiredIrrigationActive();
+  if (!s_lastLeaseDesiredActiveInitialized) {
+    s_lastLeaseDesiredActive = desiredActive;
+    s_lastLeaseDesiredActiveInitialized = true;
+  } else if (desiredActive != s_lastLeaseDesiredActive) {
+    s_lastLeaseDesiredActive = desiredActive;
+    s_irrigationLeaseId = (s_irrigationLeaseId == 0xFFFFFFFFu) ? 1u : (s_irrigationLeaseId + 1u);
+    if (!saveIrrigationLeaseIdToNvs()) {
+      Serial.println("OBS: warning, irrigation lease id not persisted");
+    }
+  }
+
+  const uint8_t desiredState = desiredActive ? IRRIGATION_STATE_RUN : IRRIGATION_STATE_OFF;
+  const uint32_t remainingLeaseMs = desiredActive ? IRRIGATION_LEASE_HORIZON_MS : 0;
+  return telemetryHeadSendIrrigationState(desiredState, s_irrigationLeaseId, remainingLeaseMs);
 }
 
 static void markIrrigationSyncDirty()
@@ -695,6 +730,7 @@ void headObservabilityInit()
   s_irrigationPrefsReady = s_irrigationPrefs.begin(IRRIGATION_CONFIG_NVS_NAMESPACE, false);
   loadSensorLabelsFromNvs();
   loadIrrigationConfigFromNvs();
+  loadIrrigationLeaseIdFromNvs();
 
   s_server.on("/api/nodes", HTTP_GET, onNodesApi);
   s_server.on("/api/system/summary", HTTP_GET, onSystemSummaryApi);

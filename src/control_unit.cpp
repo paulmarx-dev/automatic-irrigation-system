@@ -20,6 +20,8 @@ static constexpr bool CONTROL_MOTOR_ACTIVE_HIGH = true;
 static bool s_autoJoinTriggered = false;
 static bool s_manualIrrigationActive = false;
 static uint32_t s_motorSafetyDeadlineMs = 0;
+static uint32_t s_currentLeaseId = 0;
+static uint32_t s_lastExpiredLeaseId = 0;
 static bool s_headSyncPending = false;
 static uint32_t s_headSyncDeadlineMs = 0;
 static uint32_t s_nextHeadSyncRequestMs = 0;
@@ -151,12 +153,12 @@ static PressArbEvents processMultipressArbitration(bool shortPress, uint32_t now
 
 static bool handleRemoteCommand(const uint8_t* data, int len)
 {
-  if (!data || len != (int)sizeof(MsgRemoteButton)) {
+  if (!data || len < (int)sizeof(MsgHdr)) {
     return false;
   }
 
-  const MsgRemoteButton* cmd = reinterpret_cast<const MsgRemoteButton*>(data);
-  if (cmd->hdr.ver != PROTO_VER || cmd->hdr.type != MSG_REMOTE_BUTTON) {
+  const MsgHdr* hdr = reinterpret_cast<const MsgHdr*>(data);
+  if (hdr->ver != PROTO_VER) {
     return false;
   }
 
@@ -165,30 +167,101 @@ static bool handleRemoteCommand(const uint8_t* data, int len)
   }
 
   const uint16_t localNodeId = pairingNodeId();
-  if (cmd->hdr.nodeId != 0 && cmd->hdr.nodeId != localNodeId) {
-    return false;
-  }
-
-  if (cmd->action == REMOTE_BUTTON_IRRIGATION_START) {
-    s_headSyncPending = false;
-    if (!s_manualIrrigationActive) {
-      setManualIrrigationActive(true, millis());
-      Serial.println("CONTROL: irrigation START command applied");
-      ledsTriggerOnce(LED_MODE_SUCCESS_ONCE);
-    } else {
-      s_motorSafetyDeadlineMs = millis() + CONTROL_MOTOR_MAX_RUN_CAP_MS;
+  if (hdr->type == MSG_IRRIGATION_STATE) {
+    if (len != (int)sizeof(MsgIrrigationState)) {
+      return false;
     }
+
+    const MsgIrrigationState* state = reinterpret_cast<const MsgIrrigationState*>(data);
+    if (state->hdr.nodeId != 0 && state->hdr.nodeId != localNodeId) {
+      return false;
+    }
+
+    if (state->leaseId < s_currentLeaseId) {
+      Serial.print("CONTROL: irrigation lease ignored stale leaseId=");
+      Serial.print((unsigned long)state->leaseId);
+      Serial.print(" current=");
+      Serial.println((unsigned long)s_currentLeaseId);
+      return true;
+    }
+
+    s_currentLeaseId = state->leaseId;
+    s_headSyncPending = false;
+
+    if (state->desiredState == IRRIGATION_STATE_OFF) {
+      if (s_manualIrrigationActive) {
+        setManualIrrigationActive(false, millis());
+        Serial.println("CONTROL: irrigation OFF lease applied");
+        ledsTriggerOnce(LED_MODE_ERROR_ONCE);
+      }
+      return true;
+    }
+
+    if (state->desiredState != IRRIGATION_STATE_RUN) {
+      return false;
+    }
+
+    if (!s_manualIrrigationActive && state->leaseId == s_lastExpiredLeaseId) {
+      Serial.print("CONTROL: irrigation lease ignored expired leaseId=");
+      Serial.println((unsigned long)state->leaseId);
+      return true;
+    }
+
+    const uint32_t nowMs = millis();
+    uint32_t effectiveRemainingMs = state->remainingLeaseMs;
+    if (effectiveRemainingMs > CONTROL_MOTOR_MAX_RUN_CAP_MS) {
+      effectiveRemainingMs = CONTROL_MOTOR_MAX_RUN_CAP_MS;
+    }
+
+    if (effectiveRemainingMs == 0) {
+      if (s_manualIrrigationActive) {
+        setManualIrrigationActive(false, nowMs);
+        Serial.println("CONTROL: irrigation RUN lease with zero remaining -> OFF");
+      }
+      return true;
+    }
+
+    setManualIrrigationActive(true, nowMs);
+    s_motorSafetyDeadlineMs = nowMs + effectiveRemainingMs;
+    Serial.print("CONTROL: irrigation RUN lease applied leaseId=");
+    Serial.print((unsigned long)state->leaseId);
+    Serial.print(" remainingMs=");
+    Serial.println((unsigned long)effectiveRemainingMs);
+    ledsTriggerOnce(LED_MODE_SUCCESS_ONCE);
     return true;
   }
 
-  if (cmd->action == REMOTE_BUTTON_IRRIGATION_STOP) {
-    s_headSyncPending = false;
-    if (s_manualIrrigationActive) {
-      setManualIrrigationActive(false, millis());
-      Serial.println("CONTROL: irrigation STOP command applied");
-      ledsTriggerOnce(LED_MODE_ERROR_ONCE);
+  if (hdr->type == MSG_REMOTE_BUTTON) {
+    if (len != (int)sizeof(MsgRemoteButton)) {
+      return false;
     }
-    return true;
+
+    const MsgRemoteButton* cmd = reinterpret_cast<const MsgRemoteButton*>(data);
+    if (cmd->hdr.nodeId != 0 && cmd->hdr.nodeId != localNodeId) {
+      return false;
+    }
+
+    if (cmd->action == REMOTE_BUTTON_IRRIGATION_START) {
+      s_headSyncPending = false;
+      if (!s_manualIrrigationActive) {
+        setManualIrrigationActive(true, millis());
+        s_currentLeaseId = (s_currentLeaseId == 0xFFFFFFFFu) ? 1u : (s_currentLeaseId + 1u);
+        Serial.println("CONTROL: irrigation START command applied (legacy)");
+        ledsTriggerOnce(LED_MODE_SUCCESS_ONCE);
+      }
+      return true;
+    }
+
+    if (cmd->action == REMOTE_BUTTON_IRRIGATION_STOP) {
+      s_headSyncPending = false;
+      if (s_manualIrrigationActive) {
+        setManualIrrigationActive(false, millis());
+        s_currentLeaseId = (s_currentLeaseId == 0xFFFFFFFFu) ? 1u : (s_currentLeaseId + 1u);
+        Serial.println("CONTROL: irrigation STOP command applied (legacy)");
+        ledsTriggerOnce(LED_MODE_ERROR_ONCE);
+      }
+      return true;
+    }
   }
 
   return false;
@@ -288,6 +361,8 @@ void loop() {
     Serial.println("PAIRING(NODE): factory reset requested");
     pairingNodeFactoryReset();
     setManualIrrigationActive(false, now);
+    s_currentLeaseId = 0;
+    s_lastExpiredLeaseId = 0;
     s_headSyncPending = false;
     s_headSyncDeadlineMs = 0;
     s_nextHeadSyncRequestMs = 0;
@@ -352,6 +427,7 @@ void loop() {
 
   if (s_manualIrrigationActive && s_motorSafetyDeadlineMs != 0 && (int32_t)(now - s_motorSafetyDeadlineMs) >= 0) {
     setManualIrrigationActive(false, now);
+    s_lastExpiredLeaseId = s_currentLeaseId;
     Serial.println("CONTROL: safety max run cap reached -> motor OFF");
     ledsTriggerOnce(LED_MODE_ERROR_ONCE);
   }

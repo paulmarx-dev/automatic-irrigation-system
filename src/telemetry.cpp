@@ -732,6 +732,34 @@ bool telemetryHeadSendRemoteButtonAction(uint16_t nodeId, uint8_t action)
   return sent;
 }
 
+bool telemetryHeadSendIrrigationState(uint8_t desiredState, uint32_t leaseId, uint32_t remainingLeaseMs)
+{
+  if (desiredState != IRRIGATION_STATE_OFF && desiredState != IRRIGATION_STATE_RUN) {
+    return false;
+  }
+
+  MsgIrrigationState state{};
+  state.hdr.ver = PROTO_VER;
+  state.hdr.type = MSG_IRRIGATION_STATE;
+  state.hdr.seq = ++s_ackSeq;
+  state.hdr.nodeId = 0;
+  state.desiredState = desiredState;
+  state.reserved = 0;
+  state.leaseId = leaseId;
+  state.remainingLeaseMs = remainingLeaseMs;
+
+  const bool sent = espnowSend(BROADCAST_MAC, reinterpret_cast<const uint8_t*>(&state), sizeof(state));
+  Serial.print("[nodeId=*] irrigation_state sent=");
+  Serial.print(sent ? 1 : 0);
+  Serial.print(" desired=");
+  Serial.print((unsigned long)desiredState);
+  Serial.print(" leaseId=");
+  Serial.print((unsigned long)leaseId);
+  Serial.print(" remainingMs=");
+  Serial.println((unsigned long)remainingLeaseMs);
+  return sent;
+}
+
 void telemetryTickSensor(const SensorMeasurement* measurement, bool hasMeasurement, uint32_t nowMs)
 {
   (void)measurement;
@@ -781,6 +809,14 @@ bool telemetryHeadSendRemoteButtonAction(uint16_t nodeId, uint8_t action)
 {
   (void)nodeId;
   (void)action;
+  return false;
+}
+
+bool telemetryHeadSendIrrigationState(uint8_t desiredState, uint32_t leaseId, uint32_t remainingLeaseMs)
+{
+  (void)desiredState;
+  (void)leaseId;
+  (void)remainingLeaseMs;
   return false;
 }
 

@@ -40,3 +40,4 @@ uint8_t telemetryHeadGetPresence(TelemetryHeadNodePresence* outNodes, uint8_t ma
 void telemetryHeadClearPresence();
 bool telemetryHeadRemovePresenceByNodeId(uint16_t nodeId);
 bool telemetryHeadSendRemoteButtonAction(uint16_t nodeId, uint8_t action);
+bool telemetryHeadSendIrrigationState(uint8_t desiredState, uint32_t leaseId, uint32_t remainingLeaseMs);
