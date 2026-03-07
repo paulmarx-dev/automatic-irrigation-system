@@ -75,6 +75,17 @@
         <p id="unitConfigStatus" class="unit-config-status">Config synced.</p>
       </form>
 
+      <section class="danger-zone" aria-label="Danger zone">
+        <h3>Danger Zone</h3>
+        <p class="danger-note">Factory reset clears pairing and restores AP name/password to defaults.</p>
+        <label>
+          Type RESET to confirm
+          <input id="factoryResetConfirmInput" type="text" autocomplete="off" />
+        </label>
+        <button type="button" id="factoryResetBtn" class="danger-btn" disabled>Factory reset</button>
+        <p id="factoryResetStatus" class="danger-status">No pending action.</p>
+      </section>
+
       <pre id="webStatus" hidden>Loading...</pre>
     </section>
   </main>

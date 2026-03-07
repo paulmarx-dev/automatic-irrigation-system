@@ -171,6 +171,7 @@ Note:
 - [x] Add sensor rename/unpair endpoints
 - [x] Add unit rename/password endpoints
 - [ ] Add danger-zone actions with confirmation tokens
+  - Status: minimal web factory-reset endpoint is implemented with `confirm=RESET`; tokenized confirmation is still deferred.
 
 ## Phase B — UI MVP
 - [x] Create tabbed shell (Home / Sensors / This Unit)
@@ -179,7 +180,7 @@ Note:
 - [x] Implement Sensors cards + add-new + banners
 - [x] Implement battery status rendering in sensor cards (`OK` / `CRITICAL` / `NEEDS_REPLACEMENT`)
 - [ ] Implement This Unit form + danger zone flows
-  - Status: This Unit minimal (rename + AP password + runtime info) is implemented; danger-zone flows are still deferred.
+  - Status: This Unit minimal is implemented, including a minimal danger-zone factory reset flow.
 - [x] Implement low-frequency auto-refresh (2-5s)
 
 ## Phase C — reliability hardening

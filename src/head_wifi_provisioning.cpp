@@ -11,6 +11,7 @@
 
 #include "common_config.h"
 #include "pairing.h"
+#include "telemetry.h"
 
 namespace {
 
@@ -270,6 +271,19 @@ static void onUnitPasswordApi()
   s_server->send(200, "application/json", "{\"ok\":1,\"reconnect\":1}");
 }
 
+static void onUnitFactoryResetApi()
+{
+  if (!s_server->hasArg("confirm") || s_server->arg("confirm") != "RESET") {
+    s_server->send(400, "application/json", "{\"ok\":0,\"error\":\"confirm_required\"}");
+    return;
+  }
+
+  pairingHeadFactoryReset();
+  telemetryHeadClearPresence();
+  headProvisioningFactoryReset();
+  s_server->send(200, "application/json", "{\"ok\":1,\"reconnect\":1,\"factoryReset\":1}");
+}
+
 static void onPairingOpenApi()
 {
   pairingHeadSetOpen(true);
@@ -294,6 +308,7 @@ static void registerRoutes()
   s_server->on("/api/unit/status", HTTP_GET, onUnitStatusApi);
   s_server->on("/api/unit/rename", HTTP_POST, onUnitRenameApi);
   s_server->on("/api/unit/password", HTTP_POST, onUnitPasswordApi);
+  s_server->on("/api/unit/factory-reset", HTTP_POST, onUnitFactoryResetApi);
 }
 
 }  // namespace

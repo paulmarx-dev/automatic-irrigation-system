@@ -157,6 +157,38 @@ body {
   color: #8a0018;
 }
 
+.danger-zone {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid #e7e7e7;
+}
+
+.danger-zone h3 {
+  margin: 0;
+  color: #8a0018;
+}
+
+.danger-note {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: #8a0018;
+}
+
+.danger-btn {
+  margin-top: 8px;
+  background: #8a0018;
+}
+
+.danger-status {
+  margin: 10px 0 0;
+  font-size: 13px;
+  color: #666;
+}
+
+.danger-status.error {
+  color: #8a0018;
+}
+
 .card {
   background: #fff;
   border: 1px solid #e7e7e7;

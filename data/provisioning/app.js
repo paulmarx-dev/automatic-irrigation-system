@@ -23,6 +23,9 @@ const unitNameSaveBtnEl = document.getElementById('unitNameSaveBtn');
 const unitPasswordInputEl = document.getElementById('unitPasswordInput');
 const unitPasswordSaveBtnEl = document.getElementById('unitPasswordSaveBtn');
 const unitConfigStatusEl = document.getElementById('unitConfigStatus');
+const factoryResetConfirmInputEl = document.getElementById('factoryResetConfirmInput');
+const factoryResetBtnEl = document.getElementById('factoryResetBtn');
+const factoryResetStatusEl = document.getElementById('factoryResetStatus');
 const calibrationStateByNode = new Map();
 let latestNodes = [];
 let activeCalibration = null;
@@ -90,6 +93,14 @@ function setUnitConfigStatus(text, isError = false) {
   unitConfigStatusEl.classList.toggle('error', isError);
 }
 
+function setFactoryResetStatus(text, isError = false) {
+  if (!factoryResetStatusEl) {
+    return;
+  }
+  factoryResetStatusEl.textContent = text;
+  factoryResetStatusEl.classList.toggle('error', isError);
+}
+
 function renderHomeModeControls() {
   if (!homeModeFormEl || !homeModeSaveBtnEl) {
     return;
@@ -130,6 +141,11 @@ function renderUnitConfigControls() {
     const validLength = value.length >= 8 && value.length <= 63;
     unitPasswordSaveBtnEl.disabled = !validLength;
     unitPasswordSaveBtnEl.textContent = 'Set password';
+  }
+
+  if (factoryResetBtnEl && factoryResetConfirmInputEl) {
+    const confirmText = String(factoryResetConfirmInputEl.value || '').trim().toUpperCase();
+    factoryResetBtnEl.disabled = confirmText !== 'RESET';
   }
 }
 
@@ -216,6 +232,35 @@ async function saveUnitPassword() {
     setUnitConfigStatus('Password saved. Reconnect if AP restarts.', false);
   } catch (error) {
     setUnitConfigStatus(`Password save failed: ${error.message}`, true);
+  }
+}
+
+async function runFactoryReset() {
+  if (!factoryResetConfirmInputEl) {
+    return;
+  }
+
+  const confirmText = String(factoryResetConfirmInputEl.value || '').trim().toUpperCase();
+  if (confirmText !== 'RESET') {
+    setFactoryResetStatus('Type RESET to enable factory reset.', true);
+    renderUnitConfigControls();
+    return;
+  }
+
+  const confirmed = window.confirm('Factory reset will clear pairing and restore AP defaults. Continue?');
+  if (!confirmed) {
+    return;
+  }
+
+  try {
+    await postForm('/api/unit/factory-reset', { confirm: 'RESET' });
+    factoryResetConfirmInputEl.value = '';
+    renderUnitConfigControls();
+    setFactoryResetStatus('Factory reset sent. Device may reboot/restart AP.', false);
+    setUnitConfigStatus('Factory reset applied. Reconnect to default AP if needed.', false);
+    await tick();
+  } catch (error) {
+    setFactoryResetStatus(`Factory reset failed: ${error.message}`, true);
   }
 }
 
@@ -694,6 +739,17 @@ if (unitPasswordInputEl) {
   });
 }
 
+if (factoryResetConfirmInputEl) {
+  factoryResetConfirmInputEl.addEventListener('input', () => {
+    renderUnitConfigControls();
+    if (String(factoryResetConfirmInputEl.value || '').trim().length > 0) {
+      setFactoryResetStatus('Confirmation text entered.', false);
+    } else {
+      setFactoryResetStatus('No pending action.', false);
+    }
+  });
+}
+
 if (unitNameSaveBtnEl) {
   unitNameSaveBtnEl.addEventListener('click', async () => {
     await saveUnitName();
@@ -703,6 +759,12 @@ if (unitNameSaveBtnEl) {
 if (unitPasswordSaveBtnEl) {
   unitPasswordSaveBtnEl.addEventListener('click', async () => {
     await saveUnitPassword();
+  });
+}
+
+if (factoryResetBtnEl) {
+  factoryResetBtnEl.addEventListener('click', async () => {
+    await runFactoryReset();
   });
 }
 
