@@ -61,7 +61,7 @@ struct MsgIrrigationState {
   MsgHdr hdr;
   uint8_t desiredState;
   uint8_t reserved;
-  uint32_t leaseId;
+  uint64_t leaseId;
   uint32_t remainingLeaseMs;
 };
 

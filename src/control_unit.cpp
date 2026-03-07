@@ -20,8 +20,8 @@ static constexpr bool CONTROL_MOTOR_ACTIVE_HIGH = true;
 static bool s_autoJoinTriggered = false;
 static bool s_manualIrrigationActive = false;
 static uint32_t s_motorSafetyDeadlineMs = 0;
-static uint32_t s_currentLeaseId = 0;
-static uint32_t s_lastExpiredLeaseId = 0;
+static uint64_t s_currentLeaseId = 0;
+static uint64_t s_lastExpiredLeaseId = 0;
 static bool s_headSyncPending = false;
 static uint32_t s_headSyncDeadlineMs = 0;
 static uint32_t s_nextHeadSyncRequestMs = 0;
@@ -179,9 +179,9 @@ static bool handleRemoteCommand(const uint8_t* data, int len)
 
     if (state->leaseId < s_currentLeaseId) {
       Serial.print("CONTROL: irrigation lease ignored stale leaseId=");
-      Serial.print((unsigned long)state->leaseId);
+      Serial.print((unsigned long long)state->leaseId);
       Serial.print(" current=");
-      Serial.println((unsigned long)s_currentLeaseId);
+      Serial.println((unsigned long long)s_currentLeaseId);
       return true;
     }
 
@@ -203,7 +203,7 @@ static bool handleRemoteCommand(const uint8_t* data, int len)
 
     if (!s_manualIrrigationActive && state->leaseId == s_lastExpiredLeaseId) {
       Serial.print("CONTROL: irrigation lease ignored expired leaseId=");
-      Serial.println((unsigned long)state->leaseId);
+      Serial.println((unsigned long long)state->leaseId);
       return true;
     }
 
@@ -224,7 +224,7 @@ static bool handleRemoteCommand(const uint8_t* data, int len)
     setManualIrrigationActive(true, nowMs);
     s_motorSafetyDeadlineMs = nowMs + effectiveRemainingMs;
     Serial.print("CONTROL: irrigation RUN lease applied leaseId=");
-    Serial.print((unsigned long)state->leaseId);
+    Serial.print((unsigned long long)state->leaseId);
     Serial.print(" remainingMs=");
     Serial.println((unsigned long)effectiveRemainingMs);
     ledsTriggerOnce(LED_MODE_SUCCESS_ONCE);
@@ -245,7 +245,7 @@ static bool handleRemoteCommand(const uint8_t* data, int len)
       s_headSyncPending = false;
       if (!s_manualIrrigationActive) {
         setManualIrrigationActive(true, millis());
-        s_currentLeaseId = (s_currentLeaseId == 0xFFFFFFFFu) ? 1u : (s_currentLeaseId + 1u);
+        s_currentLeaseId = (s_currentLeaseId == 0xFFFFFFFFFFFFFFFFull) ? 1ull : (s_currentLeaseId + 1ull);
         Serial.println("CONTROL: irrigation START command applied (legacy)");
         ledsTriggerOnce(LED_MODE_SUCCESS_ONCE);
       }
@@ -256,7 +256,7 @@ static bool handleRemoteCommand(const uint8_t* data, int len)
       s_headSyncPending = false;
       if (s_manualIrrigationActive) {
         setManualIrrigationActive(false, millis());
-        s_currentLeaseId = (s_currentLeaseId == 0xFFFFFFFFu) ? 1u : (s_currentLeaseId + 1u);
+        s_currentLeaseId = (s_currentLeaseId == 0xFFFFFFFFFFFFFFFFull) ? 1ull : (s_currentLeaseId + 1ull);
         Serial.println("CONTROL: irrigation STOP command applied (legacy)");
         ledsTriggerOnce(LED_MODE_ERROR_ONCE);
       }

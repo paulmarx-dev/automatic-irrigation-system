@@ -732,7 +732,7 @@ bool telemetryHeadSendRemoteButtonAction(uint16_t nodeId, uint8_t action)
   return sent;
 }
 
-bool telemetryHeadSendIrrigationState(uint8_t desiredState, uint32_t leaseId, uint32_t remainingLeaseMs)
+bool telemetryHeadSendIrrigationState(uint8_t desiredState, uint64_t leaseId, uint32_t remainingLeaseMs)
 {
   if (desiredState != IRRIGATION_STATE_OFF && desiredState != IRRIGATION_STATE_RUN) {
     return false;
@@ -754,7 +754,7 @@ bool telemetryHeadSendIrrigationState(uint8_t desiredState, uint32_t leaseId, ui
   Serial.print(" desired=");
   Serial.print((unsigned long)desiredState);
   Serial.print(" leaseId=");
-  Serial.print((unsigned long)leaseId);
+  Serial.print((unsigned long long)leaseId);
   Serial.print(" remainingMs=");
   Serial.println((unsigned long)remainingLeaseMs);
   return sent;
@@ -812,7 +812,7 @@ bool telemetryHeadSendRemoteButtonAction(uint16_t nodeId, uint8_t action)
   return false;
 }
 
-bool telemetryHeadSendIrrigationState(uint8_t desiredState, uint32_t leaseId, uint32_t remainingLeaseMs)
+bool telemetryHeadSendIrrigationState(uint8_t desiredState, uint64_t leaseId, uint32_t remainingLeaseMs)
 {
   (void)desiredState;
   (void)leaseId;

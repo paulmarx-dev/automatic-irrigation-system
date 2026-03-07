@@ -69,7 +69,7 @@ static IrrigationMode s_irrigationMode = IRRIGATION_MODE_AUTO;
 static bool s_manualIrrigationActive = false;
 static bool s_irrigationSyncDirty = true;
 static uint32_t s_lastIrrigationSyncMs = 0;
-static uint32_t s_irrigationLeaseId = 1;
+static uint64_t s_irrigationLeaseId = 1;
 static bool s_lastLeaseDesiredActiveInitialized = false;
 static bool s_lastLeaseDesiredActive = false;
 
@@ -78,7 +78,7 @@ static bool saveIrrigationLeaseIdToNvs()
   if (!s_irrigationPrefsReady || s_irrigationLeaseId == 0) {
     return false;
   }
-  return s_irrigationPrefs.putULong(IRRIGATION_LEASE_ID_NVS_KEY, s_irrigationLeaseId) == sizeof(uint32_t);
+  return s_irrigationPrefs.putBytes(IRRIGATION_LEASE_ID_NVS_KEY, &s_irrigationLeaseId, sizeof(s_irrigationLeaseId)) == sizeof(s_irrigationLeaseId);
 }
 
 static void loadIrrigationLeaseIdFromNvs()
@@ -88,8 +88,19 @@ static void loadIrrigationLeaseIdFromNvs()
     return;
   }
 
-  const uint32_t stored = s_irrigationPrefs.getULong(IRRIGATION_LEASE_ID_NVS_KEY, 1);
-  s_irrigationLeaseId = (stored == 0) ? 1 : stored;
+  if (!s_irrigationPrefs.isKey(IRRIGATION_LEASE_ID_NVS_KEY)) {
+    return;
+  }
+
+  uint64_t stored64 = 0;
+  const size_t read = s_irrigationPrefs.getBytes(IRRIGATION_LEASE_ID_NVS_KEY, &stored64, sizeof(stored64));
+  if (read == sizeof(stored64) && stored64 != 0) {
+    s_irrigationLeaseId = stored64;
+    return;
+  }
+
+  const uint32_t legacy32 = s_irrigationPrefs.getULong(IRRIGATION_LEASE_ID_NVS_KEY, 1);
+  s_irrigationLeaseId = (legacy32 == 0) ? 1 : static_cast<uint64_t>(legacy32);
 }
 
 static const char* nodeStateToText(TelemetryHeadNodeState state)
@@ -167,7 +178,7 @@ static bool sendDesiredIrrigationState()
     s_lastLeaseDesiredActiveInitialized = true;
   } else if (desiredActive != s_lastLeaseDesiredActive) {
     s_lastLeaseDesiredActive = desiredActive;
-    s_irrigationLeaseId = (s_irrigationLeaseId == 0xFFFFFFFFu) ? 1u : (s_irrigationLeaseId + 1u);
+    s_irrigationLeaseId = (s_irrigationLeaseId == 0xFFFFFFFFFFFFFFFFull) ? 1ull : (s_irrigationLeaseId + 1ull);
     if (!saveIrrigationLeaseIdToNvs()) {
       Serial.println("OBS: warning, irrigation lease id not persisted");
     }
