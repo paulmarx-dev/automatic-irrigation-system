@@ -57,6 +57,12 @@ Head networking mode = SoftAP always (local UI), STA hotspot only for upload (ma
 - [ ] UX polish (deferred): preserve sensor display names across re-pair by MAC mapping.
   - Scope: at least in-memory for current runtime session; optional NVS persistence later.
   - Goal: if same physical sensor re-pairs (same MAC), restore previous custom name automatically.
+- [ ] Residual (deferred): add explicit sensor calibration status/result signal for web flow confirmation.
+  - Current compromise uses telemetry freshness (`rxPackets`) as completion heuristic.
+- [ ] Residual (deferred): add soft informational timeout for `sensor_finishing` UI phase.
+  - Goal: avoid indefinite "waiting" banner without escalating to hard error.
+- [ ] Residual (deferred): add regression smoke case for calibration lock release.
+  - Scenarios: node offline, unpair during active calibration, and page refresh/reconnect.
 
 ### Head Web Operating Policy (current):
 - AP-first local web console for user operations and debug; router/internet not required for normal work.
