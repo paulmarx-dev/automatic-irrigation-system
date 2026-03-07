@@ -18,6 +18,7 @@ enum TelemetryHeadBatteryState : uint8_t {
 
 struct TelemetryHeadNodePresence {
 	bool used;
+	bool isControl;
 	TelemetryHeadNodeState state;
 	TelemetryHeadBatteryState batteryState;
 	uint16_t nodeId;

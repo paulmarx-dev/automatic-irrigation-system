@@ -13,14 +13,14 @@
 
     <nav class="tabs" aria-label="Main sections">
       <button type="button" class="tab-btn active" data-tab="home">Home</button>
-      <button type="button" class="tab-btn" data-tab="sensors">Sensors</button>
+      <button type="button" class="tab-btn" data-tab="sensors">Units</button>
       <button type="button" class="tab-btn" data-tab="unit">This Unit</button>
     </nav>
 
     <section class="card tab-panel active" id="tabHome" data-panel="home">
       <h2>Home</h2>
       <div class="home-grid">
-        <p class="home-item"><span>Sensors online</span><strong id="homeOnline">-</strong></p>
+        <p class="home-item"><span>Units online</span><strong id="homeOnline">-</strong></p>
         <p class="home-item"><span>Average moisture</span><strong id="homeMoisture">-</strong></p>
         <p class="home-item"><span>Pairing</span><strong id="homePairing">-</strong></p>
         <p class="home-item"><span>Uptime</span><strong id="homeUptime">-</strong></p>
@@ -45,7 +45,7 @@
     </section>
 
     <section class="card tab-panel" id="tabSensors" data-panel="sensors">
-      <h2>Nodes</h2>
+      <h2>Units</h2>
       <div id="calibrationBanner" class="calibration-banner" hidden></div>
       <div id="nodes" class="sensor-list">Loading...</div>
       <p id="pairingBanner" class="pairing-banner" hidden>Pairing window is open (120s).</p>

@@ -9,12 +9,20 @@
 #include "pairing.h"
 #include "protocol.h"
 
-#if defined(DEVICE_ROLE_SENSOR)
+#if defined(DEVICE_ROLE_SENSOR) || defined(DEVICE_ROLE_CONTROL)
 #include "sensors.h"
 #include "button.h"
 #include "leds.h"
 #include "pairing_nvs.h"
+#if defined(DEVICE_ROLE_SENSOR)
 #include "sensor_remote_control.h"
+#endif
+
+#if defined(DEVICE_ROLE_SENSOR)
+static constexpr uint8_t NODE_ROLE_THIS = ROLE_SENSOR;
+#else
+static constexpr uint8_t NODE_ROLE_THIS = ROLE_CONTROL;
+#endif
 
 static const unsigned long ACK_TIMEOUT_MS = 200;
 static const uint8_t MAX_RETRIES = 3;
@@ -105,6 +113,7 @@ void telemetryOnRecv(const uint8_t* src_mac, const uint8_t* data, int len)
   }
 
   if (hdr->type == MSG_REMOTE_BUTTON) {
+#if defined(DEVICE_ROLE_SENSOR)
     if (len != (int)sizeof(MsgRemoteButton)) {
       return;
     }
@@ -122,6 +131,7 @@ void telemetryOnRecv(const uint8_t* src_mac, const uint8_t* data, int len)
     Serial.print((unsigned long)cmd->action);
     Serial.print(" accepted=");
     Serial.println(accepted ? 1 : 0);
+#endif
     return;
   }
 
@@ -149,7 +159,7 @@ void telemetryOnRecv(const uint8_t* src_mac, const uint8_t* data, int len)
 
   if (ack->status == TELEMETRY_ACK_STATUS_NOT_PAIRED) {
     Serial.println("PAIRING(NODE): head reports NOT_PAIRED, clearing local pairing");
-    pairingInitNode(ROLE_SENSOR);
+    pairingInitNode(NODE_ROLE_THIS);
     if (!pairingNvsClearNode()) {
       Serial.println("PAIRING(NODE): NVS clear failed");
     }
@@ -260,6 +270,9 @@ void telemetryTickSensor(const SensorMeasurement* measurement, bool hasMeasureme
   s_pendingTelemetry.batteryRawMv = measurement->batteryRawMv;
   s_pendingTelemetry.batteryEstMv = measurement->batteryEstMv;
   s_pendingTelemetry.flags = FLAG_DIAG_RAW_PRESENT | FLAG_BATT_EST_VALID;
+#if defined(DEVICE_ROLE_CONTROL)
+  s_pendingTelemetry.flags |= FLAG_NODE_ROLE_CONTROL;
+#endif
   s_pendingTelemetry.reserved = 0;
 
   memcpy(s_pendingHeadMac, headMac, 6);
@@ -324,6 +337,7 @@ static const char* nodeStateToText(TelemetryHeadNodeState state)
 
 struct NodeTelemetryState {
   bool used;
+  bool isControl;
   TelemetryHeadNodeState state;
   TelemetryHeadBatteryState batteryState;
   bool hasLastSeq;
@@ -396,6 +410,7 @@ static NodeTelemetryState* getOrCreateNodeState(uint16_t nodeId, const uint8_t s
   target->rxInvalid = 0;
   target->ackOkSent = 0;
   target->ackNotPairedSent = 0;
+  target->isControl = false;
   return target;
 }
 
@@ -525,6 +540,7 @@ void telemetryOnRecv(const uint8_t* src_mac, const uint8_t* data, int len)
     if (!nodeState) {
       return;
     }
+    nodeState->isControl = (telemetry->flags & FLAG_NODE_ROLE_CONTROL) != 0;
   } else {
     nodeState = findNodeState(telemetry->hdr.nodeId, src_mac);
   }
@@ -556,6 +572,7 @@ void telemetryOnRecv(const uint8_t* src_mac, const uint8_t* data, int len)
   } else {
     nodeState->hasLastSeq = true;
     nodeState->lastSeq = telemetry->hdr.seq;
+    nodeState->isControl = (telemetry->flags & FLAG_NODE_ROLE_CONTROL) != 0;
     nodeState->moisturePermille = telemetry->moisturePermille;
     nodeState->batteryEstMv = telemetry->batteryEstMv;
     nodeState->batteryState = classifyBatteryState(telemetry->batteryEstMv);
@@ -627,6 +644,7 @@ uint8_t telemetryHeadGetPresence(TelemetryHeadNodePresence* outNodes, uint8_t ma
     outNodes[written].rxInvalid = entry->rxInvalid;
     outNodes[written].ackOkSent = entry->ackOkSent;
     outNodes[written].ackNotPairedSent = entry->ackNotPairedSent;
+    outNodes[written].isControl = entry->isControl;
     written++;
   }
   return written;

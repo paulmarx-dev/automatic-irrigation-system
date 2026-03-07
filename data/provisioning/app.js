@@ -367,7 +367,7 @@ async function postForm(url, payload) {
 }
 
 async function renameSensor(nodeId) {
-  const nextName = window.prompt(`Rename sensor ${nodeId}:`);
+  const nextName = window.prompt(`Rename unit ${nodeId}:`);
   if (!nextName) {
     return;
   }
@@ -385,7 +385,7 @@ async function renameSensor(nodeId) {
 }
 
 async function unpairSensor(nodeId) {
-  const ok = window.confirm(`Unpair sensor ${nodeId}?`);
+  const ok = window.confirm(`Unpair unit ${nodeId}?`);
   if (!ok) {
     return;
   }
@@ -682,12 +682,15 @@ function syncPairingCountdown(webStatus) {
 
 function renderNodes(nodes) {
   if (!Array.isArray(nodes) || nodes.length === 0) {
-    nodesEl.innerHTML = '<p class="empty">No sensor data yet.</p>';
+    nodesEl.innerHTML = '<p class="empty">No unit data yet.</p>';
     return;
   }
 
   const html = nodes
     .map((node) => {
+      const role = String(node.role || 'SENSOR').toUpperCase();
+      const isControl = role === 'CONTROL';
+      const roleBadge = role === 'CONTROL' ? 'CONTROL' : role === 'SENSOR' ? 'SENSOR' : 'UNKNOWN';
       const batteryState = node.batteryState || 'UNKNOWN';
       const cardClasses = ['sensor-card'];
       if (batteryState === 'NEEDS_REPLACEMENT') {
@@ -713,17 +716,27 @@ function renderNodes(nodes) {
         calibrationState === 'sensor_finishing'
           ? 'disabled'
           : '';
+      const defaultTitle = isControl
+        ? `Control ${node.nodeId ?? '-'}`
+        : `Sensor ${node.nodeId ?? '-'}`;
+      const moistureLine = isControl
+        ? ''
+        : `<p>Moisture: ${formatMoisture(node.moisturePermille)}</p>`;
+      const calibrateButton = isControl
+        ? ''
+        : `<button type="button" class="sensor-btn calibrate" data-action="calibrate" data-node-id="${node.nodeId ?? ''}" ${calibrateDisabled}>${calibrateLabel}</button>`;
 
       return `
         <article class="${cardClasses.join(' ')}" data-sensor-node-id="${node.nodeId ?? ''}">
-          <h3>${node.name || `Sensor ${node.nodeId ?? '-'}`}</h3>
-          <p>Moisture: ${formatMoisture(node.moisturePermille)}</p>
+          <h3>${node.name || defaultTitle}</h3>
+          <p>Role: ${roleBadge}</p>
+          ${moistureLine}
           <p>State: ${node.state ?? 'UNKNOWN'}</p>
           <p>Battery: ${formatBatteryVolts(node.batteryEstMv)} <span class="${batteryClass}">[${batteryState}]</span></p>
           <p>Last seen: ${node.lastSeenSecAgo ?? '-'} sec ago</p>
           <div class="sensor-actions">
             <button type="button" class="sensor-btn rename" data-action="rename" data-node-id="${node.nodeId ?? ''}">Rename</button>
-            <button type="button" class="sensor-btn calibrate" data-action="calibrate" data-node-id="${node.nodeId ?? ''}" ${calibrateDisabled}>${calibrateLabel}</button>
+            ${calibrateButton}
             <button type="button" class="sensor-btn unpair" data-action="unpair" data-node-id="${node.nodeId ?? ''}">Unpair</button>
           </div>
           <p class="sensor-mac">MAC: ${node.mac ?? 'N/A'}</p>

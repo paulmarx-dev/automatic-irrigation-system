@@ -6,6 +6,7 @@
 #include "pairing_nvs.h"
 #include "telemetry.h"
 #include "protocol.h"
+#include "sensors.h"
 #include "leds.h"
 #include "button.h"
 #include "app_log.h"
@@ -15,6 +16,7 @@
 static const char *DEVICE_ROLE = "CONTROL";
 static const char *DEVICE_ID = "2";
 static const uint32_t MULTIPRESS_WINDOW_MS = 1400;
+static const uint32_t MEASUREMENT_INTERVAL_MS = 1000;
 static constexpr uint8_t CONTROL_MOTOR_PIN = 0;
 static constexpr bool CONTROL_MOTOR_ACTIVE_HIGH = true;
 static bool s_autoJoinTriggered = false;
@@ -28,12 +30,23 @@ static uint32_t s_nextHeadSyncRequestMs = 0;
 static uint16_t s_controlRemoteSeq = 0;
 static uint8_t s_pressCount = 0;
 static uint32_t s_pressWindowDeadlineMs = 0;
+static SensorMeasurement s_latestMeasurement{};
+static bool s_haveMeasurement = false;
+static uint32_t s_lastMeasurementMs = 0;
 
 struct PressArbEvents {
   bool single;
   bool triple;
   bool debug;
 };
+
+static void triggerIrrigationLedIfDebug(LedMode mode)
+{
+  if (!buttonIsDebugEnabled()) {
+    return;
+  }
+  ledsTriggerOnce(mode);
+}
 
 static void applyMotorState(bool enabled)
 {
@@ -192,7 +205,7 @@ static bool handleRemoteCommand(const uint8_t* data, int len)
       if (s_manualIrrigationActive) {
         setManualIrrigationActive(false, millis());
         Serial.println("CONTROL: irrigation OFF lease applied");
-        ledsTriggerOnce(LED_MODE_ERROR_ONCE);
+        triggerIrrigationLedIfDebug(LED_MODE_ERROR_ONCE);
       }
       return true;
     }
@@ -227,7 +240,7 @@ static bool handleRemoteCommand(const uint8_t* data, int len)
     Serial.print((unsigned long long)state->leaseId);
     Serial.print(" remainingMs=");
     Serial.println((unsigned long)effectiveRemainingMs);
-    ledsTriggerOnce(LED_MODE_SUCCESS_ONCE);
+    triggerIrrigationLedIfDebug(LED_MODE_SUCCESS_ONCE);
     return true;
   }
 
@@ -247,7 +260,7 @@ static bool handleRemoteCommand(const uint8_t* data, int len)
         setManualIrrigationActive(true, millis());
         s_currentLeaseId = (s_currentLeaseId == 0xFFFFFFFFFFFFFFFFull) ? 1ull : (s_currentLeaseId + 1ull);
         Serial.println("CONTROL: irrigation START command applied (legacy)");
-        ledsTriggerOnce(LED_MODE_SUCCESS_ONCE);
+        triggerIrrigationLedIfDebug(LED_MODE_SUCCESS_ONCE);
       }
       return true;
     }
@@ -258,7 +271,7 @@ static bool handleRemoteCommand(const uint8_t* data, int len)
         setManualIrrigationActive(false, millis());
         s_currentLeaseId = (s_currentLeaseId == 0xFFFFFFFFFFFFFFFFull) ? 1ull : (s_currentLeaseId + 1ull);
         Serial.println("CONTROL: irrigation STOP command applied (legacy)");
-        ledsTriggerOnce(LED_MODE_ERROR_ONCE);
+        triggerIrrigationLedIfDebug(LED_MODE_ERROR_ONCE);
       }
       return true;
     }
@@ -287,6 +300,8 @@ static void onSend(const uint8_t* dst_mac, bool success)
 void setup() {
   Serial.begin(115200);
   delay(200);
+
+  setupSensors();
 
   Serial.println();
   Serial.println("Automatic Irrigation Control boot");
@@ -429,8 +444,16 @@ void loop() {
     setManualIrrigationActive(false, now);
     s_lastExpiredLeaseId = s_currentLeaseId;
     Serial.println("CONTROL: safety max run cap reached -> motor OFF");
-    ledsTriggerOnce(LED_MODE_ERROR_ONCE);
+    triggerIrrigationLedIfDebug(LED_MODE_ERROR_ONCE);
   }
+
+  if ((now - s_lastMeasurementMs) >= MEASUREMENT_INTERVAL_MS) {
+    s_lastMeasurementMs = now;
+    s_latestMeasurement = measureBatteryOnly();
+    s_haveMeasurement = true;
+  }
+
+  telemetryTickSensor(s_haveMeasurement ? &s_latestMeasurement : nullptr, s_haveMeasurement, now);
 
   const bool joinModeNow = pairingNodeIsInJoinMode();
   if (joinModeNow && !lastJoinModeActive) {
