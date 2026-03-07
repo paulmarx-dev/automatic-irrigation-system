@@ -165,20 +165,21 @@ Note:
 ## Phase A — foundation (must-have)
 - [x] Define and freeze MVP API contracts (request/response JSON)
 - [x] Add head runtime summary endpoint (`/api/system/summary`)
-- [ ] Add irrigation config read/write endpoints + NVS persistence
+- [x] Add irrigation config read/write endpoints + NVS persistence
 - [ ] Add manual start/stop endpoints with safety guards
 - [ ] Add pairing open/close endpoints
 - [x] Add sensor rename/unpair endpoints
-- [ ] Add unit rename/password endpoints
+- [x] Add unit rename/password endpoints
 - [ ] Add danger-zone actions with confirmation tokens
 
 ## Phase B — UI MVP
 - [x] Create tabbed shell (Home / Sensors / This Unit)
-- [ ] Implement Home data binding + mode controls
-- [ ] Implement Save/Saved dirty-state UX
+- [x] Implement Home data binding + mode controls
+- [x] Implement Save/Saved dirty-state UX
 - [x] Implement Sensors cards + add-new + banners
 - [x] Implement battery status rendering in sensor cards (`OK` / `CRITICAL` / `NEEDS_REPLACEMENT`)
 - [ ] Implement This Unit form + danger zone flows
+  - Status: This Unit minimal (rename + AP password + runtime info) is implemented; danger-zone flows are still deferred.
 - [x] Implement low-frequency auto-refresh (2-5s)
 
 ## Phase C — reliability hardening
@@ -200,11 +201,11 @@ Note:
 
 - [x] User can connect to AP and open UI without button interaction.
 - [x] Home tab correctly shows online count and avg moisture.
-- [ ] Auto/Manual/OFF controls behave as expected and persist.
+- [x] Auto/Manual/OFF controls behave as expected and persist.
 - [x] Sensor add/rename/unpair works via UI.
 - [x] Each sensor card shows battery voltage + battery state.
 - [x] Battery severity visuals are correct: `CRITICAL` = red label; `NEEDS_REPLACEMENT` = entire card danger style.
-- [ ] This Unit rename/password works and persists.
+- [x] This Unit rename/password works and persists.
 - [x] Under one active web client, ESP-NOW telemetry remains stable.
 - [ ] Under stress (frequent refresh), system remains safe (no runtime lockups).
 - [x] After reboot/reset, startup ordering prevents false NOT_PAIRED/offline artifacts before pairing registry restore completes.

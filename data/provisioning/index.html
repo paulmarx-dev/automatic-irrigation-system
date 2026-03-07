@@ -51,7 +51,31 @@
 
     <section class="card tab-panel" id="tabUnit" data-panel="unit">
       <h2>This Unit</h2>
-      <pre id="webStatus">Loading...</pre>
+      <div class="unit-grid">
+        <p class="unit-item"><span>AP SSID</span><strong id="unitApSsid">-</strong></p>
+        <p class="unit-item"><span>Firmware</span><strong id="unitFirmware">-</strong></p>
+        <p class="unit-item"><span>Uptime</span><strong id="unitUptime">-</strong></p>
+        <p class="unit-item"><span>AP password</span><strong id="unitPasswordState">-</strong></p>
+      </div>
+
+      <form id="unitConfigForm" class="unit-form">
+        <label>
+          Unit name
+          <input id="unitNameInput" type="text" maxlength="31" autocomplete="off" />
+        </label>
+
+        <button type="button" id="unitNameSaveBtn" disabled>Saved</button>
+
+        <label>
+          AP password (8-63 chars)
+          <input id="unitPasswordInput" type="password" minlength="8" maxlength="63" autocomplete="new-password" />
+        </label>
+
+        <button type="button" id="unitPasswordSaveBtn" disabled>Set password</button>
+        <p id="unitConfigStatus" class="unit-config-status">Config synced.</p>
+      </form>
+
+      <pre id="webStatus" hidden>Loading...</pre>
     </section>
   </main>
 

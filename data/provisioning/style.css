@@ -112,6 +112,51 @@ body {
   color: #8a0018;
 }
 
+.unit-grid {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.unit-item {
+  margin: 0;
+  border: 1px solid #e7e7e7;
+  border-radius: 10px;
+  padding: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.unit-item span {
+  color: #666;
+}
+
+.unit-item strong {
+  font-size: 15px;
+  text-align: right;
+}
+
+.unit-form {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid #e7e7e7;
+}
+
+.unit-form button {
+  margin-top: 8px;
+}
+
+.unit-config-status {
+  margin: 10px 0 0;
+  font-size: 13px;
+  color: #666;
+}
+
+.unit-config-status.error {
+  color: #8a0018;
+}
+
 .card {
   background: #fff;
   border: 1px solid #e7e7e7;

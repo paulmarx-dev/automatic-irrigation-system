@@ -131,6 +131,7 @@ void loop() {
     if (buttonConsumeLongPress()) {
       Serial.println("PAIRING(HEAD): factory reset requested");
       pairingHeadFactoryReset();
+      headProvisioningFactoryReset();
       telemetryHeadClearPresence();
       ledsTriggerOnce(LED_MODE_FACTORY_RESET_ONCE);
     }
@@ -139,6 +140,7 @@ void loop() {
       if (pairingHeadIsOpen()) {
         Serial.println("PAIRING(HEAD): factory reset requested by triple press");
         pairingHeadFactoryReset();
+        headProvisioningFactoryReset();
         telemetryHeadClearPresence();
         ledsTriggerOnce(LED_MODE_SUCCESS_ONCE);
       } else {

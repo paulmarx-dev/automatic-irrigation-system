@@ -13,17 +13,33 @@ const homeUptimeEl = document.getElementById('homeUptime');
 const homeModeFormEl = document.getElementById('homeModeForm');
 const homeModeSaveBtnEl = document.getElementById('homeModeSaveBtn');
 const homeModeStatusEl = document.getElementById('homeModeStatus');
+const unitApSsidEl = document.getElementById('unitApSsid');
+const unitFirmwareEl = document.getElementById('unitFirmware');
+const unitUptimeEl = document.getElementById('unitUptime');
+const unitPasswordStateEl = document.getElementById('unitPasswordState');
+const unitConfigFormEl = document.getElementById('unitConfigForm');
+const unitNameInputEl = document.getElementById('unitNameInput');
+const unitNameSaveBtnEl = document.getElementById('unitNameSaveBtn');
+const unitPasswordInputEl = document.getElementById('unitPasswordInput');
+const unitPasswordSaveBtnEl = document.getElementById('unitPasswordSaveBtn');
+const unitConfigStatusEl = document.getElementById('unitConfigStatus');
 const calibrationStateByNode = new Map();
 let latestNodes = [];
 let activeCalibration = null;
 let pairingRemainingSec = 0;
 let persistedIrrigationMode = 'AUTO';
 let pendingIrrigationMode = 'AUTO';
+let persistedUnitName = '';
+let pendingUnitName = '';
+let unitNameInitialized = false;
 const CAL_PROMPT_TIMEOUT_MS = 20000;
 const CAL_ERROR_HIDE_MS = 5000;
 const CAL_INFO_HIDE_MS = 5000;
 
 function render(el, data) {
+  if (!el) {
+    return;
+  }
   el.textContent = JSON.stringify(data, null, 2);
 }
 
@@ -66,6 +82,14 @@ function setHomeModeStatus(text, isError = false) {
   homeModeStatusEl.classList.toggle('error', isError);
 }
 
+function setUnitConfigStatus(text, isError = false) {
+  if (!unitConfigStatusEl) {
+    return;
+  }
+  unitConfigStatusEl.textContent = text;
+  unitConfigStatusEl.classList.toggle('error', isError);
+}
+
 function renderHomeModeControls() {
   if (!homeModeFormEl || !homeModeSaveBtnEl) {
     return;
@@ -92,6 +116,59 @@ function applyIrrigationConfig(config, allowOverridePending = true) {
   renderHomeModeControls();
 }
 
+function renderUnitConfigControls() {
+  if (unitNameSaveBtnEl) {
+    const normalizedPending = String(pendingUnitName || '').trim();
+    const normalizedPersisted = String(persistedUnitName || '').trim();
+    const isDirty = normalizedPending.length > 0 && normalizedPending !== normalizedPersisted;
+    unitNameSaveBtnEl.disabled = !isDirty;
+    unitNameSaveBtnEl.textContent = isDirty ? 'Save name' : 'Saved';
+  }
+
+  if (unitPasswordSaveBtnEl && unitPasswordInputEl) {
+    const value = String(unitPasswordInputEl.value || '').trim();
+    const validLength = value.length >= 8 && value.length <= 63;
+    unitPasswordSaveBtnEl.disabled = !validLength;
+    unitPasswordSaveBtnEl.textContent = 'Set password';
+  }
+}
+
+function applyUnitStatus(status, allowOverridePending = true) {
+  if (!status) {
+    return;
+  }
+
+  const apSsid = String(status.apSsid || '-');
+  const firmwareVersion = String(status.firmwareVersion || '-');
+  const uptimeSec = Number(status.uptimeSec);
+  const unitName = String(status.unitName || '').trim();
+  const passwordSet = Boolean(status.apPasswordSet);
+
+  if (unitApSsidEl) {
+    unitApSsidEl.textContent = apSsid;
+  }
+  if (unitFirmwareEl) {
+    unitFirmwareEl.textContent = firmwareVersion;
+  }
+  if (unitUptimeEl) {
+    unitUptimeEl.textContent = formatDuration(Number.isFinite(uptimeSec) ? uptimeSec : 0);
+  }
+  if (unitPasswordStateEl) {
+    unitPasswordStateEl.textContent = passwordSet ? 'Set' : 'Open (no password)';
+  }
+
+  persistedUnitName = unitName;
+  if (allowOverridePending || !unitNameSaveBtnEl || unitNameSaveBtnEl.disabled || !unitNameInitialized) {
+    pendingUnitName = unitName;
+    if (unitNameInputEl) {
+      unitNameInputEl.value = unitName;
+    }
+    unitNameInitialized = true;
+  }
+
+  renderUnitConfigControls();
+}
+
 async function saveIrrigationConfig() {
   const mode = normalizeIrrigationMode(pendingIrrigationMode);
   try {
@@ -101,6 +178,44 @@ async function saveIrrigationConfig() {
     setHomeModeStatus('Config saved.', false);
   } catch (error) {
     setHomeModeStatus(`Save failed: ${error.message}`, true);
+  }
+}
+
+async function saveUnitName() {
+  const name = String(pendingUnitName || '').trim();
+  if (!name) {
+    setUnitConfigStatus('Unit name cannot be empty.', true);
+    return;
+  }
+
+  try {
+    await postForm('/api/unit/rename', { name });
+    persistedUnitName = name;
+    renderUnitConfigControls();
+    setUnitConfigStatus('Name saved. Reconnect if AP restarts.', false);
+  } catch (error) {
+    setUnitConfigStatus(`Name save failed: ${error.message}`, true);
+  }
+}
+
+async function saveUnitPassword() {
+  if (!unitPasswordInputEl) {
+    return;
+  }
+
+  const password = String(unitPasswordInputEl.value || '').trim();
+  if (password.length < 8 || password.length > 63) {
+    setUnitConfigStatus('Password must be 8-63 characters.', true);
+    return;
+  }
+
+  try {
+    await postForm('/api/unit/password', { password });
+    unitPasswordInputEl.value = '';
+    renderUnitConfigControls();
+    setUnitConfigStatus('Password saved. Reconnect if AP restarts.', false);
+  } catch (error) {
+    setUnitConfigStatus(`Password save failed: ${error.message}`, true);
   }
 }
 
@@ -504,24 +619,28 @@ async function fetchJson(url) {
 
 async function tick() {
   try {
-    const [webStatus, nodes, summary, irrigationConfig] = await Promise.all([
+    const [webStatus, nodes, summary, irrigationConfig, unitStatus] = await Promise.all([
       fetchJson('/api/web/status'),
       fetchJson('/api/nodes'),
       fetchJson('/api/system/summary'),
       fetchJson('/api/irrigation/config'),
+      fetchJson('/api/unit/status'),
     ]);
     latestNodes = Array.isArray(nodes) ? nodes : [];
 
     render(webStatusEl, webStatus);
     renderHomeSummary(summary);
     applyIrrigationConfig(irrigationConfig, !homeModeSaveBtnEl || homeModeSaveBtnEl.disabled);
+    applyUnitStatus(unitStatus, !unitNameSaveBtnEl || unitNameSaveBtnEl.disabled);
     syncPairingCountdown(webStatus);
     renderNodes(nodes);
     reconcileCalibrationState();
     renderCalibrationBanner();
     placeCalibrationBanner();
   } catch (error) {
-    webStatusEl.textContent = `fetch error: ${error}`;
+    if (webStatusEl) {
+      webStatusEl.textContent = `fetch error: ${error}`;
+    }
     nodesEl.textContent = '';
     latestNodes = [];
     renderHomeSummary(null);
@@ -555,6 +674,35 @@ if (homeModeFormEl) {
 if (homeModeSaveBtnEl) {
   homeModeSaveBtnEl.addEventListener('click', async () => {
     await saveIrrigationConfig();
+  });
+}
+
+if (unitNameInputEl) {
+  unitNameInputEl.addEventListener('input', () => {
+    pendingUnitName = String(unitNameInputEl.value || '').trim();
+    renderUnitConfigControls();
+    setUnitConfigStatus('Unsaved name change.', false);
+  });
+}
+
+if (unitPasswordInputEl) {
+  unitPasswordInputEl.addEventListener('input', () => {
+    renderUnitConfigControls();
+    if (String(unitPasswordInputEl.value || '').trim().length > 0) {
+      setUnitConfigStatus('Unsaved password change.', false);
+    }
+  });
+}
+
+if (unitNameSaveBtnEl) {
+  unitNameSaveBtnEl.addEventListener('click', async () => {
+    await saveUnitName();
+  });
+}
+
+if (unitPasswordSaveBtnEl) {
+  unitPasswordSaveBtnEl.addEventListener('click', async () => {
+    await saveUnitPassword();
   });
 }
 
