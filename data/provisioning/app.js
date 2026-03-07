@@ -686,13 +686,38 @@ function renderNodes(nodes) {
     return;
   }
 
-  const html = nodes
+  const sortedNodes = [...nodes].sort((left, right) => {
+    const leftRole = String(left && left.role ? left.role : 'SENSOR').toUpperCase();
+    const rightRole = String(right && right.role ? right.role : 'SENSOR').toUpperCase();
+    const leftControl = leftRole === 'CONTROL';
+    const rightControl = rightRole === 'CONTROL';
+    if (leftControl !== rightControl) {
+      return leftControl ? -1 : 1;
+    }
+
+    const leftId = Number(left && left.nodeId);
+    const rightId = Number(right && right.nodeId);
+    const leftHasId = Number.isFinite(leftId);
+    const rightHasId = Number.isFinite(rightId);
+    if (leftHasId && rightHasId && leftId !== rightId) {
+      return leftId - rightId;
+    }
+    if (leftHasId !== rightHasId) {
+      return leftHasId ? -1 : 1;
+    }
+    return 0;
+  });
+
+  const html = sortedNodes
     .map((node) => {
       const role = String(node.role || 'SENSOR').toUpperCase();
       const isControl = role === 'CONTROL';
       const roleBadge = role === 'CONTROL' ? 'CONTROL' : role === 'SENSOR' ? 'SENSOR' : 'UNKNOWN';
       const batteryState = node.batteryState || 'UNKNOWN';
       const cardClasses = ['sensor-card'];
+      if (isControl) {
+        cardClasses.push('control');
+      }
       if (batteryState === 'NEEDS_REPLACEMENT') {
         cardClasses.push('needs-replacement');
       }

@@ -333,6 +333,11 @@ pre {
   background: #fff;
 }
 
+.sensor-card.control {
+  border-color: #9ec8ff;
+  background: #eef6ff;
+}
+
 .sensor-card h3 {
   margin: 0 0 8px;
   font-size: 18px;
