@@ -718,9 +718,20 @@ void headObservabilityTick()
   headProvisioningTick(nowMs);
 }
 
+bool headObservabilityRequestIrrigationSync()
+{
+  const bool sent = sendDesiredIrrigationState();
+  if (sent) {
+    s_lastIrrigationSyncMs = millis();
+    s_irrigationSyncDirty = false;
+  }
+  return sent;
+}
+
 #else
 
 void headObservabilityInit() {}
 void headObservabilityTick() {}
+bool headObservabilityRequestIrrigationSync() { return false; }
 
 #endif

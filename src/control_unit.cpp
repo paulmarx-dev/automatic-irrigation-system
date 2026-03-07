@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <WiFi.h>
+#include "common_config.h"
 #include "esp_now_helpers.h"
 #include "pairing.h"
 #include "pairing_nvs.h"
@@ -18,6 +19,11 @@ static constexpr uint8_t CONTROL_MOTOR_PIN = 0;
 static constexpr bool CONTROL_MOTOR_ACTIVE_HIGH = true;
 static bool s_autoJoinTriggered = false;
 static bool s_manualIrrigationActive = false;
+static uint32_t s_motorSafetyDeadlineMs = 0;
+static bool s_headSyncPending = false;
+static uint32_t s_headSyncDeadlineMs = 0;
+static uint32_t s_nextHeadSyncRequestMs = 0;
+static uint16_t s_controlRemoteSeq = 0;
 static uint8_t s_pressCount = 0;
 static uint32_t s_pressWindowDeadlineMs = 0;
 
@@ -32,6 +38,80 @@ static void applyMotorState(bool enabled)
   const uint8_t level =
       (enabled == CONTROL_MOTOR_ACTIVE_HIGH) ? HIGH : LOW;
   digitalWrite(CONTROL_MOTOR_PIN, level);
+}
+
+static void setManualIrrigationActive(bool active, uint32_t nowMs)
+{
+  s_manualIrrigationActive = active;
+  if (active) {
+    s_motorSafetyDeadlineMs = nowMs + CONTROL_MOTOR_MAX_RUN_CAP_MS;
+    applyMotorState(true);
+    return;
+  }
+
+  s_motorSafetyDeadlineMs = 0;
+  applyMotorState(false);
+}
+
+static void armHeadSyncWindow(uint32_t nowMs)
+{
+  if (!pairingNodeIsPaired()) {
+    s_headSyncPending = false;
+    s_headSyncDeadlineMs = 0;
+    s_nextHeadSyncRequestMs = 0;
+    return;
+  }
+
+  s_headSyncPending = true;
+  s_headSyncDeadlineMs = nowMs + CONTROL_HEAD_SYNC_BOOT_WINDOW_MS;
+  s_nextHeadSyncRequestMs = 0;
+}
+
+static bool sendIrrigationStateRequestToHead(uint32_t nowMs)
+{
+  uint8_t headMac[6] = {0};
+  if (!pairingNodeHeadMac(headMac)) {
+    return false;
+  }
+
+  MsgRemoteButton command{};
+  command.hdr.ver = PROTO_VER;
+  command.hdr.type = MSG_REMOTE_BUTTON;
+  command.hdr.seq = ++s_controlRemoteSeq;
+  command.hdr.nodeId = pairingNodeId();
+  command.action = REMOTE_BUTTON_IRRIGATION_STATE_REQUEST;
+  command.reserved = 0;
+
+  (void)espnowEnsurePeer(headMac, ESPNOW_CHANNEL, false);
+  const bool sent = espnowSend(headMac, reinterpret_cast<const uint8_t*>(&command), sizeof(command));
+  Serial.print("CONTROL: irrigation state request sent=");
+  Serial.println(sent ? 1 : 0);
+  s_nextHeadSyncRequestMs = nowMs + CONTROL_HEAD_SYNC_RETRY_MS;
+  return sent;
+}
+
+static void headSyncTick(uint32_t nowMs)
+{
+  if (!s_headSyncPending) {
+    return;
+  }
+
+  if (!pairingNodeIsPaired()) {
+    s_headSyncPending = false;
+    s_headSyncDeadlineMs = 0;
+    s_nextHeadSyncRequestMs = 0;
+    return;
+  }
+
+  if ((int32_t)(nowMs - s_headSyncDeadlineMs) >= 0) {
+    s_headSyncPending = false;
+    Serial.println("CONTROL: irrigation state request timeout, keeping local fail-safe state");
+    return;
+  }
+
+  if (s_nextHeadSyncRequestMs == 0 || (int32_t)(nowMs - s_nextHeadSyncRequestMs) >= 0) {
+    (void)sendIrrigationStateRequestToHead(nowMs);
+  }
 }
 
 static PressArbEvents processMultipressArbitration(bool shortPress, uint32_t now)
@@ -90,19 +170,21 @@ static bool handleRemoteCommand(const uint8_t* data, int len)
   }
 
   if (cmd->action == REMOTE_BUTTON_IRRIGATION_START) {
+    s_headSyncPending = false;
     if (!s_manualIrrigationActive) {
-      s_manualIrrigationActive = true;
-      applyMotorState(true);
+      setManualIrrigationActive(true, millis());
       Serial.println("CONTROL: irrigation START command applied");
       ledsTriggerOnce(LED_MODE_SUCCESS_ONCE);
+    } else {
+      s_motorSafetyDeadlineMs = millis() + CONTROL_MOTOR_MAX_RUN_CAP_MS;
     }
     return true;
   }
 
   if (cmd->action == REMOTE_BUTTON_IRRIGATION_STOP) {
+    s_headSyncPending = false;
     if (s_manualIrrigationActive) {
-      s_manualIrrigationActive = false;
-      applyMotorState(false);
+      setManualIrrigationActive(false, millis());
       Serial.println("CONTROL: irrigation STOP command applied");
       ledsTriggerOnce(LED_MODE_ERROR_ONCE);
     }
@@ -156,13 +238,14 @@ void setup() {
     (void)espnowEnsurePeer(restoredHeadMac, ESPNOW_CHANNEL, false);
     s_autoJoinTriggered = true;
     Serial.printf("PAIRING(NODE): restored pair from NVS nodeId=%u\n", (unsigned)restoredNodeId);
+    armHeadSyncWindow(millis());
   }
 
   logStartupCommon("CONTROL", true, pairingNodeIsPaired());
   telemetryInit();
 
   pinMode(CONTROL_MOTOR_PIN, OUTPUT);
-  applyMotorState(false);
+  setManualIrrigationActive(false, millis());
 
   ledsInit(LED_DEFAULT_CONFIG.pin, LED_DEFAULT_CONFIG.activeHigh);
   buttonInit(BUTTON_CONTROL_CONFIG.pin, BUTTON_CONTROL_CONFIG.activeLow, BUTTON_CONTROL_CONFIG.usePullup);
@@ -184,6 +267,8 @@ void loop() {
     s_autoJoinTriggered = true;
   }
 
+  headSyncTick(now);
+
   static bool pairStateInitialized = false;
   static bool wasPaired = false;
   static bool lastJoinModeActive = false;
@@ -202,8 +287,10 @@ void loop() {
   if (longPress) {
     Serial.println("PAIRING(NODE): factory reset requested");
     pairingNodeFactoryReset();
-    s_manualIrrigationActive = false;
-    applyMotorState(false);
+    setManualIrrigationActive(false, now);
+    s_headSyncPending = false;
+    s_headSyncDeadlineMs = 0;
+    s_nextHeadSyncRequestMs = 0;
     if (!pairingNvsClearNode()) {
       Serial.println("PAIRING(NODE): NVS clear failed");
     }
@@ -222,6 +309,7 @@ void loop() {
         Serial.println("PAIRING(NODE): NVS save failed");
       }
     }
+    armHeadSyncWindow(now);
     Serial.println("PAIRING(NODE): join success");
     ledsTriggerOnce(LED_MODE_SUCCESS_DOUBLE);
   }
@@ -260,6 +348,12 @@ void loop() {
     }
     Serial.println("DEBUG gate: enabled for this boot");
     ledsTriggerOnce(LED_MODE_DEBUG_CONFIRM);
+  }
+
+  if (s_manualIrrigationActive && s_motorSafetyDeadlineMs != 0 && (int32_t)(now - s_motorSafetyDeadlineMs) >= 0) {
+    setManualIrrigationActive(false, now);
+    Serial.println("CONTROL: safety max run cap reached -> motor OFF");
+    ledsTriggerOnce(LED_MODE_ERROR_ONCE);
   }
 
   const bool joinModeNow = pairingNodeIsInJoinMode();

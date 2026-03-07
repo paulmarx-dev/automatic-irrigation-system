@@ -56,6 +56,15 @@ static constexpr uint32_t TELEMETRY_FIRST_SEND_MIN_DELAY_MS = 200;
 static constexpr uint32_t TELEMETRY_FIRST_SEND_JITTER_MS = 800;
 
 /*
+  Control-unit safety limits.
+  - max run cap: hard stop for motor if no fresh authoritative command arrives
+  - boot sync window: time budget for CONTROL to ask HEAD for desired irrigation state
+*/
+static constexpr uint32_t CONTROL_MOTOR_MAX_RUN_CAP_MS = 120000;
+static constexpr uint32_t CONTROL_HEAD_SYNC_BOOT_WINDOW_MS = 5000;
+static constexpr uint32_t CONTROL_HEAD_SYNC_RETRY_MS = 700;
+
+/*
   Protocol version (will be used later in all messages).
 */
 static constexpr uint8_t PROTOCOL_VERSION = 1;

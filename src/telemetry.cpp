@@ -299,6 +299,7 @@ void telemetryTickSensor(const SensorMeasurement* measurement, bool hasMeasureme
 #elif defined(DEVICE_ROLE_HEAD)
 
 #include "button.h"
+#include "head_observability.h"
 #include "leds.h"
 
 static const uint8_t MAX_NODE_REGISTRY = 8;
@@ -489,6 +490,22 @@ void telemetryOnRecv(const uint8_t* src_mac, const uint8_t* data, int len)
 {
   if (!src_mac || !data) {
     return;
+  }
+
+  if (len >= (int)sizeof(MsgHdr)) {
+    const MsgHdr* hdr = reinterpret_cast<const MsgHdr*>(data);
+    if (hdr->ver == PROTO_VER && hdr->type == MSG_REMOTE_BUTTON && len == (int)sizeof(MsgRemoteButton)) {
+      const MsgRemoteButton* cmd = reinterpret_cast<const MsgRemoteButton*>(data);
+      if (cmd->action == REMOTE_BUTTON_IRRIGATION_STATE_REQUEST &&
+          pairingHeadIsKnownNode(cmd->hdr.nodeId, src_mac)) {
+        const bool sent = headObservabilityRequestIrrigationSync();
+        Serial.print("[nodeId=");
+        Serial.print((unsigned long)cmd->hdr.nodeId);
+        Serial.print("] irrigation_state_request handled sent=");
+        Serial.println(sent ? 1 : 0);
+      }
+      return;
+    }
   }
 
   if (len != (int)sizeof(MsgTelemetry)) {

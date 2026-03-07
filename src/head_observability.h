@@ -4,3 +4,4 @@
 
 void headObservabilityInit();
 void headObservabilityTick();
+bool headObservabilityRequestIrrigationSync();

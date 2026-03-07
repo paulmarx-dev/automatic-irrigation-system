@@ -15,6 +15,7 @@ static constexpr uint8_t REMOTE_BUTTON_CALIBRATE_START = 1;
 static constexpr uint8_t REMOTE_BUTTON_CALIBRATE_MEASURE_WET = 2;
 static constexpr uint8_t REMOTE_BUTTON_IRRIGATION_START = 3;
 static constexpr uint8_t REMOTE_BUTTON_IRRIGATION_STOP = 4;
+static constexpr uint8_t REMOTE_BUTTON_IRRIGATION_STATE_REQUEST = 5;
 
 static constexpr uint8_t FLAG_DIAG_RAW_PRESENT = 0x01;
 static constexpr uint8_t FLAG_CAL_VALID = 0x02;
