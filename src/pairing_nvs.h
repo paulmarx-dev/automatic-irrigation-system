@@ -10,8 +10,8 @@ struct PairingHeadNodeNvsRecord {
 	uint8_t uid[6];
 };
 
-bool pairingNvsLoadNode(uint8_t outHeadMac[6], uint16_t* outNodeId);
-bool pairingNvsSaveNode(const uint8_t headMac[6], uint16_t nodeId);
+bool pairingNvsLoadNode(uint8_t expectedRole, uint8_t outHeadMac[6], uint16_t* outNodeId);
+bool pairingNvsSaveNode(uint8_t role, const uint8_t headMac[6], uint16_t nodeId);
 bool pairingNvsClearNode();
 
 bool pairingNvsLoadHead(PairingHeadNodeNvsRecord outNodes[PAIRING_NVS_MAX_HEAD_NODES],

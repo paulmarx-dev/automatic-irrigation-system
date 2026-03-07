@@ -85,6 +85,8 @@ bool pairingHeadPairedNodeMac(uint8_t out_mac[6]);
 bool pairingHeadIsKnownNode(uint16_t nodeId, const uint8_t mac[6]);
 bool pairingHeadUnpairNode(uint16_t nodeId);
 
+uint8_t pairingHeadGetPairedNodes(uint16_t* outNodeIds, uint8_t outMacs[][6], uint8_t maxCount);
+
 bool pairingNodeIsPaired();
 uint16_t pairingNodeId();
 bool pairingNodeHeadMac(uint8_t out_mac[6]);

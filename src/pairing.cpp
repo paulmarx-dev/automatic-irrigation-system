@@ -992,6 +992,24 @@ bool pairingHeadUnpairNode(uint16_t nodeId)
   return true;
 }
 
+uint8_t pairingHeadGetPairedNodes(uint16_t* outNodeIds, uint8_t outMacs[][6], uint8_t maxCount)
+{
+  if (!outNodeIds || !outMacs || maxCount == 0) {
+    return 0;
+  }
+
+  uint8_t written = 0;
+  for (uint8_t index = 0; index < MAX_HEAD_PAIRED_NODES && written < maxCount; ++index) {
+    if (!s_headPairedNodes[index].used || s_headPairedNodes[index].nodeId == 0) {
+      continue;
+    }
+    outNodeIds[written] = s_headPairedNodes[index].nodeId;
+    memcpy(outMacs[written], s_headPairedNodes[index].mac, 6);
+    ++written;
+  }
+  return written;
+}
+
 bool pairingNodeIsPaired()
 {
   return s_nodePaired;

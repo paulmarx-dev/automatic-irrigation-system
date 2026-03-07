@@ -7,7 +7,7 @@
 #endif
 
 #ifndef LED_ACTIVE_HIGH
-  #if defined(DEVICE_ROLE_SENSOR)
+  #if defined(DEVICE_ROLE_SENSOR) || defined(DEVICE_ROLE_CONTROL)
     #define LED_ACTIVE_HIGH 0
   #else
     #define LED_ACTIVE_HIGH 1

@@ -379,7 +379,7 @@ void setup() {
 
 	uint8_t restoredHeadMac[6] = {0};
 	uint16_t restoredNodeId = 0;
-	if (pairingNvsLoadNode(restoredHeadMac, &restoredNodeId)) {
+	if (pairingNvsLoadNode(ROLE_SENSOR, restoredHeadMac, &restoredNodeId)) {
 		pairingNodeRestorePairedHead(restoredHeadMac, restoredNodeId);
 		(void)espnowEnsurePeer(restoredHeadMac, ESPNOW_CHANNEL, false);
 		s_autoJoinTriggered = true;
@@ -470,7 +470,7 @@ void loop() {
 		uint8_t headMac[6] = {0};
 		const uint16_t nodeId = pairingNodeId();
 		if (pairingNodeHeadMac(headMac)) {
-			if (!pairingNvsSaveNode(headMac, nodeId)) {
+			if (!pairingNvsSaveNode(ROLE_SENSOR, headMac, nodeId)) {
 				Serial.println("PAIRING(NODE): NVS save failed");
 			}
 		}

@@ -26,6 +26,7 @@ static const char* SENSOR_LABELS_NVS_KEY = "labels_blob";
 static constexpr uint16_t IRRIGATION_CONFIG_NVS_VERSION = 1;
 static const char* IRRIGATION_CONFIG_NVS_NAMESPACE = "irrigation_cfg";
 static const char* IRRIGATION_CONFIG_NVS_KEY = "config_blob";
+static constexpr uint32_t IRRIGATION_SYNC_PERIOD_MS = 5000;
 
 struct SensorLabelRecord {
   uint16_t nodeId;
@@ -64,6 +65,8 @@ struct IrrigationConfigNvsBlob {
 
 static IrrigationMode s_irrigationMode = IRRIGATION_MODE_AUTO;
 static bool s_manualIrrigationActive = false;
+static bool s_irrigationSyncDirty = true;
+static uint32_t s_lastIrrigationSyncMs = 0;
 
 static const char* nodeStateToText(TelemetryHeadNodeState state)
 {
@@ -125,6 +128,40 @@ static bool parseIrrigationModeArg(const String& value, IrrigationMode* outMode)
     return true;
   }
   return false;
+}
+
+static bool desiredIrrigationActive()
+{
+  return s_irrigationMode == IRRIGATION_MODE_MANUAL && s_manualIrrigationActive;
+}
+
+static bool sendDesiredIrrigationState()
+{
+  const uint8_t action = desiredIrrigationActive()
+                             ? REMOTE_BUTTON_IRRIGATION_START
+                             : REMOTE_BUTTON_IRRIGATION_STOP;
+  return telemetryHeadSendRemoteButtonAction(0, action);
+}
+
+static void markIrrigationSyncDirty()
+{
+  s_irrigationSyncDirty = true;
+}
+
+static void irrigationSyncTick(uint32_t nowMs)
+{
+  const bool periodicDue =
+      s_lastIrrigationSyncMs == 0 ||
+      static_cast<uint32_t>(nowMs - s_lastIrrigationSyncMs) >= IRRIGATION_SYNC_PERIOD_MS;
+
+  if (!s_irrigationSyncDirty && !periodicDue) {
+    return;
+  }
+
+  if (sendDesiredIrrigationState()) {
+    s_lastIrrigationSyncMs = nowMs;
+    s_irrigationSyncDirty = false;
+  }
 }
 
 static int8_t findSensorLabelSlot(uint16_t nodeId)
@@ -437,6 +474,7 @@ static void onIrrigationConfigPostApi()
   if (s_irrigationMode != IRRIGATION_MODE_MANUAL) {
     s_manualIrrigationActive = false;
   }
+  markIrrigationSyncDirty();
   if (!saveIrrigationConfigToNvs()) {
     s_server.send(500, "application/json", "{\"ok\":0,\"error\":\"config_persist_failed\"}");
     return;
@@ -467,8 +505,20 @@ static void onIrrigationManualStartApi()
   }
 
   s_manualIrrigationActive = true;
+  markIrrigationSyncDirty();
+  const bool sentNow = sendDesiredIrrigationState();
+  if (sentNow) {
+    s_lastIrrigationSyncMs = millis();
+    s_irrigationSyncDirty = false;
+  }
+
   Serial.println("OBS: manual irrigation started");
-  s_server.send(200, "application/json", "{\"ok\":1,\"manualActive\":true}");
+  s_server.send(
+      200,
+      "application/json",
+      sentNow
+          ? "{\"ok\":1,\"manualActive\":true,\"syncPending\":0}"
+          : "{\"ok\":1,\"manualActive\":true,\"syncPending\":1}");
 }
 
 static void onIrrigationManualStopApi()
@@ -480,14 +530,29 @@ static void onIrrigationManualStopApi()
   }
 
   s_manualIrrigationActive = false;
+  markIrrigationSyncDirty();
+  const bool sentNow = sendDesiredIrrigationState();
+  if (sentNow) {
+    s_lastIrrigationSyncMs = millis();
+    s_irrigationSyncDirty = false;
+  }
+
   Serial.println("OBS: manual irrigation stopped");
-  s_server.send(200, "application/json", "{\"ok\":1,\"manualActive\":false}");
+  s_server.send(
+      200,
+      "application/json",
+      sentNow
+          ? "{\"ok\":1,\"manualActive\":false,\"syncPending\":0}"
+          : "{\"ok\":1,\"manualActive\":false,\"syncPending\":1}");
 }
 
 static void onNodesApi()
 {
   TelemetryHeadNodePresence nodes[8] = {};
   const uint8_t count = telemetryHeadGetPresence(nodes, 8);
+  uint16_t pairedNodeIds[8] = {};
+  uint8_t pairedNodeMacs[8][6] = {};
+  const uint8_t pairedCount = pairingHeadGetPairedNodes(pairedNodeIds, pairedNodeMacs, 8);
   const uint32_t nowMs = millis();
 
   char body[4096] = {0};
@@ -522,6 +587,39 @@ static void onNodesApi()
         static_cast<unsigned long>(node.rxInvalid),
         static_cast<unsigned long>(node.ackOkSent),
         static_cast<unsigned long>(node.ackNotPairedSent)));
+
+    if (offset >= sizeof(body) - 2) {
+      break;
+    }
+  }
+
+  for (uint8_t i = 0; i < pairedCount; ++i) {
+    const uint16_t nodeId = pairedNodeIds[i];
+    bool alreadyPresent = false;
+    for (uint8_t j = 0; j < count; ++j) {
+      if (nodes[j].nodeId == nodeId) {
+        alreadyPresent = true;
+        break;
+      }
+    }
+    if (alreadyPresent) {
+      continue;
+    }
+
+    char mac[18] = {0};
+    char name[SENSOR_NAME_MAX] = {0};
+    macToString(pairedNodeMacs[i], mac, sizeof(mac));
+    resolveSensorName(nodeId, name);
+
+    offset += static_cast<size_t>(snprintf(
+        body + offset,
+        sizeof(body) - offset,
+        "%s{\"slot\":%u,\"mac\":\"%s\",\"name\":\"%s\",\"nodeId\":%u,\"state\":\"OFFLINE\",\"moisturePermille\":0,\"batteryEstMv\":0,\"batteryState\":\"UNKNOWN\",\"lastSeenSecAgo\":0,\"rxPackets\":0,\"rxDuplicates\":0,\"rxInvalid\":0,\"ackOkSent\":0,\"ackNotPairedSent\":0}",
+        (offset > 1) ? "," : "",
+        static_cast<unsigned>(count + i),
+        mac,
+        name,
+        static_cast<unsigned>(nodeId)));
 
     if (offset >= sizeof(body) - 2) {
       break;
@@ -614,8 +712,10 @@ void headObservabilityInit()
 
 void headObservabilityTick()
 {
+  const uint32_t nowMs = millis();
   s_server.handleClient();
-  headProvisioningTick(millis());
+  irrigationSyncTick(nowMs);
+  headProvisioningTick(nowMs);
 }
 
 #else

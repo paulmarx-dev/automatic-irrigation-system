@@ -9,10 +9,11 @@ namespace {
 static constexpr const char* NVS_NS_PAIR_NODE = "pair_node";
 static constexpr const char* KEY_VER = "ver";
 static constexpr const char* KEY_PAIRED = "paired";
+static constexpr const char* KEY_ROLE = "role";
 static constexpr const char* KEY_HEAD_MAC = "headMac";
 static constexpr const char* KEY_NODE_ID = "nodeId";
 
-static constexpr uint8_t SCHEMA_VER = 1;
+static constexpr uint8_t SCHEMA_VER = 2;
 static constexpr uint8_t PAIRED_TRUE = 1;
 static constexpr size_t HEAD_MAC_SIZE = 6;
 
@@ -56,9 +57,9 @@ static uint32_t crc32Compute(const uint8_t* data, size_t len)
 
 }  // namespace
 
-bool pairingNvsLoadNode(uint8_t outHeadMac[6], uint16_t* outNodeId)
+bool pairingNvsLoadNode(uint8_t expectedRole, uint8_t outHeadMac[6], uint16_t* outNodeId)
 {
-  if (!outHeadMac || !outNodeId) {
+  if (expectedRole == 0 || !outHeadMac || !outNodeId) {
     return false;
   }
 
@@ -75,6 +76,12 @@ bool pairingNvsLoadNode(uint8_t outHeadMac[6], uint16_t* outNodeId)
 
   const uint8_t paired = prefs.getUChar(KEY_PAIRED, 0);
   if (paired != PAIRED_TRUE) {
+    prefs.end();
+    return false;
+  }
+
+  const uint8_t role = prefs.getUChar(KEY_ROLE, 0);
+  if (role != expectedRole) {
     prefs.end();
     return false;
   }
@@ -100,9 +107,9 @@ bool pairingNvsLoadNode(uint8_t outHeadMac[6], uint16_t* outNodeId)
   return true;
 }
 
-bool pairingNvsSaveNode(const uint8_t headMac[6], uint16_t nodeId)
+bool pairingNvsSaveNode(uint8_t role, const uint8_t headMac[6], uint16_t nodeId)
 {
-  if (!headMac || nodeId == 0) {
+  if (role == 0 || !headMac || nodeId == 0) {
     return false;
   }
 
@@ -113,11 +120,12 @@ bool pairingNvsSaveNode(const uint8_t headMac[6], uint16_t nodeId)
 
   const bool verOk = prefs.putUChar(KEY_VER, SCHEMA_VER) == 1;
   const bool pairedOk = prefs.putUChar(KEY_PAIRED, PAIRED_TRUE) == 1;
+  const bool roleOk = prefs.putUChar(KEY_ROLE, role) == 1;
   const bool nodeIdOk = prefs.putUShort(KEY_NODE_ID, nodeId) == sizeof(uint16_t);
   const bool headMacOk = prefs.putBytes(KEY_HEAD_MAC, headMac, HEAD_MAC_SIZE) == HEAD_MAC_SIZE;
   prefs.end();
 
-  return verOk && pairedOk && nodeIdOk && headMacOk;
+  return verOk && pairedOk && roleOk && nodeIdOk && headMacOk;
 }
 
 bool pairingNvsClearNode()
@@ -129,13 +137,15 @@ bool pairingNvsClearNode()
 
   const bool verOk = prefs.putUChar(KEY_VER, SCHEMA_VER) == 1;
   const bool pairedOk = prefs.putUChar(KEY_PAIRED, 0) == 1;
+  const bool hadRole = prefs.isKey(KEY_ROLE);
+  const bool roleOk = !hadRole || prefs.remove(KEY_ROLE);
   const bool hadNodeId = prefs.isKey(KEY_NODE_ID);
   const bool nodeIdOk = !hadNodeId || prefs.remove(KEY_NODE_ID);
   const bool hadHeadMac = prefs.isKey(KEY_HEAD_MAC);
   const bool headMacOk = !hadHeadMac || prefs.remove(KEY_HEAD_MAC);
   prefs.end();
 
-  return verOk && pairedOk && nodeIdOk && headMacOk;
+  return verOk && pairedOk && roleOk && nodeIdOk && headMacOk;
 }
 
 bool pairingNvsLoadHead(PairingHeadNodeNvsRecord outNodes[PAIRING_NVS_MAX_HEAD_NODES],

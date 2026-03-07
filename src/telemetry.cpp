@@ -302,6 +302,7 @@ void telemetryTickSensor(const SensorMeasurement* measurement, bool hasMeasureme
 #include "leds.h"
 
 static const uint8_t MAX_NODE_REGISTRY = 8;
+static const uint8_t BROADCAST_MAC[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 static const uint32_t EXPECTED_TELEMETRY_PERIOD_MS = TELEMETRY_BASE_INTERVAL_MS + TELEMETRY_INTERVAL_JITTER_MS;
 static const uint32_t NODE_SUSPECT_TIMEOUT_MS = 3 * EXPECTED_TELEMETRY_PERIOD_MS;
 static const uint32_t NODE_OFFLINE_TIMEOUT_MS = 8 * EXPECTED_TELEMETRY_PERIOD_MS;
@@ -641,11 +642,34 @@ bool telemetryHeadRemovePresenceByNodeId(uint16_t nodeId)
 
 bool telemetryHeadSendRemoteButtonAction(uint16_t nodeId, uint8_t action)
 {
-  if (nodeId == 0) {
+  const bool isCalibrationAction =
+      action == REMOTE_BUTTON_CALIBRATE_START || action == REMOTE_BUTTON_CALIBRATE_MEASURE_WET;
+  const bool isIrrigationAction =
+      action == REMOTE_BUTTON_IRRIGATION_START || action == REMOTE_BUTTON_IRRIGATION_STOP;
+
+  if (!isCalibrationAction && !isIrrigationAction) {
     return false;
   }
-  if (action != REMOTE_BUTTON_CALIBRATE_START && action != REMOTE_BUTTON_CALIBRATE_MEASURE_WET) {
-    return false;
+
+  if (nodeId == 0) {
+    if (!isIrrigationAction) {
+      return false;
+    }
+
+    MsgRemoteButton command{};
+    command.hdr.ver = PROTO_VER;
+    command.hdr.type = MSG_REMOTE_BUTTON;
+    command.hdr.seq = ++s_ackSeq;
+    command.hdr.nodeId = 0;
+    command.action = action;
+    command.reserved = 0;
+
+    const bool sent = espnowSend(BROADCAST_MAC, reinterpret_cast<const uint8_t*>(&command), sizeof(command));
+    Serial.print("[nodeId=*] remote_btn broadcast sent=");
+    Serial.print(sent ? 1 : 0);
+    Serial.print(" action=");
+    Serial.println((unsigned long)action);
+    return sent;
   }
 
   NodeTelemetryState* node = nullptr;
