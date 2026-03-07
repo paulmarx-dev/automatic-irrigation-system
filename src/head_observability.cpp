@@ -63,6 +63,7 @@ struct IrrigationConfigNvsBlob {
 };
 
 static IrrigationMode s_irrigationMode = IRRIGATION_MODE_AUTO;
+static bool s_manualIrrigationActive = false;
 
 static const char* nodeStateToText(TelemetryHeadNodeState state)
 {
@@ -409,8 +410,13 @@ static void onSensorCalibrateApi()
 
 static void onIrrigationConfigGetApi()
 {
-  char body[96] = {0};
-  (void)snprintf(body, sizeof(body), "{\"mode\":\"%s\"}", irrigationModeToText(s_irrigationMode));
+  char body[128] = {0};
+  (void)snprintf(
+      body,
+      sizeof(body),
+      "{\"mode\":\"%s\",\"manualActive\":%s}",
+      irrigationModeToText(s_irrigationMode),
+      s_manualIrrigationActive ? "true" : "false");
   s_server.send(200, "application/json", body);
 }
 
@@ -428,14 +434,54 @@ static void onIrrigationConfigPostApi()
   }
 
   s_irrigationMode = requestedMode;
+  if (s_irrigationMode != IRRIGATION_MODE_MANUAL) {
+    s_manualIrrigationActive = false;
+  }
   if (!saveIrrigationConfigToNvs()) {
     s_server.send(500, "application/json", "{\"ok\":0,\"error\":\"config_persist_failed\"}");
     return;
   }
 
-  char body[96] = {0};
-  (void)snprintf(body, sizeof(body), "{\"ok\":1,\"mode\":\"%s\"}", irrigationModeToText(s_irrigationMode));
+  char body[128] = {0};
+  (void)snprintf(
+      body,
+      sizeof(body),
+      "{\"ok\":1,\"mode\":\"%s\",\"manualActive\":%s}",
+      irrigationModeToText(s_irrigationMode),
+      s_manualIrrigationActive ? "true" : "false");
   s_server.send(200, "application/json", body);
+}
+
+static void onIrrigationManualStartApi()
+{
+  if (s_irrigationMode != IRRIGATION_MODE_MANUAL) {
+    Serial.println("OBS: manual irrigation start rejected: mode not MANUAL");
+    s_server.send(409, "application/json", "{\"ok\":0,\"error\":\"mode_not_manual\"}");
+    return;
+  }
+
+  if (s_manualIrrigationActive) {
+    Serial.println("OBS: manual irrigation start ignored: already active");
+    s_server.send(200, "application/json", "{\"ok\":1,\"manualActive\":true}");
+    return;
+  }
+
+  s_manualIrrigationActive = true;
+  Serial.println("OBS: manual irrigation started");
+  s_server.send(200, "application/json", "{\"ok\":1,\"manualActive\":true}");
+}
+
+static void onIrrigationManualStopApi()
+{
+  if (!s_manualIrrigationActive) {
+    Serial.println("OBS: manual irrigation stop ignored: already stopped");
+    s_server.send(200, "application/json", "{\"ok\":1,\"manualActive\":false}");
+    return;
+  }
+
+  s_manualIrrigationActive = false;
+  Serial.println("OBS: manual irrigation stopped");
+  s_server.send(200, "application/json", "{\"ok\":1,\"manualActive\":false}");
 }
 
 static void onNodesApi()
@@ -528,7 +574,7 @@ static void onSystemSummaryApi()
   (void)snprintf(
       body,
       sizeof(body),
-      "{\"onlineSensors\":%u,\"suspectSensors\":%u,\"offlineSensors\":%u,\"totalVisibleSensors\":%u,\"avgMoisturePermille\":%s,\"pairingOpen\":%s,\"pairingRemainingSec\":%lu,\"uptimeSec\":%lu}",
+      "{\"onlineSensors\":%u,\"suspectSensors\":%u,\"offlineSensors\":%u,\"totalVisibleSensors\":%u,\"avgMoisturePermille\":%s,\"pairingOpen\":%s,\"pairingRemainingSec\":%lu,\"uptimeSec\":%lu,\"irrigationMode\":\"%s\",\"manualIrrigationActive\":%s}",
       static_cast<unsigned>(onlineCount),
       static_cast<unsigned>(suspectCount),
       static_cast<unsigned>(offlineCount),
@@ -536,7 +582,9 @@ static void onSystemSummaryApi()
       avgMoisture,
       pairingHeadIsOpen() ? "true" : "false",
       static_cast<unsigned long>(pairingRemainingSec),
-      static_cast<unsigned long>(uptimeSec));
+      static_cast<unsigned long>(uptimeSec),
+      irrigationModeToText(s_irrigationMode),
+      s_manualIrrigationActive ? "true" : "false");
 
   s_server.send(200, "application/json", body);
 }
@@ -554,6 +602,8 @@ void headObservabilityInit()
   s_server.on("/api/system/summary", HTTP_GET, onSystemSummaryApi);
   s_server.on("/api/irrigation/config", HTTP_GET, onIrrigationConfigGetApi);
   s_server.on("/api/irrigation/config", HTTP_POST, onIrrigationConfigPostApi);
+  s_server.on("/api/irrigation/manual/start", HTTP_POST, onIrrigationManualStartApi);
+  s_server.on("/api/irrigation/manual/stop", HTTP_POST, onIrrigationManualStopApi);
   s_server.on("/api/sensors/rename", HTTP_POST, onSensorRenameApi);
   s_server.on("/api/sensors/unpair", HTTP_POST, onSensorUnpairApi);
   s_server.on("/api/sensors/calibrate", HTTP_POST, onSensorCalibrateApi);

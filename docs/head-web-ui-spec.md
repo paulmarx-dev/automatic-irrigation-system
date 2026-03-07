@@ -166,8 +166,8 @@ Note:
 - [x] Define and freeze MVP API contracts (request/response JSON)
 - [x] Add head runtime summary endpoint (`/api/system/summary`)
 - [x] Add irrigation config read/write endpoints + NVS persistence
-- [ ] Add manual start/stop endpoints with safety guards
-- [ ] Add pairing open/close endpoints
+- [x] Add manual start/stop endpoints with safety guards
+- [x] Add pairing open/close endpoints
 - [x] Add sensor rename/unpair endpoints
 - [x] Add unit rename/password endpoints
 - [ ] Add danger-zone actions with confirmation tokens
@@ -203,6 +203,7 @@ Note:
 - [x] User can connect to AP and open UI without button interaction.
 - [x] Home tab correctly shows online count and avg moisture.
 - [x] Auto/Manual/OFF controls behave as expected and persist.
+  - Includes manual start/stop controls available only in `MANUAL` mode.
 - [x] Sensor add/rename/unpair works via UI.
 - [x] Each sensor card shows battery voltage + battery state.
 - [x] Battery severity visuals are correct: `CRITICAL` = red label; `NEEDS_REPLACEMENT` = entire card danger style.

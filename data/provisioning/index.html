@@ -33,9 +33,14 @@
           <label><input type="radio" name="irrigationMode" value="OFF" /> OFF</label>
         </div>
         <div class="home-mode-actions">
-          <button type="button" id="homeModeSaveBtn" disabled>Saved</button>
+          <button type="button" id="homeModeSaveBtn" disabled>Active</button>
         </div>
         <p id="homeModeStatus" class="home-mode-status">Config synced.</p>
+        <div class="home-manual-actions" hidden>
+          <button type="button" id="manualStartBtn" disabled>Start irrigation</button>
+          <button type="button" id="manualStopBtn" class="ghost" disabled>Stop irrigation</button>
+        </div>
+        <p id="homeManualStatus" class="home-mode-status">Manual irrigation inactive.</p>
       </form>
     </section>
 
@@ -46,6 +51,7 @@
       <p id="pairingBanner" class="pairing-banner" hidden>Pairing window is open (120s).</p>
       <div class="sensor-topbar">
         <button type="button" id="addSensorBtn">Add new</button>
+        <button type="button" id="closePairingBtn" class="ghost">Close pairing</button>
       </div>
     </section>
 

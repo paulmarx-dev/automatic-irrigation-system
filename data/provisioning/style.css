@@ -1,4 +1,5 @@
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -88,6 +89,10 @@ body {
   color: #333;
 }
 
+.home-mode-options label.persisted {
+  font-weight: 700;
+}
+
 .home-mode-options input {
   width: auto;
   margin: 0 6px 0 0;
@@ -110,6 +115,13 @@ body {
 
 .home-mode-status.error {
   color: #8a0018;
+}
+
+.home-manual-actions {
+  margin-top: 10px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .unit-grid {
@@ -245,6 +257,7 @@ pre {
 .sensor-topbar {
   display: flex;
   justify-content: flex-end;
+  gap: 8px;
   margin-top: 8px;
 }
 

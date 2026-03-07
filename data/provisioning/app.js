@@ -1,6 +1,7 @@
 const webStatusEl = document.getElementById('webStatus');
 const nodesEl = document.getElementById('nodes');
 const addSensorBtn = document.getElementById('addSensorBtn');
+const closePairingBtn = document.getElementById('closePairingBtn');
 const pairingBannerEl = document.getElementById('pairingBanner');
 const calibrationBannerEl = document.getElementById('calibrationBanner');
 const tabsEl = document.querySelector('.tabs');
@@ -13,6 +14,10 @@ const homeUptimeEl = document.getElementById('homeUptime');
 const homeModeFormEl = document.getElementById('homeModeForm');
 const homeModeSaveBtnEl = document.getElementById('homeModeSaveBtn');
 const homeModeStatusEl = document.getElementById('homeModeStatus');
+const homeManualActionsEl = document.querySelector('.home-manual-actions');
+const manualStartBtnEl = document.getElementById('manualStartBtn');
+const manualStopBtnEl = document.getElementById('manualStopBtn');
+const homeManualStatusEl = document.getElementById('homeManualStatus');
 const unitApSsidEl = document.getElementById('unitApSsid');
 const unitFirmwareEl = document.getElementById('unitFirmware');
 const unitUptimeEl = document.getElementById('unitUptime');
@@ -32,6 +37,7 @@ let activeCalibration = null;
 let pairingRemainingSec = 0;
 let persistedIrrigationMode = 'AUTO';
 let pendingIrrigationMode = 'AUTO';
+let isManualIrrigationActive = false;
 let persistedUnitName = '';
 let pendingUnitName = '';
 let unitNameInitialized = false;
@@ -77,12 +83,24 @@ function normalizeIrrigationMode(mode) {
   return 'AUTO';
 }
 
+function isHomeModeDirty() {
+  return normalizeIrrigationMode(pendingIrrigationMode) !== normalizeIrrigationMode(persistedIrrigationMode);
+}
+
 function setHomeModeStatus(text, isError = false) {
   if (!homeModeStatusEl) {
     return;
   }
   homeModeStatusEl.textContent = text;
   homeModeStatusEl.classList.toggle('error', isError);
+}
+
+function setHomeManualStatus(text, isError = false) {
+  if (!homeManualStatusEl) {
+    return;
+  }
+  homeManualStatusEl.textContent = text;
+  homeManualStatusEl.classList.toggle('error', isError);
 }
 
 function setUnitConfigStatus(text, isError = false) {
@@ -110,21 +128,44 @@ function renderHomeModeControls() {
   const radios = homeModeFormEl.querySelectorAll('input[name="irrigationMode"]');
   radios.forEach((radio) => {
     radio.checked = radio.value === selectedMode;
+    const wrapper = radio.closest('label');
+    if (wrapper) {
+      wrapper.classList.toggle('persisted', radio.value === normalizeIrrigationMode(persistedIrrigationMode));
+    }
   });
 
-  const isDirty = selectedMode !== normalizeIrrigationMode(persistedIrrigationMode);
+  const isDirty = isHomeModeDirty();
+  const inactiveLabel = selectedMode === 'OFF' ? 'Disabled' : 'Active';
+  const actionLabel = selectedMode === 'OFF' ? 'Disable' : 'Activate';
   homeModeSaveBtnEl.disabled = !isDirty;
-  homeModeSaveBtnEl.textContent = isDirty ? 'Save' : 'Saved';
+  homeModeSaveBtnEl.textContent = isDirty ? actionLabel : inactiveLabel;
   homeModeSaveBtnEl.classList.toggle('saved', !isDirty);
+
+  const isManualMode = selectedMode === 'MANUAL';
+  const isPersistedManual = normalizeIrrigationMode(persistedIrrigationMode) === 'MANUAL';
+  const showManualActions = isManualMode && isPersistedManual;
+
+  if (homeManualActionsEl) {
+    homeManualActionsEl.hidden = !showManualActions;
+  }
+
+  if (manualStartBtnEl && manualStopBtnEl) {
+    manualStartBtnEl.disabled = !showManualActions || isManualIrrigationActive;
+    manualStopBtnEl.disabled = !showManualActions || !isManualIrrigationActive;
+  }
 }
 
 function applyIrrigationConfig(config, allowOverridePending = true) {
   const mode = normalizeIrrigationMode(config && config.mode);
   persistedIrrigationMode = mode;
+  if (config && typeof config.manualActive !== 'undefined') {
+    isManualIrrigationActive = Boolean(config.manualActive);
+  }
   if (allowOverridePending || !homeModeSaveBtnEl || homeModeSaveBtnEl.disabled) {
     pendingIrrigationMode = mode;
   }
   renderHomeModeControls();
+  setHomeManualStatus(isManualIrrigationActive ? 'Manual irrigation active.' : 'Manual irrigation inactive.', false);
 }
 
 function renderUnitConfigControls() {
@@ -370,6 +411,39 @@ async function openPairingWindow() {
   }
 }
 
+async function closePairingWindow() {
+  try {
+    await postForm('/api/pairing/close', {});
+    await tick();
+  } catch (error) {
+    window.alert(`Close pairing failed: ${error.message}`);
+  }
+}
+
+async function startManualIrrigation() {
+  try {
+    await postForm('/api/irrigation/manual/start', {});
+    isManualIrrigationActive = true;
+    renderHomeModeControls();
+    setHomeManualStatus('Manual irrigation started.', false);
+    await tick();
+  } catch (error) {
+    setHomeManualStatus(`Manual start failed: ${error.message}`, true);
+  }
+}
+
+async function stopManualIrrigation() {
+  try {
+    await postForm('/api/irrigation/manual/stop', {});
+    isManualIrrigationActive = false;
+    renderHomeModeControls();
+    setHomeManualStatus('Manual irrigation stopped.', false);
+    await tick();
+  } catch (error) {
+    setHomeManualStatus(`Manual stop failed: ${error.message}`, true);
+  }
+}
+
 async function triggerRemoteCalibration(nodeId, step) {
   await postForm('/api/sensors/calibrate', { nodeId, step });
 }
@@ -584,6 +658,13 @@ function renderPairingBannerState(isOpen) {
     return;
   }
 
+  if (addSensorBtn) {
+    addSensorBtn.hidden = isOpen;
+  }
+  if (closePairingBtn) {
+    closePairingBtn.hidden = !isOpen;
+  }
+
   pairingBannerEl.textContent = isOpen
     ? `Pairing window is open (${Math.max(0, pairingRemainingSec)}s left).`
     : 'Pairing window is open (120s).';
@@ -676,6 +757,11 @@ async function tick() {
     render(webStatusEl, webStatus);
     renderHomeSummary(summary);
     applyIrrigationConfig(irrigationConfig, !homeModeSaveBtnEl || homeModeSaveBtnEl.disabled);
+    if (summary && typeof summary.manualIrrigationActive !== 'undefined') {
+      isManualIrrigationActive = Boolean(summary.manualIrrigationActive);
+      renderHomeModeControls();
+      setHomeManualStatus(isManualIrrigationActive ? 'Manual irrigation active.' : 'Manual irrigation inactive.', false);
+    }
     applyUnitStatus(unitStatus, !unitNameSaveBtnEl || unitNameSaveBtnEl.disabled);
     syncPairingCountdown(webStatus);
     renderNodes(nodes);
@@ -694,6 +780,7 @@ async function tick() {
       pairingBannerEl.hidden = true;
     }
     setHomeModeStatus(`Config fetch error: ${error}`, true);
+    setHomeManualStatus(`Manual control unavailable: ${error}`, true);
     activeCalibration = null;
     calibrationStateByNode.clear();
     renderCalibrationBanner();
@@ -712,13 +799,25 @@ if (homeModeFormEl) {
 
     pendingIrrigationMode = normalizeIrrigationMode(target.value);
     renderHomeModeControls();
-    setHomeModeStatus('Unsaved changes.', false);
+    setHomeModeStatus(isHomeModeDirty() ? 'Unsaved changes.' : 'Config synced.', false);
   });
 }
 
 if (homeModeSaveBtnEl) {
   homeModeSaveBtnEl.addEventListener('click', async () => {
     await saveIrrigationConfig();
+  });
+}
+
+if (manualStartBtnEl) {
+  manualStartBtnEl.addEventListener('click', async () => {
+    await startManualIrrigation();
+  });
+}
+
+if (manualStopBtnEl) {
+  manualStopBtnEl.addEventListener('click', async () => {
+    await stopManualIrrigation();
   });
 }
 
@@ -856,5 +955,11 @@ setInterval(() => {
 if (addSensorBtn) {
   addSensorBtn.addEventListener('click', async () => {
     await openPairingWindow();
+  });
+}
+
+if (closePairingBtn) {
+  closePairingBtn.addEventListener('click', async () => {
+    await closePairingWindow();
   });
 }

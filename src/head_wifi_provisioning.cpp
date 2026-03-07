@@ -296,6 +296,12 @@ static void onPairingOpenApi()
   s_server->send(200, "application/json", body);
 }
 
+static void onPairingCloseApi()
+{
+  pairingHeadSetOpen(false);
+  s_server->send(200, "application/json", "{\"ok\":1,\"pairingOpen\":false,\"pairingRemainingSec\":0}");
+}
+
 static void registerRoutes()
 {
   s_server->on("/", HTTP_GET, []() { serveFile("/provisioning/index.html", "text/html"); });
@@ -305,6 +311,7 @@ static void registerRoutes()
   s_server->on("/provisioning/style.css", HTTP_GET, []() { serveFile("/provisioning/style.css", "text/css"); });
   s_server->on("/api/web/status", HTTP_GET, onWebStatusApi);
   s_server->on("/api/pairing/open", HTTP_POST, onPairingOpenApi);
+  s_server->on("/api/pairing/close", HTTP_POST, onPairingCloseApi);
   s_server->on("/api/unit/status", HTTP_GET, onUnitStatusApi);
   s_server->on("/api/unit/rename", HTTP_POST, onUnitRenameApi);
   s_server->on("/api/unit/password", HTTP_POST, onUnitPasswordApi);
