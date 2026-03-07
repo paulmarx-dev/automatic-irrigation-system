@@ -23,6 +23,9 @@ static constexpr size_t SENSOR_NAME_MAX = 32;
 static constexpr uint16_t SENSOR_LABELS_NVS_VERSION = 1;
 static const char* SENSOR_LABELS_NVS_NAMESPACE = "sensor_labels";
 static const char* SENSOR_LABELS_NVS_KEY = "labels_blob";
+static constexpr uint16_t IRRIGATION_CONFIG_NVS_VERSION = 1;
+static const char* IRRIGATION_CONFIG_NVS_NAMESPACE = "irrigation_cfg";
+static const char* IRRIGATION_CONFIG_NVS_KEY = "config_blob";
 
 struct SensorLabelRecord {
   uint16_t nodeId;
@@ -44,6 +47,22 @@ struct SensorLabel {
 static SensorLabel s_sensorLabels[MAX_SENSOR_LABELS] = {};
 static Preferences s_sensorLabelsPrefs;
 static bool s_sensorLabelsPrefsReady = false;
+static Preferences s_irrigationPrefs;
+static bool s_irrigationPrefsReady = false;
+
+enum IrrigationMode : uint8_t {
+  IRRIGATION_MODE_AUTO = 0,
+  IRRIGATION_MODE_MANUAL = 1,
+  IRRIGATION_MODE_OFF = 2,
+};
+
+struct IrrigationConfigNvsBlob {
+  uint16_t version;
+  uint8_t mode;
+  uint8_t reserved;
+};
+
+static IrrigationMode s_irrigationMode = IRRIGATION_MODE_AUTO;
 
 static const char* nodeStateToText(TelemetryHeadNodeState state)
 {
@@ -71,6 +90,40 @@ static const char* batteryStateToText(TelemetryHeadBatteryState state)
     default:
       return "UNKNOWN";
   }
+}
+
+static const char* irrigationModeToText(IrrigationMode mode)
+{
+  switch (mode) {
+    case IRRIGATION_MODE_AUTO:
+      return "AUTO";
+    case IRRIGATION_MODE_MANUAL:
+      return "MANUAL";
+    case IRRIGATION_MODE_OFF:
+      return "OFF";
+    default:
+      return "AUTO";
+  }
+}
+
+static bool parseIrrigationModeArg(const String& value, IrrigationMode* outMode)
+{
+  if (!outMode) {
+    return false;
+  }
+  if (value.equalsIgnoreCase("AUTO")) {
+    *outMode = IRRIGATION_MODE_AUTO;
+    return true;
+  }
+  if (value.equalsIgnoreCase("MANUAL")) {
+    *outMode = IRRIGATION_MODE_MANUAL;
+    return true;
+  }
+  if (value.equalsIgnoreCase("OFF")) {
+    *outMode = IRRIGATION_MODE_OFF;
+    return true;
+  }
+  return false;
 }
 
 static int8_t findSensorLabelSlot(uint16_t nodeId)
@@ -140,6 +193,39 @@ static void loadSensorLabelsFromNvs()
     s_sensorLabels[i].nodeId = blob.records[i].nodeId;
     strlcpy(s_sensorLabels[i].name, blob.records[i].name, sizeof(s_sensorLabels[i].name));
   }
+}
+
+static bool saveIrrigationConfigToNvs()
+{
+  if (!s_irrigationPrefsReady) {
+    return false;
+  }
+
+  IrrigationConfigNvsBlob blob{};
+  blob.version = IRRIGATION_CONFIG_NVS_VERSION;
+  blob.mode = static_cast<uint8_t>(s_irrigationMode);
+  const size_t written = s_irrigationPrefs.putBytes(IRRIGATION_CONFIG_NVS_KEY, &blob, sizeof(blob));
+  return written == sizeof(blob);
+}
+
+static void loadIrrigationConfigFromNvs()
+{
+  s_irrigationMode = IRRIGATION_MODE_AUTO;
+  if (!s_irrigationPrefsReady) {
+    return;
+  }
+
+  if (!s_irrigationPrefs.isKey(IRRIGATION_CONFIG_NVS_KEY)) {
+    return;
+  }
+
+  IrrigationConfigNvsBlob blob{};
+  const size_t read = s_irrigationPrefs.getBytes(IRRIGATION_CONFIG_NVS_KEY, &blob, sizeof(blob));
+  if (read != sizeof(blob) || blob.version != IRRIGATION_CONFIG_NVS_VERSION || blob.mode > IRRIGATION_MODE_OFF) {
+    return;
+  }
+
+  s_irrigationMode = static_cast<IrrigationMode>(blob.mode);
 }
 
 static bool sanitizeSensorName(const String& input, char outName[SENSOR_NAME_MAX])
@@ -321,6 +407,37 @@ static void onSensorCalibrateApi()
   s_server.send(200, "application/json", "{\"ok\":1}");
 }
 
+static void onIrrigationConfigGetApi()
+{
+  char body[96] = {0};
+  (void)snprintf(body, sizeof(body), "{\"mode\":\"%s\"}", irrigationModeToText(s_irrigationMode));
+  s_server.send(200, "application/json", body);
+}
+
+static void onIrrigationConfigPostApi()
+{
+  if (!s_server.hasArg("mode")) {
+    s_server.send(400, "application/json", "{\"ok\":0,\"error\":\"invalid_args\"}");
+    return;
+  }
+
+  IrrigationMode requestedMode = IRRIGATION_MODE_AUTO;
+  if (!parseIrrigationModeArg(s_server.arg("mode"), &requestedMode)) {
+    s_server.send(400, "application/json", "{\"ok\":0,\"error\":\"invalid_mode\"}");
+    return;
+  }
+
+  s_irrigationMode = requestedMode;
+  if (!saveIrrigationConfigToNvs()) {
+    s_server.send(500, "application/json", "{\"ok\":0,\"error\":\"config_persist_failed\"}");
+    return;
+  }
+
+  char body[96] = {0};
+  (void)snprintf(body, sizeof(body), "{\"ok\":1,\"mode\":\"%s\"}", irrigationModeToText(s_irrigationMode));
+  s_server.send(200, "application/json", body);
+}
+
 static void onNodesApi()
 {
   TelemetryHeadNodePresence nodes[8] = {};
@@ -429,10 +546,14 @@ static void onSystemSummaryApi()
 void headObservabilityInit()
 {
   s_sensorLabelsPrefsReady = s_sensorLabelsPrefs.begin(SENSOR_LABELS_NVS_NAMESPACE, false);
+  s_irrigationPrefsReady = s_irrigationPrefs.begin(IRRIGATION_CONFIG_NVS_NAMESPACE, false);
   loadSensorLabelsFromNvs();
+  loadIrrigationConfigFromNvs();
 
   s_server.on("/api/nodes", HTTP_GET, onNodesApi);
   s_server.on("/api/system/summary", HTTP_GET, onSystemSummaryApi);
+  s_server.on("/api/irrigation/config", HTTP_GET, onIrrigationConfigGetApi);
+  s_server.on("/api/irrigation/config", HTTP_POST, onIrrigationConfigPostApi);
   s_server.on("/api/sensors/rename", HTTP_POST, onSensorRenameApi);
   s_server.on("/api/sensors/unpair", HTTP_POST, onSensorUnpairApi);
   s_server.on("/api/sensors/calibrate", HTTP_POST, onSensorCalibrateApi);

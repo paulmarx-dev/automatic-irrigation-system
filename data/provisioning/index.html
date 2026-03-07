@@ -25,6 +25,18 @@
         <p class="home-item"><span>Pairing</span><strong id="homePairing">-</strong></p>
         <p class="home-item"><span>Uptime</span><strong id="homeUptime">-</strong></p>
       </div>
+      <form id="homeModeForm" class="home-mode-form">
+        <p class="home-mode-title">Irrigation mode</p>
+        <div class="home-mode-options">
+          <label><input type="radio" name="irrigationMode" value="AUTO" /> Auto</label>
+          <label><input type="radio" name="irrigationMode" value="MANUAL" /> Manual</label>
+          <label><input type="radio" name="irrigationMode" value="OFF" /> OFF</label>
+        </div>
+        <div class="home-mode-actions">
+          <button type="button" id="homeModeSaveBtn" disabled>Saved</button>
+        </div>
+        <p id="homeModeStatus" class="home-mode-status">Config synced.</p>
+      </form>
     </section>
 
     <section class="card tab-panel" id="tabSensors" data-panel="sensors">

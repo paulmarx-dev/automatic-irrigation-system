@@ -10,10 +10,15 @@ const homeOnlineEl = document.getElementById('homeOnline');
 const homeMoistureEl = document.getElementById('homeMoisture');
 const homePairingEl = document.getElementById('homePairing');
 const homeUptimeEl = document.getElementById('homeUptime');
+const homeModeFormEl = document.getElementById('homeModeForm');
+const homeModeSaveBtnEl = document.getElementById('homeModeSaveBtn');
+const homeModeStatusEl = document.getElementById('homeModeStatus');
 const calibrationStateByNode = new Map();
 let latestNodes = [];
 let activeCalibration = null;
 let pairingRemainingSec = 0;
+let persistedIrrigationMode = 'AUTO';
+let pendingIrrigationMode = 'AUTO';
 const CAL_PROMPT_TIMEOUT_MS = 20000;
 const CAL_ERROR_HIDE_MS = 5000;
 const CAL_INFO_HIDE_MS = 5000;
@@ -43,6 +48,60 @@ function formatDuration(totalSec) {
     return `${hours}h ${minutes}m`;
   }
   return `${minutes}m`;
+}
+
+function normalizeIrrigationMode(mode) {
+  const normalized = String(mode || '').toUpperCase();
+  if (normalized === 'AUTO' || normalized === 'MANUAL' || normalized === 'OFF') {
+    return normalized;
+  }
+  return 'AUTO';
+}
+
+function setHomeModeStatus(text, isError = false) {
+  if (!homeModeStatusEl) {
+    return;
+  }
+  homeModeStatusEl.textContent = text;
+  homeModeStatusEl.classList.toggle('error', isError);
+}
+
+function renderHomeModeControls() {
+  if (!homeModeFormEl || !homeModeSaveBtnEl) {
+    return;
+  }
+
+  const selectedMode = normalizeIrrigationMode(pendingIrrigationMode);
+  const radios = homeModeFormEl.querySelectorAll('input[name="irrigationMode"]');
+  radios.forEach((radio) => {
+    radio.checked = radio.value === selectedMode;
+  });
+
+  const isDirty = selectedMode !== normalizeIrrigationMode(persistedIrrigationMode);
+  homeModeSaveBtnEl.disabled = !isDirty;
+  homeModeSaveBtnEl.textContent = isDirty ? 'Save' : 'Saved';
+  homeModeSaveBtnEl.classList.toggle('saved', !isDirty);
+}
+
+function applyIrrigationConfig(config, allowOverridePending = true) {
+  const mode = normalizeIrrigationMode(config && config.mode);
+  persistedIrrigationMode = mode;
+  if (allowOverridePending || !homeModeSaveBtnEl || homeModeSaveBtnEl.disabled) {
+    pendingIrrigationMode = mode;
+  }
+  renderHomeModeControls();
+}
+
+async function saveIrrigationConfig() {
+  const mode = normalizeIrrigationMode(pendingIrrigationMode);
+  try {
+    await postForm('/api/irrigation/config', { mode });
+    persistedIrrigationMode = mode;
+    renderHomeModeControls();
+    setHomeModeStatus('Config saved.', false);
+  } catch (error) {
+    setHomeModeStatus(`Save failed: ${error.message}`, true);
+  }
 }
 
 function setActiveTab(tabName) {
@@ -445,15 +504,17 @@ async function fetchJson(url) {
 
 async function tick() {
   try {
-    const [webStatus, nodes, summary] = await Promise.all([
+    const [webStatus, nodes, summary, irrigationConfig] = await Promise.all([
       fetchJson('/api/web/status'),
       fetchJson('/api/nodes'),
       fetchJson('/api/system/summary'),
+      fetchJson('/api/irrigation/config'),
     ]);
     latestNodes = Array.isArray(nodes) ? nodes : [];
 
     render(webStatusEl, webStatus);
     renderHomeSummary(summary);
+    applyIrrigationConfig(irrigationConfig, !homeModeSaveBtnEl || homeModeSaveBtnEl.disabled);
     syncPairingCountdown(webStatus);
     renderNodes(nodes);
     reconcileCalibrationState();
@@ -468,10 +529,33 @@ async function tick() {
       pairingRemainingSec = 0;
       pairingBannerEl.hidden = true;
     }
+    setHomeModeStatus(`Config fetch error: ${error}`, true);
     activeCalibration = null;
     calibrationStateByNode.clear();
     renderCalibrationBanner();
   }
+}
+
+if (homeModeFormEl) {
+  homeModeFormEl.addEventListener('change', (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement)) {
+      return;
+    }
+    if (target.name !== 'irrigationMode') {
+      return;
+    }
+
+    pendingIrrigationMode = normalizeIrrigationMode(target.value);
+    renderHomeModeControls();
+    setHomeModeStatus('Unsaved changes.', false);
+  });
+}
+
+if (homeModeSaveBtnEl) {
+  homeModeSaveBtnEl.addEventListener('click', async () => {
+    await saveIrrigationConfig();
+  });
 }
 
 if (tabsEl) {

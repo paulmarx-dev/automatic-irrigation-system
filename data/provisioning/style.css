@@ -65,6 +65,53 @@ body {
   font-size: 18px;
 }
 
+.home-mode-form {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid #e7e7e7;
+}
+
+.home-mode-title {
+  margin: 0 0 8px;
+  font-weight: 700;
+}
+
+.home-mode-options {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.home-mode-options label {
+  margin: 0;
+  font-size: 14px;
+  color: #333;
+}
+
+.home-mode-options input {
+  width: auto;
+  margin: 0 6px 0 0;
+  padding: 0;
+}
+
+.home-mode-actions {
+  margin-top: 12px;
+}
+
+#homeModeSaveBtn.saved {
+  background: #2f9e44;
+}
+
+.home-mode-status {
+  margin: 10px 0 0;
+  font-size: 13px;
+  color: #666;
+}
+
+.home-mode-status.error {
+  color: #8a0018;
+}
+
 .card {
   background: #fff;
   border: 1px solid #e7e7e7;
