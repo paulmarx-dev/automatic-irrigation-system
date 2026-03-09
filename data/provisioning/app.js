@@ -15,6 +15,9 @@ const homeModeFormEl = document.getElementById('homeModeForm');
 const homeModeSaveBtnEl = document.getElementById('homeModeSaveBtn');
 const homeModeStatusEl = document.getElementById('homeModeStatus');
 const homeManualActionsEl = document.querySelector('.home-manual-actions');
+const homeAutoConfigEl = document.getElementById('homeAutoConfig');
+const homeManualConfigEl = document.getElementById('homeManualConfig');
+const homeTimeConfigEl = document.getElementById('homeTimeConfig');
 const manualStartBtnEl = document.getElementById('manualStartBtn');
 const manualStopBtnEl = document.getElementById('manualStopBtn');
 const manualDurationSecInputEl = document.getElementById('manualDurationSecInput');
@@ -241,6 +244,21 @@ function renderHomeModeControls() {
   const isManualMode = selectedMode === 'MANUAL';
   const isPersistedManual = normalizeIrrigationMode(persistedIrrigationMode) === 'MANUAL';
   const showManualActions = isManualMode && isPersistedManual;
+  const showAutoConfig = selectedMode === 'AUTO';
+  const showManualConfig = selectedMode === 'MANUAL';
+  const showTimeConfig = selectedMode === 'TIME';
+
+  if (homeAutoConfigEl) {
+    homeAutoConfigEl.hidden = !showAutoConfig;
+  }
+
+  if (homeManualConfigEl) {
+    homeManualConfigEl.hidden = !showManualConfig;
+  }
+
+  if (homeTimeConfigEl) {
+    homeTimeConfigEl.hidden = !showTimeConfig;
+  }
 
   if (homeManualActionsEl) {
     homeManualActionsEl.hidden = !showManualActions;

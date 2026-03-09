@@ -33,26 +33,32 @@
           <label><input type="radio" name="irrigationMode" value="TIME" /> Time</label>
           <label><input type="radio" name="irrigationMode" value="OFF" /> OFF</label>
         </div>
-        <label>
-          Manual duration (sec)
-          <input id="manualDurationSecInput" type="number" min="5" max="3600" step="1" />
-        </label>
-        <label>
-          Auto start moisture (%)
-          <input id="autoStartMoisturePctInput" type="number" min="0" max="100" step="1" />
-        </label>
-        <label>
-          Auto stop moisture (%)
-          <input id="autoStopMoisturePctInput" type="number" min="0" max="100" step="1" />
-        </label>
-        <label>
-          Time interval (min)
-          <input id="timeIntervalMinInput" type="number" min="5" max="1440" step="1" />
-        </label>
-        <label>
-          Time run duration (min)
-          <input id="timeRunDurationMinInput" type="number" min="1" max="180" step="1" />
-        </label>
+        <div id="homeAutoConfig" hidden>
+          <label>
+            Auto start moisture (%)
+            <input id="autoStartMoisturePctInput" type="number" min="0" max="100" step="1" />
+          </label>
+          <label>
+            Auto stop moisture (%)
+            <input id="autoStopMoisturePctInput" type="number" min="0" max="100" step="1" />
+          </label>
+        </div>
+        <div id="homeManualConfig" hidden>
+          <label>
+            Manual duration (sec)
+            <input id="manualDurationSecInput" type="number" min="5" max="3600" step="1" />
+          </label>
+        </div>
+        <div id="homeTimeConfig" hidden>
+          <label>
+            Time interval (min)
+            <input id="timeIntervalMinInput" type="number" min="5" max="1440" step="1" />
+          </label>
+          <label>
+            Time run duration (min)
+            <input id="timeRunDurationMinInput" type="number" min="1" max="180" step="1" />
+          </label>
+        </div>
         <div class="home-mode-actions">
           <button type="button" id="homeModeSaveBtn" disabled>Active</button>
         </div>
