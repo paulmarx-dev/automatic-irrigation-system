@@ -33,6 +33,9 @@ static uint32_t s_pressWindowDeadlineMs = 0;
 static SensorMeasurement s_latestMeasurement{};
 static bool s_haveMeasurement = false;
 static uint32_t s_lastMeasurementMs = 0;
+static bool s_lowBatteryLockout = false;
+static uint32_t s_battStopBelowSinceMs = 0;
+static uint32_t s_battResumeAboveSinceMs = 0;
 
 struct PressArbEvents {
   bool single;
@@ -66,6 +69,72 @@ static void setManualIrrigationActive(bool active, uint32_t nowMs)
 
   s_motorSafetyDeadlineMs = 0;
   applyMotorState(false);
+}
+
+static void setLowBatteryLockout(bool enabled)
+{
+  if (s_lowBatteryLockout == enabled) {
+    return;
+  }
+
+  s_lowBatteryLockout = enabled;
+  telemetrySetNodeStatusFlags(FLAG_NODE_LOW_BATTERY_LOCKOUT, s_lowBatteryLockout);
+
+  if (enabled) {
+    Serial.println("CONTROL: irrigation lockout ENABLED (low battery)");
+  } else {
+    Serial.println("CONTROL: irrigation lockout CLEARED (battery recovered)");
+  }
+}
+
+static void batteryLockoutTick(uint32_t nowMs)
+{
+  if (!s_haveMeasurement) {
+    return;
+  }
+
+  const uint16_t battMv = s_latestMeasurement.batteryEstMv;
+
+  if (s_manualIrrigationActive) {
+    if (battMv < CONTROL_BATT_STOP_NOW_MV) {
+      if (s_battStopBelowSinceMs == 0) {
+        s_battStopBelowSinceMs = nowMs;
+      } else if ((nowMs - s_battStopBelowSinceMs) >= CONTROL_BATT_LOCKOUT_CONFIRM_MS) {
+        setManualIrrigationActive(false, nowMs);
+        setLowBatteryLockout(true);
+        Serial.print("CONTROL: irrigation forced OFF, battery low battMv=");
+        Serial.println((unsigned long)battMv);
+      }
+    } else {
+      s_battStopBelowSinceMs = 0;
+    }
+  } else {
+    s_battStopBelowSinceMs = 0;
+  }
+
+  if (!s_lowBatteryLockout && battMv < CONTROL_BATT_BLOCK_START_MV) {
+    setLowBatteryLockout(true);
+    s_battResumeAboveSinceMs = 0;
+    Serial.print("CONTROL: lockout threshold reached battMv=");
+    Serial.println((unsigned long)battMv);
+  }
+
+  if (s_lowBatteryLockout) {
+    if (battMv >= CONTROL_BATT_RESUME_OK_MV) {
+      if (s_battResumeAboveSinceMs == 0) {
+        s_battResumeAboveSinceMs = nowMs;
+      } else if ((nowMs - s_battResumeAboveSinceMs) >= CONTROL_BATT_LOCKOUT_CONFIRM_MS) {
+        setLowBatteryLockout(false);
+        s_battResumeAboveSinceMs = 0;
+        Serial.print("CONTROL: battery recovered battMv=");
+        Serial.println((unsigned long)battMv);
+      }
+    } else {
+      s_battResumeAboveSinceMs = 0;
+    }
+  } else {
+    s_battResumeAboveSinceMs = 0;
+  }
 }
 
 static void armHeadSyncWindow(uint32_t nowMs)
@@ -234,6 +303,11 @@ static bool handleRemoteCommand(const uint8_t* data, int len)
       return true;
     }
 
+    if (!s_manualIrrigationActive && s_lowBatteryLockout) {
+      Serial.println("CONTROL: irrigation RUN lease ignored (low battery lockout)");
+      return true;
+    }
+
     setManualIrrigationActive(true, nowMs);
     s_motorSafetyDeadlineMs = nowMs + effectiveRemainingMs;
     Serial.print("CONTROL: irrigation RUN lease applied leaseId=");
@@ -257,6 +331,10 @@ static bool handleRemoteCommand(const uint8_t* data, int len)
     if (cmd->action == REMOTE_BUTTON_IRRIGATION_START) {
       s_headSyncPending = false;
       if (!s_manualIrrigationActive) {
+        if (s_lowBatteryLockout) {
+          Serial.println("CONTROL: irrigation START command ignored (low battery lockout)");
+          return true;
+        }
         setManualIrrigationActive(true, millis());
         s_currentLeaseId = (s_currentLeaseId == 0xFFFFFFFFFFFFFFFFull) ? 1ull : (s_currentLeaseId + 1ull);
         Serial.println("CONTROL: irrigation START command applied (legacy)");
@@ -331,6 +409,7 @@ void setup() {
 
   logStartupCommon("CONTROL", true, pairingNodeIsPaired());
   telemetryInit();
+  telemetrySetNodeStatusFlags(FLAG_NODE_LOW_BATTERY_LOCKOUT, false);
 
   pinMode(CONTROL_MOTOR_PIN, OUTPUT);
   setManualIrrigationActive(false, millis());
@@ -452,6 +531,8 @@ void loop() {
     s_latestMeasurement = measureBatteryOnly();
     s_haveMeasurement = true;
   }
+
+  batteryLockoutTick(now);
 
   telemetryTickSensor(s_haveMeasurement ? &s_latestMeasurement : nullptr, s_haveMeasurement, now);
 

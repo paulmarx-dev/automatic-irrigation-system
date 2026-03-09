@@ -18,6 +18,7 @@ const homeManualActionsEl = document.querySelector('.home-manual-actions');
 const manualStartBtnEl = document.getElementById('manualStartBtn');
 const manualStopBtnEl = document.getElementById('manualStopBtn');
 const homeManualStatusEl = document.getElementById('homeManualStatus');
+const homeControlLockoutStatusEl = document.getElementById('homeControlLockoutStatus');
 const unitApSsidEl = document.getElementById('unitApSsid');
 const unitFirmwareEl = document.getElementById('unitFirmware');
 const unitUptimeEl = document.getElementById('unitUptime');
@@ -101,6 +102,42 @@ function setHomeManualStatus(text, isError = false) {
   }
   homeManualStatusEl.textContent = text;
   homeManualStatusEl.classList.toggle('error', isError);
+}
+
+function setHomeControlLockoutStatus(text, isError = false) {
+  if (!homeControlLockoutStatusEl) {
+    return;
+  }
+  homeControlLockoutStatusEl.textContent = text;
+  homeControlLockoutStatusEl.classList.toggle('error', isError);
+}
+
+function updateHomeControlLockoutStatus(nodes) {
+  if (!Array.isArray(nodes) || nodes.length === 0) {
+    setHomeControlLockoutStatus('Control battery lockout: unknown.', false);
+    return;
+  }
+
+  const controlNode = nodes.find((node) => String(node && node.role ? node.role : '').toUpperCase() === 'CONTROL');
+  if (!controlNode) {
+    setHomeControlLockoutStatus('Control battery lockout: no control unit.', false);
+    return;
+  }
+
+  const state = String(controlNode.state || '').toUpperCase();
+  const lockout = String(controlNode.irrigationLockout || 'NONE').toUpperCase();
+
+  if (lockout === 'LOW_BATTERY') {
+    setHomeControlLockoutStatus('Control battery lockout: active (irrigation blocked).', true);
+    return;
+  }
+
+  if (state === 'OFFLINE') {
+    setHomeControlLockoutStatus('Control battery lockout: unknown (control offline).', true);
+    return;
+  }
+
+  setHomeControlLockoutStatus('Control battery lockout: not active.', false);
 }
 
 function setUnitConfigStatus(text, isError = false) {
@@ -744,9 +781,15 @@ function renderNodes(nodes) {
       const defaultTitle = isControl
         ? `Control ${node.nodeId ?? '-'}`
         : `Sensor ${node.nodeId ?? '-'}`;
+      const irrigationLockout = String(node.irrigationLockout || 'NONE').toUpperCase();
       const moistureLine = isControl
         ? ''
         : `<p>Moisture: ${formatMoisture(node.moisturePermille)}</p>`;
+      const irrigationLine = isControl
+        ? (irrigationLockout === 'LOW_BATTERY'
+          ? '<p>Irrigation: <span class="battery-state critical">Blocked (low battery)</span></p>'
+          : '<p>Irrigation: Allowed</p>')
+        : '';
       const calibrateButton = isControl
         ? ''
         : `<button type="button" class="sensor-btn calibrate" data-action="calibrate" data-node-id="${node.nodeId ?? ''}" ${calibrateDisabled}>${calibrateLabel}</button>`;
@@ -756,6 +799,7 @@ function renderNodes(nodes) {
           <h3>${node.name || defaultTitle}</h3>
           <p>Role: ${roleBadge}</p>
           ${moistureLine}
+          ${irrigationLine}
           <p>State: ${node.state ?? 'UNKNOWN'}</p>
           <p>Battery: ${formatBatteryVolts(node.batteryEstMv)} <span class="${batteryClass}">[${batteryState}]</span></p>
           <p>Last seen: ${node.lastSeenSecAgo ?? '-'} sec ago</p>
@@ -801,6 +845,7 @@ async function tick() {
       setHomeManualStatus(isManualIrrigationActive ? 'Manual irrigation active.' : 'Manual irrigation inactive.', false);
     }
     applyUnitStatus(unitStatus, !unitNameSaveBtnEl || unitNameSaveBtnEl.disabled);
+    updateHomeControlLockoutStatus(latestNodes);
     syncPairingCountdown(webStatus);
     renderNodes(nodes);
     reconcileCalibrationState();
@@ -819,6 +864,7 @@ async function tick() {
     }
     setHomeModeStatus(`Config fetch error: ${error}`, true);
     setHomeManualStatus(`Manual control unavailable: ${error}`, true);
+    setHomeControlLockoutStatus(`Control battery lockout unavailable: ${error}`, true);
     activeCalibration = null;
     calibrationStateByNode.clear();
     renderCalibrationBanner();

@@ -22,6 +22,7 @@ static constexpr uint8_t FLAG_DIAG_RAW_PRESENT = 0x01;
 static constexpr uint8_t FLAG_CAL_VALID = 0x02;
 static constexpr uint8_t FLAG_BATT_EST_VALID = 0x04;
 static constexpr uint8_t FLAG_NODE_ROLE_CONTROL = 0x08;
+static constexpr uint8_t FLAG_NODE_LOW_BATTERY_LOCKOUT = 0x10;
 
 static constexpr uint8_t IRRIGATION_STATE_OFF = 0;
 static constexpr uint8_t IRRIGATION_STATE_RUN = 1;

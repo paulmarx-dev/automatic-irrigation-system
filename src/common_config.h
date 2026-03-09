@@ -65,6 +65,18 @@ static constexpr uint32_t CONTROL_HEAD_SYNC_BOOT_WINDOW_MS = 5000;
 static constexpr uint32_t CONTROL_HEAD_SYNC_RETRY_MS = 700;
 
 /*
+  Control-unit irrigation battery lockout thresholds for 1S Li-ion/LiPo.
+  - STOP_NOW: if battery stays below this while irrigating, force stop
+  - BLOCK_START: below this, prevent new irrigation starts
+  - RESUME_OK: require recovery above this before allowing starts again
+  - CONFIRM_MS: debounce time for entering/leaving lockout states
+*/
+static constexpr uint16_t CONTROL_BATT_STOP_NOW_MV = 3350;
+static constexpr uint16_t CONTROL_BATT_BLOCK_START_MV = 3500;
+static constexpr uint16_t CONTROL_BATT_RESUME_OK_MV = 3650;
+static constexpr uint32_t CONTROL_BATT_LOCKOUT_CONFIRM_MS = 2500;
+
+/*
   Protocol version (will be used later in all messages).
 */
 static constexpr uint8_t PROTOCOL_VERSION = 1;

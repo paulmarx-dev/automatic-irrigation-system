@@ -136,6 +136,11 @@ static const char* nodeRoleToText(bool isControl)
   return isControl ? "CONTROL" : "SENSOR";
 }
 
+static const char* irrigationLockoutToText(bool lowBatteryLockout)
+{
+  return lowBatteryLockout ? "LOW_BATTERY" : "NONE";
+}
+
 static const char* irrigationModeToText(IrrigationMode mode)
 {
   switch (mode) {
@@ -622,7 +627,7 @@ static void onNodesApi()
     offset += static_cast<size_t>(snprintf(
         body + offset,
         sizeof(body) - offset,
-      "%s{\"slot\":%u,\"mac\":\"%s\",\"name\":\"%s\",\"nodeId\":%u,\"role\":\"%s\",\"state\":\"%s\",\"moisturePermille\":%u,\"batteryEstMv\":%u,\"batteryState\":\"%s\",\"lastSeenSecAgo\":%lu,\"rxPackets\":%lu,\"rxDuplicates\":%lu,\"rxInvalid\":%lu,\"ackOkSent\":%lu,\"ackNotPairedSent\":%lu}",
+      "%s{\"slot\":%u,\"mac\":\"%s\",\"name\":\"%s\",\"nodeId\":%u,\"role\":\"%s\",\"state\":\"%s\",\"irrigationLockout\":\"%s\",\"moisturePermille\":%u,\"batteryEstMv\":%u,\"batteryState\":\"%s\",\"lastSeenSecAgo\":%lu,\"rxPackets\":%lu,\"rxDuplicates\":%lu,\"rxInvalid\":%lu,\"ackOkSent\":%lu,\"ackNotPairedSent\":%lu}",
         (i == 0) ? "" : ",",
         static_cast<unsigned>(i),
         mac,
@@ -630,6 +635,7 @@ static void onNodesApi()
         static_cast<unsigned>(node.nodeId),
         nodeRoleToText(node.isControl),
         nodeStateToText(node.state),
+        irrigationLockoutToText(node.lowBatteryLockout),
       static_cast<unsigned>(node.moisturePermille),
       static_cast<unsigned>(node.batteryEstMv),
       batteryStateToText(node.batteryState),
@@ -666,7 +672,7 @@ static void onNodesApi()
     offset += static_cast<size_t>(snprintf(
         body + offset,
         sizeof(body) - offset,
-      "%s{\"slot\":%u,\"mac\":\"%s\",\"name\":\"%s\",\"nodeId\":%u,\"role\":\"UNKNOWN\",\"state\":\"OFFLINE\",\"moisturePermille\":0,\"batteryEstMv\":0,\"batteryState\":\"UNKNOWN\",\"lastSeenSecAgo\":0,\"rxPackets\":0,\"rxDuplicates\":0,\"rxInvalid\":0,\"ackOkSent\":0,\"ackNotPairedSent\":0}",
+      "%s{\"slot\":%u,\"mac\":\"%s\",\"name\":\"%s\",\"nodeId\":%u,\"role\":\"UNKNOWN\",\"state\":\"OFFLINE\",\"irrigationLockout\":\"NONE\",\"moisturePermille\":0,\"batteryEstMv\":0,\"batteryState\":\"UNKNOWN\",\"lastSeenSecAgo\":0,\"rxPackets\":0,\"rxDuplicates\":0,\"rxInvalid\":0,\"ackOkSent\":0,\"ackNotPairedSent\":0}",
         (offset > 1) ? "," : "",
         static_cast<unsigned>(count + i),
         mac,

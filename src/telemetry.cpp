@@ -36,6 +36,7 @@ static uint8_t s_retryCount = 0;
 static uint32_t s_lastSendStartMs = 0;
 static uint8_t s_noAckCycles = 0;
 static uint32_t s_nextTelemetryDueMs = 0;
+static uint8_t s_nodeStatusFlags = 0;
 
 static MsgTelemetry s_pendingTelemetry{};
 static uint8_t s_pendingHeadMac[6] = {0};
@@ -97,8 +98,18 @@ void telemetryInit()
   s_lastSendStartMs = 0;
   s_noAckCycles = 0;
   s_nextTelemetryDueMs = 0;
+  s_nodeStatusFlags = 0;
   memset(&s_pendingTelemetry, 0, sizeof(s_pendingTelemetry));
   memset(s_pendingHeadMac, 0, sizeof(s_pendingHeadMac));
+}
+
+void telemetrySetNodeStatusFlags(uint8_t mask, bool enabled)
+{
+  if (enabled) {
+    s_nodeStatusFlags = static_cast<uint8_t>(s_nodeStatusFlags | mask);
+  } else {
+    s_nodeStatusFlags = static_cast<uint8_t>(s_nodeStatusFlags & static_cast<uint8_t>(~mask));
+  }
 }
 
 void telemetryOnRecv(const uint8_t* src_mac, const uint8_t* data, int len)
@@ -269,7 +280,7 @@ void telemetryTickSensor(const SensorMeasurement* measurement, bool hasMeasureme
   s_pendingTelemetry.moistureRawMv = measurement->moistureRawMv;
   s_pendingTelemetry.batteryRawMv = measurement->batteryRawMv;
   s_pendingTelemetry.batteryEstMv = measurement->batteryEstMv;
-  s_pendingTelemetry.flags = FLAG_DIAG_RAW_PRESENT | FLAG_BATT_EST_VALID;
+  s_pendingTelemetry.flags = static_cast<uint8_t>(FLAG_DIAG_RAW_PRESENT | FLAG_BATT_EST_VALID | s_nodeStatusFlags);
 #if defined(DEVICE_ROLE_CONTROL)
   s_pendingTelemetry.flags |= FLAG_NODE_ROLE_CONTROL;
 #endif
@@ -338,6 +349,7 @@ static const char* nodeStateToText(TelemetryHeadNodeState state)
 struct NodeTelemetryState {
   bool used;
   bool isControl;
+  bool lowBatteryLockout;
   TelemetryHeadNodeState state;
   TelemetryHeadBatteryState batteryState;
   bool hasLastSeq;
@@ -411,6 +423,7 @@ static NodeTelemetryState* getOrCreateNodeState(uint16_t nodeId, const uint8_t s
   target->ackOkSent = 0;
   target->ackNotPairedSent = 0;
   target->isControl = false;
+  target->lowBatteryLockout = false;
   return target;
 }
 
@@ -541,6 +554,7 @@ void telemetryOnRecv(const uint8_t* src_mac, const uint8_t* data, int len)
       return;
     }
     nodeState->isControl = (telemetry->flags & FLAG_NODE_ROLE_CONTROL) != 0;
+    nodeState->lowBatteryLockout = (telemetry->flags & FLAG_NODE_LOW_BATTERY_LOCKOUT) != 0;
   } else {
     nodeState = findNodeState(telemetry->hdr.nodeId, src_mac);
   }
@@ -573,6 +587,7 @@ void telemetryOnRecv(const uint8_t* src_mac, const uint8_t* data, int len)
     nodeState->hasLastSeq = true;
     nodeState->lastSeq = telemetry->hdr.seq;
     nodeState->isControl = (telemetry->flags & FLAG_NODE_ROLE_CONTROL) != 0;
+    nodeState->lowBatteryLockout = (telemetry->flags & FLAG_NODE_LOW_BATTERY_LOCKOUT) != 0;
     nodeState->moisturePermille = telemetry->moisturePermille;
     nodeState->batteryEstMv = telemetry->batteryEstMv;
     nodeState->batteryState = classifyBatteryState(telemetry->batteryEstMv);
@@ -634,6 +649,7 @@ uint8_t telemetryHeadGetPresence(TelemetryHeadNodePresence* outNodes, uint8_t ma
     outNodes[written].used = true;
     outNodes[written].state = entry->state;
     outNodes[written].batteryState = entry->batteryState;
+    outNodes[written].lowBatteryLockout = entry->lowBatteryLockout;
     outNodes[written].nodeId = entry->nodeId;
     outNodes[written].moisturePermille = entry->moisturePermille;
     outNodes[written].batteryEstMv = entry->batteryEstMv;
@@ -778,6 +794,12 @@ bool telemetryHeadSendIrrigationState(uint8_t desiredState, uint64_t leaseId, ui
   return sent;
 }
 
+void telemetrySetNodeStatusFlags(uint8_t mask, bool enabled)
+{
+  (void)mask;
+  (void)enabled;
+}
+
 void telemetryTickSensor(const SensorMeasurement* measurement, bool hasMeasurement, uint32_t nowMs)
 {
   (void)measurement;
@@ -836,6 +858,12 @@ bool telemetryHeadSendIrrigationState(uint8_t desiredState, uint64_t leaseId, ui
   (void)leaseId;
   (void)remainingLeaseMs;
   return false;
+}
+
+void telemetrySetNodeStatusFlags(uint8_t mask, bool enabled)
+{
+  (void)mask;
+  (void)enabled;
 }
 
 #endif

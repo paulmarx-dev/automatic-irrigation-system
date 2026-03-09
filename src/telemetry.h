@@ -19,6 +19,7 @@ enum TelemetryHeadBatteryState : uint8_t {
 struct TelemetryHeadNodePresence {
 	bool used;
 	bool isControl;
+	bool lowBatteryLockout;
 	TelemetryHeadNodeState state;
 	TelemetryHeadBatteryState batteryState;
 	uint16_t nodeId;
@@ -42,3 +43,4 @@ void telemetryHeadClearPresence();
 bool telemetryHeadRemovePresenceByNodeId(uint16_t nodeId);
 bool telemetryHeadSendRemoteButtonAction(uint16_t nodeId, uint8_t action);
 bool telemetryHeadSendIrrigationState(uint8_t desiredState, uint64_t leaseId, uint32_t remainingLeaseMs);
+void telemetrySetNodeStatusFlags(uint8_t mask, bool enabled);
