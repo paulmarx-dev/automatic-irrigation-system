@@ -23,7 +23,7 @@ static constexpr size_t SENSOR_NAME_MAX = 32;
 static constexpr uint16_t SENSOR_LABELS_NVS_VERSION = 1;
 static const char* SENSOR_LABELS_NVS_NAMESPACE = "sensor_labels";
 static const char* SENSOR_LABELS_NVS_KEY = "labels_blob";
-static constexpr uint16_t IRRIGATION_CONFIG_NVS_VERSION = 1;
+static constexpr uint16_t IRRIGATION_CONFIG_NVS_VERSION = 2;
 static const char* IRRIGATION_CONFIG_NVS_NAMESPACE = "irrigation_cfg";
 static const char* IRRIGATION_CONFIG_NVS_KEY = "config_blob";
 static const char* IRRIGATION_LEASE_ID_NVS_KEY = "lease_id";
@@ -57,16 +57,42 @@ enum IrrigationMode : uint8_t {
   IRRIGATION_MODE_AUTO = 0,
   IRRIGATION_MODE_MANUAL = 1,
   IRRIGATION_MODE_OFF = 2,
+  IRRIGATION_MODE_TIME = 3,
 };
 
 struct IrrigationConfigNvsBlob {
   uint16_t version;
   uint8_t mode;
-  uint8_t reserved;
+  uint8_t reserved0;
+  uint16_t autoStartPermille;
+  uint16_t autoStopPermille;
+  uint16_t manualDurationSec;
+  uint16_t timeIntervalMin;
+  uint16_t timeRunDurationMin;
+  uint16_t reserved1;
 };
+
+static constexpr uint16_t AUTO_START_DEFAULT_PERMILLE = 350;
+static constexpr uint16_t AUTO_STOP_DEFAULT_PERMILLE = 450;
+static constexpr uint16_t MANUAL_DURATION_DEFAULT_SEC = 120;
+static constexpr uint16_t MANUAL_DURATION_MIN_SEC = 5;
+static constexpr uint16_t MANUAL_DURATION_MAX_SEC = 3600;
+static constexpr uint16_t TIME_INTERVAL_DEFAULT_MIN = 360;
+static constexpr uint16_t TIME_INTERVAL_MIN = 5;
+static constexpr uint16_t TIME_INTERVAL_MAX = 1440;
+static constexpr uint16_t TIME_RUN_DEFAULT_MIN = 5;
+static constexpr uint16_t TIME_RUN_MIN = 1;
+static constexpr uint16_t TIME_RUN_MAX = 180;
 
 static IrrigationMode s_irrigationMode = IRRIGATION_MODE_AUTO;
 static bool s_manualIrrigationActive = false;
+static uint16_t s_autoStartPermille = AUTO_START_DEFAULT_PERMILLE;
+static uint16_t s_autoStopPermille = AUTO_STOP_DEFAULT_PERMILLE;
+static uint16_t s_manualDurationSec = MANUAL_DURATION_DEFAULT_SEC;
+static uint16_t s_timeIntervalMin = TIME_INTERVAL_DEFAULT_MIN;
+static uint16_t s_timeRunDurationMin = TIME_RUN_DEFAULT_MIN;
+static uint32_t s_manualRunDeadlineMs = 0;
+static uint32_t s_timeNextStartMs = 0;
 static bool s_irrigationSyncDirty = true;
 static uint32_t s_lastIrrigationSyncMs = 0;
 static uint64_t s_irrigationLeaseId = 1;
@@ -150,9 +176,38 @@ static const char* irrigationModeToText(IrrigationMode mode)
       return "MANUAL";
     case IRRIGATION_MODE_OFF:
       return "OFF";
+    case IRRIGATION_MODE_TIME:
+      return "TIME";
     default:
       return "AUTO";
   }
+}
+
+static uint16_t clampU16(uint16_t value, uint16_t minValue, uint16_t maxValue)
+{
+  if (value < minValue) {
+    return minValue;
+  }
+  if (value > maxValue) {
+    return maxValue;
+  }
+  return value;
+}
+
+static void normalizeIrrigationConfig()
+{
+  s_autoStartPermille = clampU16(s_autoStartPermille, 0, 1000);
+  s_autoStopPermille = clampU16(s_autoStopPermille, 0, 1000);
+  if (s_autoStopPermille <= s_autoStartPermille) {
+    s_autoStopPermille = clampU16(static_cast<uint16_t>(s_autoStartPermille + 50), 0, 1000);
+    if (s_autoStopPermille <= s_autoStartPermille) {
+      s_autoStartPermille = (s_autoStopPermille > 0) ? static_cast<uint16_t>(s_autoStopPermille - 1) : 0;
+    }
+  }
+
+  s_manualDurationSec = clampU16(s_manualDurationSec, MANUAL_DURATION_MIN_SEC, MANUAL_DURATION_MAX_SEC);
+  s_timeIntervalMin = clampU16(s_timeIntervalMin, TIME_INTERVAL_MIN, TIME_INTERVAL_MAX);
+  s_timeRunDurationMin = clampU16(s_timeRunDurationMin, TIME_RUN_MIN, TIME_RUN_MAX);
 }
 
 static bool parseIrrigationModeArg(const String& value, IrrigationMode* outMode)
@@ -172,12 +227,149 @@ static bool parseIrrigationModeArg(const String& value, IrrigationMode* outMode)
     *outMode = IRRIGATION_MODE_OFF;
     return true;
   }
+  if (value.equalsIgnoreCase("TIME")) {
+    *outMode = IRRIGATION_MODE_TIME;
+    return true;
+  }
   return false;
 }
 
 static bool desiredIrrigationActive()
 {
-  return s_irrigationMode == IRRIGATION_MODE_MANUAL && s_manualIrrigationActive;
+  return s_manualIrrigationActive;
+}
+
+static void markIrrigationSyncDirty();
+
+static bool computeAverageOnlineSensorMoisture(uint16_t* outPermille)
+{
+  if (!outPermille) {
+    return false;
+  }
+
+  TelemetryHeadNodePresence nodes[8] = {};
+  const uint8_t count = telemetryHeadGetPresence(nodes, 8);
+  uint32_t sumPermille = 0;
+  uint16_t onlineSensors = 0;
+
+  for (uint8_t i = 0; i < count; ++i) {
+    const TelemetryHeadNodePresence& node = nodes[i];
+    if (node.isControl || node.state != TELEMETRY_HEAD_NODE_ONLINE) {
+      continue;
+    }
+    sumPermille += static_cast<uint32_t>(node.moisturePermille);
+    ++onlineSensors;
+  }
+
+  if (onlineSensors == 0) {
+    return false;
+  }
+
+  *outPermille = static_cast<uint16_t>(sumPermille / onlineSensors);
+  return true;
+}
+
+static void stopIrrigation(const char* reason)
+{
+  if (!s_manualIrrigationActive) {
+    return;
+  }
+  s_manualIrrigationActive = false;
+  s_manualRunDeadlineMs = 0;
+  markIrrigationSyncDirty();
+  Serial.print("OBS: irrigation stopped");
+  if (reason && reason[0] != '\0') {
+    Serial.print(" (");
+    Serial.print(reason);
+    Serial.print(")");
+  }
+  Serial.println();
+}
+
+static void startIrrigation(uint32_t nowMs, uint32_t durationSec, const char* reason)
+{
+  if (s_manualIrrigationActive) {
+    return;
+  }
+  s_manualIrrigationActive = true;
+  s_manualRunDeadlineMs = (durationSec > 0)
+      ? nowMs + (durationSec * 1000UL)
+      : 0;
+  markIrrigationSyncDirty();
+  Serial.print("OBS: irrigation started");
+  if (durationSec > 0) {
+    Serial.print(" durationSec=");
+    Serial.print(static_cast<unsigned long>(durationSec));
+  }
+  if (reason && reason[0] != '\0') {
+    Serial.print(" (");
+    Serial.print(reason);
+    Serial.print(")");
+  }
+  Serial.println();
+}
+
+static void irrigationAutomationTick(uint32_t nowMs)
+{
+  if (s_manualIrrigationActive && s_manualRunDeadlineMs != 0 && (int32_t)(nowMs - s_manualRunDeadlineMs) >= 0) {
+    stopIrrigation("duration elapsed");
+  }
+
+  if (s_irrigationMode == IRRIGATION_MODE_OFF || s_irrigationMode == IRRIGATION_MODE_MANUAL) {
+    return;
+  }
+
+  if (s_irrigationMode == IRRIGATION_MODE_AUTO) {
+    uint16_t avgPermille = 0;
+    if (!computeAverageOnlineSensorMoisture(&avgPermille)) {
+      if (s_manualIrrigationActive) {
+        stopIrrigation("AUTO no online sensors");
+      }
+      return;
+    }
+
+    if (!s_manualIrrigationActive && avgPermille <= s_autoStartPermille) {
+      startIrrigation(nowMs, 0, "AUTO moisture below start");
+      return;
+    }
+
+    if (s_manualIrrigationActive && avgPermille >= s_autoStopPermille) {
+      stopIrrigation("AUTO moisture above stop");
+    }
+    return;
+  }
+
+  if (s_irrigationMode == IRRIGATION_MODE_TIME) {
+    const uint32_t intervalMs = static_cast<uint32_t>(s_timeIntervalMin) * 60UL * 1000UL;
+    const uint32_t runSec = static_cast<uint32_t>(s_timeRunDurationMin) * 60UL;
+
+    if (s_timeNextStartMs == 0) {
+      s_timeNextStartMs = nowMs + intervalMs;
+      return;
+    }
+
+    if (!s_manualIrrigationActive && (int32_t)(nowMs - s_timeNextStartMs) >= 0) {
+      startIrrigation(nowMs, runSec, "TIME interval trigger");
+      s_timeNextStartMs = nowMs + intervalMs;
+    }
+  }
+}
+
+static bool parseUint16Arg(const char* key, uint16_t* outValue)
+{
+  if (!key || !outValue || !s_server.hasArg(key)) {
+    return false;
+  }
+
+  const String value = s_server.arg(key);
+  char* end = nullptr;
+  const unsigned long parsed = strtoul(value.c_str(), &end, 10);
+  if (end == value.c_str() || !end || *end != '\0' || parsed > 65535UL) {
+    return false;
+  }
+
+  *outValue = static_cast<uint16_t>(parsed);
+  return true;
 }
 
 static bool sendDesiredIrrigationState()
@@ -298,6 +490,11 @@ static bool saveIrrigationConfigToNvs()
   IrrigationConfigNvsBlob blob{};
   blob.version = IRRIGATION_CONFIG_NVS_VERSION;
   blob.mode = static_cast<uint8_t>(s_irrigationMode);
+  blob.autoStartPermille = s_autoStartPermille;
+  blob.autoStopPermille = s_autoStopPermille;
+  blob.manualDurationSec = s_manualDurationSec;
+  blob.timeIntervalMin = s_timeIntervalMin;
+  blob.timeRunDurationMin = s_timeRunDurationMin;
   const size_t written = s_irrigationPrefs.putBytes(IRRIGATION_CONFIG_NVS_KEY, &blob, sizeof(blob));
   return written == sizeof(blob);
 }
@@ -305,6 +502,11 @@ static bool saveIrrigationConfigToNvs()
 static void loadIrrigationConfigFromNvs()
 {
   s_irrigationMode = IRRIGATION_MODE_AUTO;
+  s_autoStartPermille = AUTO_START_DEFAULT_PERMILLE;
+  s_autoStopPermille = AUTO_STOP_DEFAULT_PERMILLE;
+  s_manualDurationSec = MANUAL_DURATION_DEFAULT_SEC;
+  s_timeIntervalMin = TIME_INTERVAL_DEFAULT_MIN;
+  s_timeRunDurationMin = TIME_RUN_DEFAULT_MIN;
   if (!s_irrigationPrefsReady) {
     return;
   }
@@ -313,13 +515,35 @@ static void loadIrrigationConfigFromNvs()
     return;
   }
 
-  IrrigationConfigNvsBlob blob{};
-  const size_t read = s_irrigationPrefs.getBytes(IRRIGATION_CONFIG_NVS_KEY, &blob, sizeof(blob));
-  if (read != sizeof(blob) || blob.version != IRRIGATION_CONFIG_NVS_VERSION || blob.mode > IRRIGATION_MODE_OFF) {
+  uint8_t raw[sizeof(IrrigationConfigNvsBlob)] = {0};
+  const size_t read = s_irrigationPrefs.getBytes(IRRIGATION_CONFIG_NVS_KEY, raw, sizeof(raw));
+  if (read < 4) {
     return;
   }
 
-  s_irrigationMode = static_cast<IrrigationMode>(blob.mode);
+  const uint16_t version = static_cast<uint16_t>(raw[0] | (raw[1] << 8));
+  const uint8_t mode = raw[2];
+  if (mode <= IRRIGATION_MODE_TIME) {
+    s_irrigationMode = static_cast<IrrigationMode>(mode);
+  }
+
+  if (version == 1) {
+    normalizeIrrigationConfig();
+    return;
+  }
+
+  if (version != IRRIGATION_CONFIG_NVS_VERSION || read < sizeof(IrrigationConfigNvsBlob)) {
+    normalizeIrrigationConfig();
+    return;
+  }
+
+  const IrrigationConfigNvsBlob* blob = reinterpret_cast<const IrrigationConfigNvsBlob*>(raw);
+  s_autoStartPermille = blob->autoStartPermille;
+  s_autoStopPermille = blob->autoStopPermille;
+  s_manualDurationSec = blob->manualDurationSec;
+  s_timeIntervalMin = blob->timeIntervalMin;
+  s_timeRunDurationMin = blob->timeRunDurationMin;
+  normalizeIrrigationConfig();
 }
 
 static bool sanitizeSensorName(const String& input, char outName[SENSOR_NAME_MAX])
@@ -503,13 +727,31 @@ static void onSensorCalibrateApi()
 
 static void onIrrigationConfigGetApi()
 {
-  char body[128] = {0};
+  const uint32_t nowMs = millis();
+  uint32_t runRemainingSec = 0;
+  if (s_manualIrrigationActive && s_manualRunDeadlineMs != 0 && (int32_t)(s_manualRunDeadlineMs - nowMs) > 0) {
+    runRemainingSec = static_cast<uint32_t>(s_manualRunDeadlineMs - nowMs) / 1000UL;
+  }
+
+  uint32_t timeNextStartSec = 0;
+  if (s_irrigationMode == IRRIGATION_MODE_TIME && s_timeNextStartMs != 0 && (int32_t)(s_timeNextStartMs - nowMs) > 0) {
+    timeNextStartSec = static_cast<uint32_t>(s_timeNextStartMs - nowMs) / 1000UL;
+  }
+
+  char body[320] = {0};
   (void)snprintf(
       body,
       sizeof(body),
-      "{\"mode\":\"%s\",\"manualActive\":%s}",
+      "{\"mode\":\"%s\",\"manualActive\":%s,\"manualDurationSec\":%u,\"autoStartPermille\":%u,\"autoStopPermille\":%u,\"timeIntervalMin\":%u,\"timeRunDurationMin\":%u,\"timeNextStartSec\":%lu,\"runRemainingSec\":%lu}",
       irrigationModeToText(s_irrigationMode),
-      s_manualIrrigationActive ? "true" : "false");
+      s_manualIrrigationActive ? "true" : "false",
+      static_cast<unsigned>(s_manualDurationSec),
+      static_cast<unsigned>(s_autoStartPermille),
+      static_cast<unsigned>(s_autoStopPermille),
+      static_cast<unsigned>(s_timeIntervalMin),
+      static_cast<unsigned>(s_timeRunDurationMin),
+      static_cast<unsigned long>(timeNextStartSec),
+      static_cast<unsigned long>(runRemainingSec));
   s_server.send(200, "application/json", body);
 }
 
@@ -526,9 +768,57 @@ static void onIrrigationConfigPostApi()
     return;
   }
 
+  uint16_t requestedManualDurationSec = s_manualDurationSec;
+  uint16_t requestedAutoStartPermille = s_autoStartPermille;
+  uint16_t requestedAutoStopPermille = s_autoStopPermille;
+  uint16_t requestedTimeIntervalMin = s_timeIntervalMin;
+  uint16_t requestedTimeRunDurationMin = s_timeRunDurationMin;
+
+  if (s_server.hasArg("manualDurationSec") && !parseUint16Arg("manualDurationSec", &requestedManualDurationSec)) {
+    s_server.send(400, "application/json", "{\"ok\":0,\"error\":\"invalid_manualDurationSec\"}");
+    return;
+  }
+  if (s_server.hasArg("autoStartPermille") && !parseUint16Arg("autoStartPermille", &requestedAutoStartPermille)) {
+    s_server.send(400, "application/json", "{\"ok\":0,\"error\":\"invalid_autoStartPermille\"}");
+    return;
+  }
+  if (s_server.hasArg("autoStopPermille") && !parseUint16Arg("autoStopPermille", &requestedAutoStopPermille)) {
+    s_server.send(400, "application/json", "{\"ok\":0,\"error\":\"invalid_autoStopPermille\"}");
+    return;
+  }
+  if (s_server.hasArg("timeIntervalMin") && !parseUint16Arg("timeIntervalMin", &requestedTimeIntervalMin)) {
+    s_server.send(400, "application/json", "{\"ok\":0,\"error\":\"invalid_timeIntervalMin\"}");
+    return;
+  }
+  if (s_server.hasArg("timeRunDurationMin") && !parseUint16Arg("timeRunDurationMin", &requestedTimeRunDurationMin)) {
+    s_server.send(400, "application/json", "{\"ok\":0,\"error\":\"invalid_timeRunDurationMin\"}");
+    return;
+  }
+
+  requestedManualDurationSec = clampU16(requestedManualDurationSec, MANUAL_DURATION_MIN_SEC, MANUAL_DURATION_MAX_SEC);
+  requestedAutoStartPermille = clampU16(requestedAutoStartPermille, 0, 1000);
+  requestedAutoStopPermille = clampU16(requestedAutoStopPermille, 0, 1000);
+  if (requestedAutoStopPermille <= requestedAutoStartPermille) {
+    s_server.send(400, "application/json", "{\"ok\":0,\"error\":\"auto_stop_must_be_above_start\"}");
+    return;
+  }
+  requestedTimeIntervalMin = clampU16(requestedTimeIntervalMin, TIME_INTERVAL_MIN, TIME_INTERVAL_MAX);
+  requestedTimeRunDurationMin = clampU16(requestedTimeRunDurationMin, TIME_RUN_MIN, TIME_RUN_MAX);
+
   s_irrigationMode = requestedMode;
+  s_manualDurationSec = requestedManualDurationSec;
+  s_autoStartPermille = requestedAutoStartPermille;
+  s_autoStopPermille = requestedAutoStopPermille;
+  s_timeIntervalMin = requestedTimeIntervalMin;
+  s_timeRunDurationMin = requestedTimeRunDurationMin;
   if (s_irrigationMode != IRRIGATION_MODE_MANUAL) {
     s_manualIrrigationActive = false;
+    s_manualRunDeadlineMs = 0;
+  }
+  if (s_irrigationMode == IRRIGATION_MODE_TIME) {
+    s_timeNextStartMs = millis() + static_cast<uint32_t>(s_timeIntervalMin) * 60UL * 1000UL;
+  } else {
+    s_timeNextStartMs = 0;
   }
   markIrrigationSyncDirty();
   if (!saveIrrigationConfigToNvs()) {
@@ -536,13 +826,18 @@ static void onIrrigationConfigPostApi()
     return;
   }
 
-  char body[128] = {0};
+  char body[320] = {0};
   (void)snprintf(
       body,
       sizeof(body),
-      "{\"ok\":1,\"mode\":\"%s\",\"manualActive\":%s}",
+      "{\"ok\":1,\"mode\":\"%s\",\"manualActive\":%s,\"manualDurationSec\":%u,\"autoStartPermille\":%u,\"autoStopPermille\":%u,\"timeIntervalMin\":%u,\"timeRunDurationMin\":%u}",
       irrigationModeToText(s_irrigationMode),
-      s_manualIrrigationActive ? "true" : "false");
+      s_manualIrrigationActive ? "true" : "false",
+      static_cast<unsigned>(s_manualDurationSec),
+      static_cast<unsigned>(s_autoStartPermille),
+      static_cast<unsigned>(s_autoStopPermille),
+      static_cast<unsigned>(s_timeIntervalMin),
+      static_cast<unsigned>(s_timeRunDurationMin));
   s_server.send(200, "application/json", body);
 }
 
@@ -560,15 +855,21 @@ static void onIrrigationManualStartApi()
     return;
   }
 
-  s_manualIrrigationActive = true;
-  markIrrigationSyncDirty();
+  uint16_t requestedDurationSec = s_manualDurationSec;
+  if (s_server.hasArg("durationSec") && !parseUint16Arg("durationSec", &requestedDurationSec)) {
+    s_server.send(400, "application/json", "{\"ok\":0,\"error\":\"invalid_durationSec\"}");
+    return;
+  }
+  requestedDurationSec = clampU16(requestedDurationSec, MANUAL_DURATION_MIN_SEC, MANUAL_DURATION_MAX_SEC);
+
+  startIrrigation(millis(), requestedDurationSec, "MANUAL start API");
   const bool sentNow = sendDesiredIrrigationState();
   if (sentNow) {
     s_lastIrrigationSyncMs = millis();
     s_irrigationSyncDirty = false;
   }
 
-  Serial.println("OBS: manual irrigation started");
+  Serial.println("OBS: manual irrigation start accepted");
   s_server.send(
       200,
       "application/json",
@@ -585,8 +886,7 @@ static void onIrrigationManualStopApi()
     return;
   }
 
-  s_manualIrrigationActive = false;
-  markIrrigationSyncDirty();
+  stopIrrigation("manual stop API");
   const bool sentNow = sendDesiredIrrigationState();
   if (sentNow) {
     s_lastIrrigationSyncMs = millis();
@@ -773,6 +1073,7 @@ void headObservabilityTick()
 {
   const uint32_t nowMs = millis();
   s_server.handleClient();
+  irrigationAutomationTick(nowMs);
   irrigationSyncTick(nowMs);
   headProvisioningTick(nowMs);
 }
