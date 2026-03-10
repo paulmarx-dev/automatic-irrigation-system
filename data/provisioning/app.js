@@ -60,10 +60,11 @@ let isManualIrrigationActive = false;
 let isControlLowBatteryLockoutActive = false;
 let manualRunRemainingSec = 0;
 let homeManualStatusResetTimer = 0;
+let manualDurationDirty = false;
 let persistedUnitName = '';
 let pendingUnitName = '';
 let unitNameInitialized = false;
-const MANUAL_DURATION_MIN_SEC = 5;
+const MANUAL_DURATION_MIN_SEC = 0;
 const MANUAL_DURATION_MAX_SEC = 3600;
 const TIME_INTERVAL_MIN = 5;
 const TIME_INTERVAL_MAX = 1440;
@@ -363,7 +364,9 @@ function applyIrrigationConfig(config, allowOverridePending = true) {
   }
   if (allowOverridePending) {
     pendingIrrigationMode = mode;
-    pendingManualDurationSec = persistedManualDurationSec;
+    if (!manualDurationDirty) {
+      pendingManualDurationSec = persistedManualDurationSec;
+    }
     pendingAutoStartPermille = persistedAutoStartPermille;
     pendingAutoStopPermille = persistedAutoStopPermille;
     pendingTimeIntervalMin = persistedTimeIntervalMin;
@@ -662,6 +665,8 @@ async function startManualIrrigation() {
     await postForm('/api/irrigation/manual/start', { durationSec: pendingManualDurationSec });
     isManualIrrigationActive = true;
     manualRunRemainingSec = pendingManualDurationSec;
+    persistedManualDurationSec = pendingManualDurationSec;
+    manualDurationDirty = false;
     renderHomeModeControls();
     await tick();
     setHomeManualStatus(`Watering started for ${pendingManualDurationSec} sec.`, false, 5000);
@@ -1097,6 +1102,7 @@ if (homeModeFormEl) {
 if (manualDurationSecInputEl) {
   manualDurationSecInputEl.addEventListener('input', () => {
     pendingManualDurationSec = clampNumber(Number(manualDurationSecInputEl.value), MANUAL_DURATION_MIN_SEC, MANUAL_DURATION_MAX_SEC);
+    manualDurationDirty = true;
     renderHomeModeControls();
     setHomeManualStatus(`Next manual watering duration: ${pendingManualDurationSec} sec.`, false, 2500);
   });

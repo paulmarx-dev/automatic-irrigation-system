@@ -75,7 +75,7 @@ struct IrrigationConfigNvsBlob {
 static constexpr uint16_t AUTO_START_DEFAULT_PERMILLE = 350;
 static constexpr uint16_t AUTO_STOP_DEFAULT_PERMILLE = 450;
 static constexpr uint16_t MANUAL_DURATION_DEFAULT_SEC = 120;
-static constexpr uint16_t MANUAL_DURATION_MIN_SEC = 5;
+static constexpr uint16_t MANUAL_DURATION_MIN_SEC = 0;
 static constexpr uint16_t MANUAL_DURATION_MAX_SEC = 3600;
 static constexpr uint16_t TIME_INTERVAL_DEFAULT_MIN = 360;
 static constexpr uint16_t TIME_INTERVAL_MIN = 5;
@@ -875,6 +875,10 @@ static void onIrrigationManualStartApi()
     return;
   }
   requestedDurationSec = clampU16(requestedDurationSec, MANUAL_DURATION_MIN_SEC, MANUAL_DURATION_MAX_SEC);
+  s_manualDurationSec = requestedDurationSec;
+  if (!saveIrrigationConfigToNvs()) {
+    Serial.println("OBS: warning, manual duration not persisted");
+  }
 
   startIrrigation(millis(), requestedDurationSec, "MANUAL start API");
   const bool sentNow = sendDesiredIrrigationState();
