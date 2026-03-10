@@ -29,9 +29,9 @@
         <p class="home-mode-title">Irrigation mode</p>
         <div class="home-mode-options">
           <label><input type="radio" name="irrigationMode" value="AUTO" /> Auto</label>
-          <label><input type="radio" name="irrigationMode" value="MANUAL" /> Manual</label>
           <label><input type="radio" name="irrigationMode" value="TIME" /> Time</label>
           <label><input type="radio" name="irrigationMode" value="OFF" /> OFF</label>
+           <label><input type="radio" name="irrigationMode" value="MANUAL" /> Manual</label>
         </div>
         <div id="homeAutoConfig" hidden>
           <label>
@@ -45,7 +45,7 @@
         </div>
         <div id="homeManualConfig" hidden>
           <label>
-            Manual duration (sec)
+             Watering duration (seconds)
             <input id="manualDurationSecInput" type="number" min="5" max="3600" step="1" />
           </label>
         </div>
@@ -64,10 +64,10 @@
         </div>
         <p id="homeModeStatus" class="home-mode-status">Config synced.</p>
         <div class="home-manual-actions" hidden>
-          <button type="button" id="manualStartBtn" disabled>Start irrigation</button>
-          <button type="button" id="manualStopBtn" class="ghost" disabled>Stop irrigation</button>
+          <button type="button" id="manualStartBtn" disabled>Start watering</button>
+          <button type="button" id="manualStopBtn" class="ghost" disabled>Stop watering</button>
         </div>
-        <p id="homeManualStatus" class="home-mode-status">Manual irrigation inactive.</p>
+        <p id="homeManualStatus" class="home-mode-status">Manual watering inactive.</p>
         <p id="homeControlLockoutStatus" class="home-mode-status">Control battery lockout: unknown.</p>
       </form>
     </section>

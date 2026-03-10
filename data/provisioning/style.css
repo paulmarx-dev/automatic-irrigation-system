@@ -124,6 +124,10 @@ body {
   flex-wrap: wrap;
 }
 
+.home-manual-actions .watering-active {
+  background: #2f9e44;
+}
+
 .unit-grid {
   display: grid;
   gap: 10px;

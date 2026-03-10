@@ -57,6 +57,8 @@ let pendingTimeIntervalMin = 360;
 let persistedTimeRunDurationMin = 5;
 let pendingTimeRunDurationMin = 5;
 let isManualIrrigationActive = false;
+let manualRunRemainingSec = 0;
+let homeManualStatusResetTimer = 0;
 let persistedUnitName = '';
 let pendingUnitName = '';
 let unitNameInitialized = false;
@@ -146,9 +148,6 @@ function isModeSettingsDirty(mode) {
     return pendingAutoStartPermille !== persistedAutoStartPermille
       || pendingAutoStopPermille !== persistedAutoStopPermille;
   }
-  if (normalizedMode === 'MANUAL') {
-    return pendingManualDurationSec !== persistedManualDurationSec;
-  }
   if (normalizedMode === 'TIME') {
     return pendingTimeIntervalMin !== persistedTimeIntervalMin
       || pendingTimeRunDurationMin !== persistedTimeRunDurationMin;
@@ -164,12 +163,25 @@ function setHomeModeStatus(text, isError = false) {
   homeModeStatusEl.classList.toggle('error', isError);
 }
 
-function setHomeManualStatus(text, isError = false) {
+function setHomeManualStatus(text, isError = false, resetAfterMs = 0) {
   if (!homeManualStatusEl) {
     return;
   }
+  if (homeManualStatusResetTimer) {
+    clearTimeout(homeManualStatusResetTimer);
+    homeManualStatusResetTimer = 0;
+  }
   homeManualStatusEl.textContent = text;
   homeManualStatusEl.classList.toggle('error', isError);
+  if (resetAfterMs > 0) {
+    homeManualStatusResetTimer = setTimeout(() => {
+      homeManualStatusEl.textContent = isManualIrrigationActive
+        ? `Watering in progress (${Math.max(0, Math.floor(manualRunRemainingSec))} sec left).`
+        : 'Manual watering inactive.';
+      homeManualStatusEl.classList.remove('error');
+      homeManualStatusResetTimer = 0;
+    }, resetAfterMs);
+  }
 }
 
 function setHomeControlLockoutStatus(text, isError = false) {
@@ -251,23 +263,32 @@ function renderHomeModeControls() {
   });
 
   const isDirty = isModeDirty || isSettingsDirty;
+  const isManualMode = selectedMode === 'MANUAL';
   const inactiveLabel = selectedMode === 'OFF' ? 'Disabled' : 'Active';
   const actionLabel = selectedMode === 'OFF' ? 'Disable' : 'Activate';
-  homeModeSaveBtnEl.disabled = !isDirty;
-  if (isModeDirty) {
-    homeModeSaveBtnEl.textContent = actionLabel;
-  } else if (isSettingsDirty) {
-    homeModeSaveBtnEl.textContent = 'Save settings';
-  } else {
-    homeModeSaveBtnEl.textContent = inactiveLabel;
-  }
-  homeModeSaveBtnEl.classList.toggle('saved', !isDirty);
 
-  const isManualMode = selectedMode === 'MANUAL';
-  const isPersistedManual = normalizeIrrigationMode(persistedIrrigationMode) === 'MANUAL';
-  const showManualActions = isManualMode && isPersistedManual;
+  if (isManualMode) {
+    homeModeSaveBtnEl.disabled = true;
+    homeModeSaveBtnEl.textContent = 'Manual action';
+  } else {
+    homeModeSaveBtnEl.disabled = !isDirty;
+    if (isModeDirty) {
+      homeModeSaveBtnEl.textContent = actionLabel;
+    } else if (isSettingsDirty) {
+      homeModeSaveBtnEl.textContent = 'Save settings';
+    } else {
+      homeModeSaveBtnEl.textContent = inactiveLabel;
+    }
+  }
+  homeModeSaveBtnEl.classList.toggle('saved', isManualMode || !isDirty);
+
+  if (homeModeStatusEl) {
+    homeModeStatusEl.hidden = isManualMode;
+  }
+
+  const showManualActions = true;
   const showAutoConfig = selectedMode === 'AUTO';
-  const showManualConfig = selectedMode === 'MANUAL';
+  const showManualConfig = true;
   const showTimeConfig = selectedMode === 'TIME';
 
   if (homeAutoConfigEl) {
@@ -287,8 +308,14 @@ function renderHomeModeControls() {
   }
 
   if (manualStartBtnEl && manualStopBtnEl) {
+    const secondsLeft = Math.max(0, Math.floor(manualRunRemainingSec));
     manualStartBtnEl.disabled = !showManualActions || isManualIrrigationActive;
+    manualStartBtnEl.textContent = isManualIrrigationActive
+      ? `Watering ${secondsLeft} sec`
+      : 'Start watering';
+    manualStartBtnEl.classList.toggle('watering-active', isManualIrrigationActive);
     manualStopBtnEl.disabled = !showManualActions || !isManualIrrigationActive;
+    manualStopBtnEl.textContent = 'Stop watering';
   }
 
   if (manualDurationSecInputEl && document.activeElement !== manualDurationSecInputEl) {
@@ -322,6 +349,10 @@ function applyIrrigationConfig(config, allowOverridePending = true) {
   if (config && typeof config.manualActive !== 'undefined') {
     isManualIrrigationActive = Boolean(config.manualActive);
   }
+  manualRunRemainingSec = readConfigNumber(config && config.runRemainingSec, manualRunRemainingSec, 0, MANUAL_DURATION_MAX_SEC);
+  if (!isManualIrrigationActive) {
+    manualRunRemainingSec = 0;
+  }
   if (allowOverridePending || !homeModeSaveBtnEl || homeModeSaveBtnEl.disabled) {
     pendingIrrigationMode = mode;
     pendingManualDurationSec = persistedManualDurationSec;
@@ -331,7 +362,12 @@ function applyIrrigationConfig(config, allowOverridePending = true) {
     pendingTimeRunDurationMin = persistedTimeRunDurationMin;
   }
   renderHomeModeControls();
-  setHomeManualStatus(isManualIrrigationActive ? 'Manual irrigation active.' : 'Manual irrigation inactive.', false);
+  setHomeManualStatus(
+    isManualIrrigationActive
+      ? `Watering in progress (${Math.max(0, Math.floor(manualRunRemainingSec))} sec left).`
+      : 'Manual watering inactive.',
+    false,
+  );
 }
 
 function renderUnitConfigControls() {
@@ -394,6 +430,10 @@ function applyUnitStatus(status, allowOverridePending = true) {
 
 async function saveIrrigationConfig() {
   const mode = normalizeIrrigationMode(pendingIrrigationMode);
+
+  if (mode === 'MANUAL') {
+    return;
+  }
 
   if (pendingAutoStopPermille <= pendingAutoStartPermille) {
     setHomeModeStatus('Auto stop moisture must be above auto start moisture.', true);
@@ -608,11 +648,12 @@ async function startManualIrrigation() {
   try {
     await postForm('/api/irrigation/manual/start', { durationSec: pendingManualDurationSec });
     isManualIrrigationActive = true;
+    manualRunRemainingSec = pendingManualDurationSec;
     renderHomeModeControls();
-    setHomeManualStatus(`Manual irrigation started (${pendingManualDurationSec}s).`, false);
+    setHomeManualStatus(`Watering started for ${pendingManualDurationSec} sec.`, false, 2500);
     await tick();
   } catch (error) {
-    setHomeManualStatus(`Manual start failed: ${error.message}`, true);
+    setHomeManualStatus(`Watering start failed: ${error.message}`, true);
   }
 }
 
@@ -620,11 +661,12 @@ async function stopManualIrrigation() {
   try {
     await postForm('/api/irrigation/manual/stop', {});
     isManualIrrigationActive = false;
+    manualRunRemainingSec = 0;
     renderHomeModeControls();
-    setHomeManualStatus('Manual irrigation stopped.', false);
+    setHomeManualStatus('Watering stopped by user.', false, 2500);
     await tick();
   } catch (error) {
-    setHomeManualStatus(`Manual stop failed: ${error.message}`, true);
+    setHomeManualStatus(`Watering stop failed: ${error.message}`, true);
   }
 }
 
@@ -989,7 +1031,12 @@ async function tick() {
     if (summary && typeof summary.manualIrrigationActive !== 'undefined') {
       isManualIrrigationActive = Boolean(summary.manualIrrigationActive);
       renderHomeModeControls();
-      setHomeManualStatus(isManualIrrigationActive ? 'Manual irrigation active.' : 'Manual irrigation inactive.', false);
+      setHomeManualStatus(
+        isManualIrrigationActive
+          ? `Watering in progress (${Math.max(0, Math.floor(manualRunRemainingSec))} sec left).`
+          : 'Manual watering inactive.',
+        false,
+      );
     }
     applyUnitStatus(unitStatus, !unitNameSaveBtnEl || unitNameSaveBtnEl.disabled);
     updateHomeControlLockoutStatus(latestNodes);
@@ -1038,7 +1085,7 @@ if (manualDurationSecInputEl) {
   manualDurationSecInputEl.addEventListener('input', () => {
     pendingManualDurationSec = clampNumber(Number(manualDurationSecInputEl.value), MANUAL_DURATION_MIN_SEC, MANUAL_DURATION_MAX_SEC);
     renderHomeModeControls();
-    setHomeModeStatus(isHomeModeDirty() ? 'Unsaved changes.' : 'Config synced.', false);
+    setHomeManualStatus(`Next manual watering duration: ${pendingManualDurationSec} sec.`, false, 2500);
   });
 }
 
@@ -1218,6 +1265,17 @@ setInterval(() => {
     pairingRemainingSec -= 1;
     renderPairingBannerState(pairingRemainingSec > 0);
   }
+
+  if (isManualIrrigationActive && manualRunRemainingSec > 0) {
+    manualRunRemainingSec = Math.max(0, manualRunRemainingSec - 1);
+    renderHomeModeControls();
+    if (manualRunRemainingSec === 0) {
+      isManualIrrigationActive = false;
+      renderHomeModeControls();
+      setHomeManualStatus('Manual watering finished.', false, 2500);
+    }
+  }
+
   reconcileCalibrationState();
   renderCalibrationBanner();
   placeCalibrationBanner();

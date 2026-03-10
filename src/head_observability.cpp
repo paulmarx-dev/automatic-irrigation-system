@@ -315,6 +315,10 @@ static void irrigationAutomationTick(uint32_t nowMs)
     stopIrrigation("duration elapsed");
   }
 
+  if (s_manualIrrigationActive) {
+    return;
+  }
+
   if (s_irrigationMode == IRRIGATION_MODE_OFF || s_irrigationMode == IRRIGATION_MODE_MANUAL) {
     return;
   }
@@ -811,10 +815,6 @@ static void onIrrigationConfigPostApi()
   s_autoStopPermille = requestedAutoStopPermille;
   s_timeIntervalMin = requestedTimeIntervalMin;
   s_timeRunDurationMin = requestedTimeRunDurationMin;
-  if (s_irrigationMode != IRRIGATION_MODE_MANUAL) {
-    s_manualIrrigationActive = false;
-    s_manualRunDeadlineMs = 0;
-  }
   if (s_irrigationMode == IRRIGATION_MODE_TIME) {
     s_timeNextStartMs = millis() + static_cast<uint32_t>(s_timeIntervalMin) * 60UL * 1000UL;
   } else {
@@ -843,12 +843,6 @@ static void onIrrigationConfigPostApi()
 
 static void onIrrigationManualStartApi()
 {
-  if (s_irrigationMode != IRRIGATION_MODE_MANUAL) {
-    Serial.println("OBS: manual irrigation start rejected: mode not MANUAL");
-    s_server.send(409, "application/json", "{\"ok\":0,\"error\":\"mode_not_manual\"}");
-    return;
-  }
-
   if (s_manualIrrigationActive) {
     Serial.println("OBS: manual irrigation start ignored: already active");
     s_server.send(200, "application/json", "{\"ok\":1,\"manualActive\":true}");
