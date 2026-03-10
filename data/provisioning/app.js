@@ -168,6 +168,9 @@ function setHomeManualStatus(text, isError = false, resetAfterMs = 0) {
   if (!homeManualStatusEl) {
     return;
   }
+  if (homeManualStatusResetTimer && resetAfterMs === 0 && !isError) {
+    return;
+  }
   if (homeManualStatusResetTimer) {
     clearTimeout(homeManualStatusResetTimer);
     homeManualStatusResetTimer = 0;
@@ -291,9 +294,9 @@ function renderHomeModeControls() {
     homeModeStatusEl.hidden = isManualMode;
   }
 
-  const showManualActions = true;
+  const showManualActions = selectedMode === 'MANUAL';
   const showAutoConfig = selectedMode === 'AUTO';
-  const showManualConfig = true;
+  const showManualConfig = selectedMode === 'MANUAL';
   const showTimeConfig = selectedMode === 'TIME';
 
   if (homeAutoConfigEl) {
@@ -358,7 +361,7 @@ function applyIrrigationConfig(config, allowOverridePending = true) {
   if (!isManualIrrigationActive) {
     manualRunRemainingSec = 0;
   }
-  if (allowOverridePending || !homeModeSaveBtnEl || homeModeSaveBtnEl.disabled) {
+  if (allowOverridePending) {
     pendingIrrigationMode = mode;
     pendingManualDurationSec = persistedManualDurationSec;
     pendingAutoStartPermille = persistedAutoStartPermille;
@@ -1037,7 +1040,7 @@ async function tick() {
 
     render(webStatusEl, webStatus);
     renderHomeSummary(summary);
-    applyIrrigationConfig(irrigationConfig, !homeModeSaveBtnEl || homeModeSaveBtnEl.disabled);
+    applyIrrigationConfig(irrigationConfig, !isHomeModeDirty());
     if (summary && typeof summary.manualIrrigationActive !== 'undefined') {
       isManualIrrigationActive = Boolean(summary.manualIrrigationActive);
       renderHomeModeControls();
