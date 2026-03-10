@@ -132,14 +132,28 @@ function readConfigNumber(value, fallback, minValue, maxValue) {
 }
 
 function isHomeModeDirty() {
-  return (
-    normalizeIrrigationMode(pendingIrrigationMode) !== normalizeIrrigationMode(persistedIrrigationMode)
-    || pendingManualDurationSec !== persistedManualDurationSec
-    || pendingAutoStartPermille !== persistedAutoStartPermille
-    || pendingAutoStopPermille !== persistedAutoStopPermille
-    || pendingTimeIntervalMin !== persistedTimeIntervalMin
-    || pendingTimeRunDurationMin !== persistedTimeRunDurationMin
-  );
+  const selectedMode = normalizeIrrigationMode(pendingIrrigationMode);
+  return isModeSelectionDirty() || isModeSettingsDirty(selectedMode);
+}
+
+function isModeSelectionDirty() {
+  return normalizeIrrigationMode(pendingIrrigationMode) !== normalizeIrrigationMode(persistedIrrigationMode);
+}
+
+function isModeSettingsDirty(mode) {
+  const normalizedMode = normalizeIrrigationMode(mode);
+  if (normalizedMode === 'AUTO') {
+    return pendingAutoStartPermille !== persistedAutoStartPermille
+      || pendingAutoStopPermille !== persistedAutoStopPermille;
+  }
+  if (normalizedMode === 'MANUAL') {
+    return pendingManualDurationSec !== persistedManualDurationSec;
+  }
+  if (normalizedMode === 'TIME') {
+    return pendingTimeIntervalMin !== persistedTimeIntervalMin
+      || pendingTimeRunDurationMin !== persistedTimeRunDurationMin;
+  }
+  return false;
 }
 
 function setHomeModeStatus(text, isError = false) {
@@ -225,6 +239,8 @@ function renderHomeModeControls() {
   pendingTimeRunDurationMin = clampNumber(pendingTimeRunDurationMin, TIME_RUN_MIN, TIME_RUN_MAX);
 
   const selectedMode = normalizeIrrigationMode(pendingIrrigationMode);
+  const isModeDirty = isModeSelectionDirty();
+  const isSettingsDirty = isModeSettingsDirty(selectedMode);
   const radios = homeModeFormEl.querySelectorAll('input[name="irrigationMode"]');
   radios.forEach((radio) => {
     radio.checked = radio.value === selectedMode;
@@ -234,11 +250,17 @@ function renderHomeModeControls() {
     }
   });
 
-  const isDirty = isHomeModeDirty();
+  const isDirty = isModeDirty || isSettingsDirty;
   const inactiveLabel = selectedMode === 'OFF' ? 'Disabled' : 'Active';
   const actionLabel = selectedMode === 'OFF' ? 'Disable' : 'Activate';
   homeModeSaveBtnEl.disabled = !isDirty;
-  homeModeSaveBtnEl.textContent = isDirty ? actionLabel : inactiveLabel;
+  if (isModeDirty) {
+    homeModeSaveBtnEl.textContent = actionLabel;
+  } else if (isSettingsDirty) {
+    homeModeSaveBtnEl.textContent = 'Save settings';
+  } else {
+    homeModeSaveBtnEl.textContent = inactiveLabel;
+  }
   homeModeSaveBtnEl.classList.toggle('saved', !isDirty);
 
   const isManualMode = selectedMode === 'MANUAL';
