@@ -21,6 +21,7 @@ const homeTimeConfigEl = document.getElementById('homeTimeConfig');
 const manualStartBtnEl = document.getElementById('manualStartBtn');
 const manualStopBtnEl = document.getElementById('manualStopBtn');
 const manualDurationSecInputEl = document.getElementById('manualDurationSecInput');
+const manualDurationHintEl = document.getElementById('manualDurationHint');
 const autoStartMoisturePctInputEl = document.getElementById('autoStartMoisturePctInput');
 const autoStopMoisturePctInputEl = document.getElementById('autoStopMoisturePctInput');
 const timeIntervalMinInputEl = document.getElementById('timeIntervalMinInput');
@@ -65,7 +66,7 @@ let persistedUnitName = '';
 let pendingUnitName = '';
 let unitNameInitialized = false;
 const MANUAL_DURATION_MIN_SEC = 0;
-const MANUAL_DURATION_MAX_SEC = 3600;
+const MANUAL_DURATION_MAX_SEC = 600;
 const TIME_INTERVAL_MIN = 5;
 const TIME_INTERVAL_MAX = 1440;
 const TIME_RUN_MIN = 1;
@@ -133,6 +134,13 @@ function readConfigNumber(value, fallback, minValue, maxValue) {
     return clampNumber(fallback, minValue, maxValue);
   }
   return clampNumber(numeric, minValue, maxValue);
+}
+
+function formatMinutesSeconds(totalSeconds) {
+  const seconds = Math.max(0, Math.floor(Number(totalSeconds) || 0));
+  const minutes = Math.floor(seconds / 60);
+  const secondsRemainder = seconds % 60;
+  return `${minutes}m ${secondsRemainder}s`;
 }
 
 function isHomeModeDirty() {
@@ -329,6 +337,13 @@ function renderHomeModeControls() {
 
   if (manualDurationSecInputEl && document.activeElement !== manualDurationSecInputEl) {
     manualDurationSecInputEl.value = String(pendingManualDurationSec);
+  }
+  if (manualDurationHintEl) {
+    const showHint = pendingManualDurationSec > 60;
+    manualDurationHintEl.hidden = !showHint;
+    if (showHint) {
+      manualDurationHintEl.textContent = `Duration: ${formatMinutesSeconds(pendingManualDurationSec)}`;
+    }
   }
   if (autoStartMoisturePctInputEl && document.activeElement !== autoStartMoisturePctInputEl) {
     autoStartMoisturePctInputEl.value = String(permilleToPercent(pendingAutoStartPermille));
