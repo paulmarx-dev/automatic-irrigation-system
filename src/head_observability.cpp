@@ -269,6 +269,20 @@ static bool computeAverageOnlineSensorMoisture(uint16_t* outPermille)
   return true;
 }
 
+static bool isControlLowBatteryLockoutActive()
+{
+  TelemetryHeadNodePresence nodes[8] = {};
+  const uint8_t count = telemetryHeadGetPresence(nodes, 8);
+  for (uint8_t i = 0; i < count; ++i) {
+    const TelemetryHeadNodePresence& node = nodes[i];
+    if (!node.isControl) {
+      continue;
+    }
+    return node.lowBatteryLockout;
+  }
+  return false;
+}
+
 static void stopIrrigation(const char* reason)
 {
   if (!s_manualIrrigationActive) {
@@ -846,6 +860,12 @@ static void onIrrigationManualStartApi()
   if (s_manualIrrigationActive) {
     Serial.println("OBS: manual irrigation start ignored: already active");
     s_server.send(200, "application/json", "{\"ok\":1,\"manualActive\":true}");
+    return;
+  }
+
+  if (isControlLowBatteryLockoutActive()) {
+    Serial.println("OBS: manual irrigation start rejected: control low battery lockout");
+    s_server.send(409, "application/json", "{\"ok\":0,\"error\":\"low_battery_lockout\"}");
     return;
   }
 

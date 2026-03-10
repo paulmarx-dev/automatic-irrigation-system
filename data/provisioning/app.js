@@ -57,6 +57,7 @@ let pendingTimeIntervalMin = 360;
 let persistedTimeRunDurationMin = 5;
 let pendingTimeRunDurationMin = 5;
 let isManualIrrigationActive = false;
+let isControlLowBatteryLockoutActive = false;
 let manualRunRemainingSec = 0;
 let homeManualStatusResetTimer = 0;
 let persistedUnitName = '';
@@ -176,7 +177,7 @@ function setHomeManualStatus(text, isError = false, resetAfterMs = 0) {
   if (resetAfterMs > 0) {
     homeManualStatusResetTimer = setTimeout(() => {
       homeManualStatusEl.textContent = isManualIrrigationActive
-        ? `Watering in progress (${Math.max(0, Math.floor(manualRunRemainingSec))} sec left).`
+        ? 'Watering in progress.'
         : 'Manual watering inactive.';
       homeManualStatusEl.classList.remove('error');
       homeManualStatusResetTimer = 0;
@@ -194,18 +195,21 @@ function setHomeControlLockoutStatus(text, isError = false) {
 
 function updateHomeControlLockoutStatus(nodes) {
   if (!Array.isArray(nodes) || nodes.length === 0) {
+    isControlLowBatteryLockoutActive = false;
     setHomeControlLockoutStatus('Control battery lockout: unknown.', false);
     return;
   }
 
   const controlNode = nodes.find((node) => String(node && node.role ? node.role : '').toUpperCase() === 'CONTROL');
   if (!controlNode) {
+    isControlLowBatteryLockoutActive = false;
     setHomeControlLockoutStatus('Control battery lockout: no control unit.', false);
     return;
   }
 
   const state = String(controlNode.state || '').toUpperCase();
   const lockout = String(controlNode.irrigationLockout || 'NONE').toUpperCase();
+  isControlLowBatteryLockoutActive = lockout === 'LOW_BATTERY';
 
   if (lockout === 'LOW_BATTERY') {
     setHomeControlLockoutStatus('Control battery lockout: active (irrigation blocked).', true);
@@ -268,9 +272,10 @@ function renderHomeModeControls() {
   const actionLabel = selectedMode === 'OFF' ? 'Disable' : 'Activate';
 
   if (isManualMode) {
+    homeModeSaveBtnEl.hidden = true;
     homeModeSaveBtnEl.disabled = true;
-    homeModeSaveBtnEl.textContent = 'Manual action';
   } else {
+    homeModeSaveBtnEl.hidden = false;
     homeModeSaveBtnEl.disabled = !isDirty;
     if (isModeDirty) {
       homeModeSaveBtnEl.textContent = actionLabel;
@@ -309,7 +314,7 @@ function renderHomeModeControls() {
 
   if (manualStartBtnEl && manualStopBtnEl) {
     const secondsLeft = Math.max(0, Math.floor(manualRunRemainingSec));
-    manualStartBtnEl.disabled = !showManualActions || isManualIrrigationActive;
+    manualStartBtnEl.disabled = !showManualActions || isManualIrrigationActive || isControlLowBatteryLockoutActive;
     manualStartBtnEl.textContent = isManualIrrigationActive
       ? `Watering ${secondsLeft} sec`
       : 'Start watering';
@@ -364,7 +369,7 @@ function applyIrrigationConfig(config, allowOverridePending = true) {
   renderHomeModeControls();
   setHomeManualStatus(
     isManualIrrigationActive
-      ? `Watering in progress (${Math.max(0, Math.floor(manualRunRemainingSec))} sec left).`
+      ? 'Watering in progress.'
       : 'Manual watering inactive.',
     false,
   );
@@ -645,13 +650,18 @@ async function closePairingWindow() {
 }
 
 async function startManualIrrigation() {
+  if (isControlLowBatteryLockoutActive) {
+    setHomeManualStatus('Watering blocked: control battery lockout is active.', true, 5000);
+    return;
+  }
+
   try {
     await postForm('/api/irrigation/manual/start', { durationSec: pendingManualDurationSec });
     isManualIrrigationActive = true;
     manualRunRemainingSec = pendingManualDurationSec;
     renderHomeModeControls();
-    setHomeManualStatus(`Watering started for ${pendingManualDurationSec} sec.`, false, 2500);
     await tick();
+    setHomeManualStatus(`Watering started for ${pendingManualDurationSec} sec.`, false, 5000);
   } catch (error) {
     setHomeManualStatus(`Watering start failed: ${error.message}`, true);
   }
@@ -663,8 +673,8 @@ async function stopManualIrrigation() {
     isManualIrrigationActive = false;
     manualRunRemainingSec = 0;
     renderHomeModeControls();
-    setHomeManualStatus('Watering stopped by user.', false, 2500);
     await tick();
+    setHomeManualStatus('Watering stopped by user.', false, 5000);
   } catch (error) {
     setHomeManualStatus(`Watering stop failed: ${error.message}`, true);
   }
@@ -1033,7 +1043,7 @@ async function tick() {
       renderHomeModeControls();
       setHomeManualStatus(
         isManualIrrigationActive
-          ? `Watering in progress (${Math.max(0, Math.floor(manualRunRemainingSec))} sec left).`
+          ? 'Watering in progress.'
           : 'Manual watering inactive.',
         false,
       );
@@ -1272,7 +1282,7 @@ setInterval(() => {
     if (manualRunRemainingSec === 0) {
       isManualIrrigationActive = false;
       renderHomeModeControls();
-      setHomeManualStatus('Manual watering finished.', false, 2500);
+      setHomeManualStatus('Manual watering finished.', false, 5000);
     }
   }
 
