@@ -1282,11 +1282,6 @@ setInterval(() => {
   if (isManualIrrigationActive && manualRunRemainingSec > 0) {
     manualRunRemainingSec = Math.max(0, manualRunRemainingSec - 1);
     renderHomeModeControls();
-    if (manualRunRemainingSec === 0) {
-      isManualIrrigationActive = false;
-      renderHomeModeControls();
-      setHomeManualStatus('Manual watering finished.', false, 5000);
-    }
   }
 
   reconcileCalibrationState();
