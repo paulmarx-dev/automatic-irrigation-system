@@ -24,6 +24,7 @@ const manualDurationSecInputEl = document.getElementById('manualDurationSecInput
 const manualDurationHintEl = document.getElementById('manualDurationHint');
 const autoStartMoisturePctInputEl = document.getElementById('autoStartMoisturePctInput');
 const autoStopMoisturePctInputEl = document.getElementById('autoStopMoisturePctInput');
+const autoStatusHintEl = document.getElementById('autoStatusHint');
 const timeIntervalMinInputEl = document.getElementById('timeIntervalMinInput');
 const timeRunDurationMinInputEl = document.getElementById('timeRunDurationMinInput');
 const timeRunDurationHintEl = document.getElementById('timeRunDurationHint');
@@ -56,6 +57,7 @@ let persistedAutoStartPermille = 350;
 let pendingAutoStartPermille = 350;
 let persistedAutoStopPermille = 450;
 let pendingAutoStopPermille = 450;
+let latestAvgMoisturePermille = null;
 let persistedTimeIntervalMin = 360;
 let pendingTimeIntervalMin = 360;
 let persistedTimeRunDurationSec = 300;
@@ -430,6 +432,33 @@ function renderHomeModeControls() {
   if (autoStopMoisturePctInputEl && document.activeElement !== autoStopMoisturePctInputEl) {
     autoStopMoisturePctInputEl.value = String(permilleToPercent(pendingAutoStopPermille));
   }
+  if (autoStatusHintEl) {
+    autoStatusHintEl.hidden = !showAutoConfig;
+    if (showAutoConfig) {
+      const isPersistedAutoMode = normalizeIrrigationMode(persistedIrrigationMode) === 'AUTO';
+      const startPct = permilleToPercent(pendingAutoStartPermille);
+      const stopPct = permilleToPercent(pendingAutoStopPermille);
+      const moisturePct = latestAvgMoisturePermille !== null ? Math.round(latestAvgMoisturePermille / 10) : null;
+      if (!isModeDirty && !isSettingsDirty && isPersistedAutoMode) {
+        if (isManualIrrigationActive) {
+          const stopStr = moisturePct !== null ? `stops above ${stopPct}%.` : `stops above ${stopPct}%.`;
+          autoStatusHintEl.textContent = moisturePct !== null
+            ? `Watering now, ${stopStr} Moisture: ${moisturePct}%.`
+            : `Watering now, ${stopStr}`;
+        } else if (moisturePct !== null) {
+          if (moisturePct <= startPct) {
+            autoStatusHintEl.textContent = `Moisture: ${moisturePct}% — starting irrigation.`;
+          } else {
+            autoStatusHintEl.textContent = `Moisture: ${moisturePct}% — watering starts below ${startPct}%.`;
+          }
+        } else {
+          autoStatusHintEl.textContent = `Watering starts below ${startPct}%, stops above ${stopPct}%.`;
+        }
+      } else {
+        autoStatusHintEl.textContent = `Start below ${startPct}%, stop above ${stopPct}%.`;
+      }
+    }
+  }
   if (timeIntervalMinInputEl && document.activeElement !== timeIntervalMinInputEl) {
     timeIntervalMinInputEl.value = formatHoursValueFromMinutes(pendingTimeIntervalMin);
     timeIntervalMinInputEl.classList.remove('input-warning');
@@ -701,6 +730,7 @@ function renderHomeSummary(summary) {
   const online = Number.isFinite(Number(summary.onlineSensors)) ? Number(summary.onlineSensors) : 0;
   const total = Number.isFinite(Number(summary.totalVisibleSensors)) ? Number(summary.totalVisibleSensors) : 0;
   const avgMoisturePermille = summary.avgMoisturePermille;
+  latestAvgMoisturePermille = Number.isFinite(Number(avgMoisturePermille)) ? Number(avgMoisturePermille) : null;
   const pairingOpen = Boolean(summary.pairingOpen);
   const pairingSec = Number(summary.pairingRemainingSec);
   const uptimeSec = Number(summary.uptimeSec);
