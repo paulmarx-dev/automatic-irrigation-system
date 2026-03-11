@@ -19,6 +19,7 @@
   - [ ] Make node presence thresholds configurable for field mode (SUSPECT/OFFLINE), not debug-fixed seconds
   - [ ] Tie presence thresholds to real telemetry period after sleep/power management is implemented
 - [ ] Battery-driven behavior: low battery thresholds, "critical" mode, messaging to head
+  - [x] CONTROL battery telemetry and low-battery lockout flags reach HEAD via shared telemetry path
 - [ ] Control unit: duty-cycle listen vs active mode, heartbeat, command execution state machine
 - [ ] Head logic: command decisions (manual/web + automation), scheduling, irrigation state
 - [ ] Reliability: rejoin after head reboot, stale peer cleanup, registry maintenance
@@ -31,6 +32,11 @@
   - [x] Sensors UI cards with moisture/state/battery/lastSeen/MAC
   - [x] Sensors actions API+UI: rename/unpair (+ confirmation)
   - [x] Sensor rename persistence in NVS (head)
+  - [x] Irrigation mode UI for `AUTO` / `TIME` / `MANUAL` / `OFF`
+  - [x] Manual irrigation duration input + start/stop countdown UX
+  - [x] TIME mode decimal inputs + next-start/active-cycle status UX
+  - [x] AUTO mode threshold hints + live moisture-context status UX
+  - [ ] Irrigation UI: show CONTROL availability / next wake / blocked watering state
 - [ ] WiFi upload of data to server on availability
 - [ ] LoRa backup communication channel for critical messages (e.g. low battery alert)
 
@@ -150,7 +156,7 @@ Head networking mode = SoftAP always (local UI), STA hotspot only for upload (ma
 - [x] Multi-head safety
   - [x] Node refuses pairing if multiple heads in pairing mode
 - [ ] Milestone 6.3: Multi-device pairing + persistence beyond SENSOR
-  - [ ] Head supports multiple paired devices concurrently (at least SENSOR + CONTROL)
+  - [x] Head supports multiple paired devices concurrently (at least SENSOR + CONTROL) (code ready)
   - [x] Head stores paired devices registry in NVS and restores on reboot
   - [x] Control stores paired HEAD info in NVS and restores on reboot (code ready)
   - [ ] CONTROL hardware validation pending (run when module is available):
@@ -242,14 +248,14 @@ Head networking mode = SoftAP always (local UI), STA hotspot only for upload (ma
   - [ ] Idle duty-cycle listen works
   - [ ] Active mode works
 - [ ] Heartbeat:
-  - [ ] Status sent periodically
-  - [ ] Head detects online/offline
+  - [x] Status sent periodically
+  - [x] Head detects online/offline
 - [ ] Commands:
-  - [ ] START command works
-  - [ ] STOP command works
+  - [x] START command works
+  - [x] STOP command works
   - [ ] ACK messages correct
 - [ ] Safety:
-  - [ ] Pump OFF after reboot
+  - [x] Pump OFF after reboot
 
 ### 8. Head Logic
 
@@ -298,12 +304,12 @@ Head networking mode = SoftAP always (local UI), STA hotspot only for upload (ma
   - [x] lastSeen
   - [x] battery
   - [x] moisture
-  - [ ] irrigation state
+  - [x] irrigation state
 - [ ] Controls:
-  - [ ] Start irrigation
-  - [ ] Stop irrigation
+  - [x] Start irrigation
+  - [x] Stop irrigation
   - [x] Open pairing
-  - [ ] Close pairing
+  - [x] Close pairing
 - [ ] OTA:
   - [ ] Firmware update works
   - [ ] Registry preserved

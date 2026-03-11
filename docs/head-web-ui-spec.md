@@ -25,7 +25,7 @@ Reference policy: `docs/head-web-operating-model.md`.
 - AP-first local console for users and debug.
 - Tabs: Home, Sensors, This Unit.
 - Pairing management from web.
-- Basic control modes: Auto / Manual / OFF.
+- Basic control modes: Auto / Time / Manual / OFF.
 - Basic settings persistence in NVS.
 - Status updates with low radio overhead.
 
@@ -61,15 +61,18 @@ Show:
 - If running: running time + estimated time left
 
 Control:
-- Mode switch: Auto | Manual | OFF
+- Mode switch: Auto | Time | OFF | Manual
 
 Auto:
-- Strategy switch: Moisture based | Time based
-- Moisture based:
-  - Start below: YY%
-  - Stop above: XX%
-- Time based:
+  - Start watering below: YY%
+  - Stop watering above: XX%
+  - Context hint with current average moisture
+
+Time:
   - Water for N minutes every M hours
+  - Decimal inputs with `.` and `,`
+  - Human-readable interval/duration hints
+  - Next-start / active-cycle countdown status
 - Save button state:
   - `Save` (blue) when dirty
   - `Saved` (green) when persisted
@@ -202,8 +205,9 @@ Note:
 
 - [x] User can connect to AP and open UI without button interaction.
 - [x] Home tab correctly shows online count and avg moisture.
-- [x] Auto/Manual/OFF controls behave as expected and persist.
+- [x] Auto/Time/Manual/OFF controls behave as expected and persist.
   - Includes manual start/stop controls available only in `MANUAL` mode.
+  - Includes TIME mode decimal inputs, human-readable hints, and countdown status.
 - [x] Sensor add/rename/unpair works via UI.
 - [x] Each sensor card shows battery voltage + battery state.
 - [x] Battery severity visuals are correct: `CRITICAL` = red label; `NEEDS_REPLACEMENT` = entire card danger style.
