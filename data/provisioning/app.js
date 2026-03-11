@@ -257,6 +257,17 @@ function setHomeModeStatus(text, isError = false) {
   homeModeStatusEl.classList.toggle('error', isError);
 }
 
+function homeModeStatusText() {
+  const selectedMode = normalizeIrrigationMode(pendingIrrigationMode);
+  if (isModeSettingsDirty(selectedMode)) {
+    return 'Unsaved changes.';
+  }
+  if (isModeSelectionDirty()) {
+    return '';
+  }
+  return 'Config synced.';
+}
+
 function setHomeManualStatus(text, isError = false, resetAfterMs = 0) {
   if (!homeManualStatusEl) {
     return;
@@ -1265,7 +1276,7 @@ if (homeModeFormEl) {
 
     pendingIrrigationMode = normalizeIrrigationMode(target.value);
     renderHomeModeControls();
-    setHomeModeStatus(isHomeModeDirty() ? 'Unsaved changes.' : 'Config synced.', false);
+    setHomeModeStatus(homeModeStatusText(), false);
   });
 }
 
@@ -1282,7 +1293,7 @@ if (autoStartMoisturePctInputEl) {
   autoStartMoisturePctInputEl.addEventListener('input', () => {
     pendingAutoStartPermille = percentToPermille(autoStartMoisturePctInputEl.value);
     renderHomeModeControls();
-    setHomeModeStatus(isHomeModeDirty() ? 'Unsaved changes.' : 'Config synced.', false);
+    setHomeModeStatus(homeModeStatusText(), false);
   });
 }
 
@@ -1290,7 +1301,7 @@ if (autoStopMoisturePctInputEl) {
   autoStopMoisturePctInputEl.addEventListener('input', () => {
     pendingAutoStopPermille = percentToPermille(autoStopMoisturePctInputEl.value);
     renderHomeModeControls();
-    setHomeModeStatus(isHomeModeDirty() ? 'Unsaved changes.' : 'Config synced.', false);
+    setHomeModeStatus(homeModeStatusText(), false);
   });
 }
 
@@ -1302,7 +1313,7 @@ if (timeIntervalMinInputEl) {
     timeIntervalMinInputEl.classList.toggle('input-warning', belowMin);
     pendingTimeIntervalMin = parseHoursToMinutes(timeIntervalMinInputEl.value, pendingTimeIntervalMin);
     renderHomeModeControls();
-    setHomeModeStatus(isHomeModeDirty() ? 'Unsaved changes.' : 'Config synced.', false);
+    setHomeModeStatus(homeModeStatusText(), false);
   });
 }
 
@@ -1310,7 +1321,7 @@ if (timeRunDurationMinInputEl) {
   timeRunDurationMinInputEl.addEventListener('input', () => {
     pendingTimeRunDurationSec = parseMinutesToRoundedSeconds(timeRunDurationMinInputEl.value, pendingTimeRunDurationSec);
     renderHomeModeControls();
-    setHomeModeStatus(isHomeModeDirty() ? 'Unsaved changes.' : 'Config synced.', false);
+    setHomeModeStatus(homeModeStatusText(), false);
   });
 }
 
