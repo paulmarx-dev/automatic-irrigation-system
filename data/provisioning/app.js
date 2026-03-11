@@ -63,6 +63,8 @@ let pendingTimeRunDurationSec = 300;
 let isManualIrrigationActive = false;
 let isControlLowBatteryLockoutActive = false;
 let manualRunRemainingSec = 0;
+let timeNextStartRemainingSec = 0;
+let timeRunRemainingSec = 0;
 let homeManualStatusResetTimer = 0;
 let manualDurationDirty = false;
 let persistedUnitName = '';
@@ -151,6 +153,17 @@ function formatHoursMinutes(totalMinutes) {
   const hours = Math.floor(normalizedMinutes / 60);
   const minutes = normalizedMinutes % 60;
   return `${hours}h ${minutes}m`;
+}
+
+function formatHoursMinutesSeconds(totalSeconds) {
+  const sec = Math.max(0, Math.floor(Number(totalSeconds) || 0));
+  const hours = Math.floor(sec / 3600);
+  const minutes = Math.floor((sec % 3600) / 60);
+  const seconds = sec % 60;
+  if (hours > 0) {
+    return `${hours}h ${minutes}m ${seconds}s`;
+  }
+  return `${minutes}m ${seconds}s`;
 }
 
 function formatMinutesValueFromSeconds(totalSeconds) {
@@ -445,16 +458,14 @@ function renderHomeModeControls() {
   }
   if (timeScheduleHintEl) {
     const isPersistedTimeMode = normalizeIrrigationMode(persistedIrrigationMode) === 'TIME';
-    const nextStartSec = window.__timeNextStartSec || 0;
-    const runRemainingSec = window.__timeRunRemainingSec || 0;
     timeScheduleHintEl.hidden = !showTimeConfig;
     if (showTimeConfig) {
       let statusText = '';
       if (!isModeDirty && !isSettingsDirty && isPersistedTimeMode) {
-        if (runRemainingSec > 0) {
-          statusText = `Watering now, next cycle in ${formatHoursMinutes(Math.round(nextStartSec / 60))}.`;
-        } else if (nextStartSec > 0) {
-          statusText = `Next watering in ${formatHoursMinutes(Math.round(nextStartSec / 60))}.`;
+        if (timeRunRemainingSec > 0) {
+          statusText = `Watering now, ${formatHoursMinutesSeconds(timeRunRemainingSec)} left. Next cycle in ${formatHoursMinutesSeconds(timeNextStartRemainingSec)}.`;
+        } else if (timeNextStartRemainingSec > 0) {
+          statusText = `Next watering in ${formatHoursMinutesSeconds(timeNextStartRemainingSec)}.`;
         } else {
           statusText = 'Schedule active.';
         }
@@ -482,8 +493,8 @@ function applyIrrigationConfig(config, allowOverridePending = true) {
     TIME_RUN_MIN_SEC,
     TIME_RUN_MAX_SEC,
   );
-  window.__timeNextStartSec = readConfigNumber(config && config.timeNextStartSec, 0, 0, TIME_INTERVAL_MAX * 60);
-  window.__timeRunRemainingSec = readConfigNumber(config && config.runRemainingSec, 0, 0, TIME_RUN_MAX_SEC);
+  timeNextStartRemainingSec = readConfigNumber(config && config.timeNextStartSec, 0, 0, TIME_INTERVAL_MAX * 60);
+  timeRunRemainingSec = readConfigNumber(config && config.runRemainingSec, 0, 0, TIME_RUN_MAX_SEC);
   if (config && typeof config.manualActive !== 'undefined') {
     isManualIrrigationActive = Boolean(config.manualActive);
   }
@@ -1256,7 +1267,8 @@ if (autoStopMoisturePctInputEl) {
 if (timeIntervalMinInputEl) {
   timeIntervalMinInputEl.addEventListener('input', () => {
     const rawHours = parseLocalizedDecimal(timeIntervalMinInputEl.value);
-    const belowMin = Number.isFinite(rawHours) && rawHours < TIME_INTERVAL_MIN / 60;
+    const roundedMin = Number.isFinite(rawHours) ? Math.round(rawHours * 60) : TIME_INTERVAL_MIN;
+    const belowMin = roundedMin < TIME_INTERVAL_MIN;
     timeIntervalMinInputEl.classList.toggle('input-warning', belowMin);
     pendingTimeIntervalMin = parseHoursToMinutes(timeIntervalMinInputEl.value, pendingTimeIntervalMin);
     renderHomeModeControls();
@@ -1419,6 +1431,16 @@ setInterval(() => {
 
   if (isManualIrrigationActive && manualRunRemainingSec > 0) {
     manualRunRemainingSec = Math.max(0, manualRunRemainingSec - 1);
+    renderHomeModeControls();
+  }
+
+  const isActiveTimeMode = normalizeIrrigationMode(persistedIrrigationMode) === 'TIME';
+  if (isActiveTimeMode) {
+    if (timeRunRemainingSec > 0) {
+      timeRunRemainingSec = Math.max(0, timeRunRemainingSec - 1);
+    } else if (timeNextStartRemainingSec > 0) {
+      timeNextStartRemainingSec = Math.max(0, timeNextStartRemainingSec - 1);
+    }
     renderHomeModeControls();
   }
 
