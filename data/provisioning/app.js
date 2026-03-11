@@ -143,6 +143,31 @@ function formatMinutesSeconds(totalSeconds) {
   return `${minutes}m ${secondsRemainder}s`;
 }
 
+function formatMinutesValueFromSeconds(totalSeconds) {
+  const normalizedSec = Math.max(MANUAL_DURATION_MIN_SEC, Math.min(MANUAL_DURATION_MAX_SEC, Number(totalSeconds) || 0));
+  const minutes = normalizedSec / 60;
+  if (Number.isInteger(minutes)) {
+    return String(minutes);
+  }
+  return minutes.toFixed(2).replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1');
+}
+
+function parseMinutesToSeconds(inputValue, fallbackSeconds = 0) {
+  const normalizedInput = String(inputValue ?? '').trim().replace(',', '.');
+  if (normalizedInput.length === 0) {
+    return clampNumber(fallbackSeconds, MANUAL_DURATION_MIN_SEC, MANUAL_DURATION_MAX_SEC);
+  }
+
+  const parsedMinutes = Number.parseFloat(normalizedInput);
+  if (!Number.isFinite(parsedMinutes)) {
+    return clampNumber(fallbackSeconds, MANUAL_DURATION_MIN_SEC, MANUAL_DURATION_MAX_SEC);
+  }
+
+  const clampedMinutes = Math.min(MANUAL_DURATION_MAX_SEC / 60, Math.max(MANUAL_DURATION_MIN_SEC / 60, parsedMinutes));
+  const roundedSeconds = Math.round(clampedMinutes * 60);
+  return clampNumber(roundedSeconds, MANUAL_DURATION_MIN_SEC, MANUAL_DURATION_MAX_SEC);
+}
+
 function isHomeModeDirty() {
   const selectedMode = normalizeIrrigationMode(pendingIrrigationMode);
   return isModeSelectionDirty() || isModeSettingsDirty(selectedMode);
@@ -336,14 +361,11 @@ function renderHomeModeControls() {
   }
 
   if (manualDurationSecInputEl && document.activeElement !== manualDurationSecInputEl) {
-    manualDurationSecInputEl.value = String(pendingManualDurationSec);
+    manualDurationSecInputEl.value = formatMinutesValueFromSeconds(pendingManualDurationSec);
   }
   if (manualDurationHintEl) {
-    const showHint = pendingManualDurationSec > 60;
-    manualDurationHintEl.hidden = !showHint;
-    if (showHint) {
-      manualDurationHintEl.textContent = `Duration: ${formatMinutesSeconds(pendingManualDurationSec)}`;
-    }
+    manualDurationHintEl.hidden = false;
+    manualDurationHintEl.textContent = `Duration: ${formatMinutesSeconds(pendingManualDurationSec)}`;
   }
   if (autoStartMoisturePctInputEl && document.activeElement !== autoStartMoisturePctInputEl) {
     autoStartMoisturePctInputEl.value = String(permilleToPercent(pendingAutoStartPermille));
@@ -684,7 +706,7 @@ async function startManualIrrigation() {
     manualDurationDirty = false;
     renderHomeModeControls();
     await tick();
-    setHomeManualStatus(`Watering started for ${pendingManualDurationSec} sec.`, false, 5000);
+    setHomeManualStatus(`Watering started for ${formatMinutesSeconds(pendingManualDurationSec)}.`, false, 5000);
   } catch (error) {
     setHomeManualStatus(`Watering start failed: ${error.message}`, true);
   }
@@ -1116,10 +1138,10 @@ if (homeModeFormEl) {
 
 if (manualDurationSecInputEl) {
   manualDurationSecInputEl.addEventListener('input', () => {
-    pendingManualDurationSec = clampNumber(Number(manualDurationSecInputEl.value), MANUAL_DURATION_MIN_SEC, MANUAL_DURATION_MAX_SEC);
+    pendingManualDurationSec = parseMinutesToSeconds(manualDurationSecInputEl.value, pendingManualDurationSec);
     manualDurationDirty = true;
     renderHomeModeControls();
-    setHomeManualStatus(`Next manual watering duration: ${pendingManualDurationSec} sec.`, false, 2500);
+    setHomeManualStatus(`Next manual watering duration: ${formatMinutesSeconds(pendingManualDurationSec)}.`, false, 2500);
   });
 }
 
