@@ -419,6 +419,7 @@ function renderHomeModeControls() {
   }
   if (timeIntervalMinInputEl && document.activeElement !== timeIntervalMinInputEl) {
     timeIntervalMinInputEl.value = formatHoursValueFromMinutes(pendingTimeIntervalMin);
+    timeIntervalMinInputEl.classList.remove('input-warning');
   }
   if (timeRunDurationMinInputEl && document.activeElement !== timeRunDurationMinInputEl) {
     timeRunDurationMinInputEl.value = formatMinutesValueFromSeconds(pendingTimeRunDurationSec);
@@ -432,7 +433,14 @@ function renderHomeModeControls() {
   if (timeIntervalHintEl) {
     timeIntervalHintEl.hidden = !showTimeConfig;
     if (showTimeConfig) {
-      timeIntervalHintEl.textContent = `Interval: ${formatHoursMinutes(pendingTimeIntervalMin)}`;
+      const isIntervalWarning = timeIntervalMinInputEl && timeIntervalMinInputEl.classList.contains('input-warning');
+      if (isIntervalWarning) {
+        timeIntervalHintEl.textContent = `Minimum interval: 5 min (0.083 h)`;
+        timeIntervalHintEl.classList.add('error');
+      } else {
+        timeIntervalHintEl.textContent = `Interval: ${formatHoursMinutes(pendingTimeIntervalMin)}`;
+        timeIntervalHintEl.classList.remove('error');
+      }
     }
   }
   if (timeScheduleHintEl) {
@@ -1247,6 +1255,9 @@ if (autoStopMoisturePctInputEl) {
 
 if (timeIntervalMinInputEl) {
   timeIntervalMinInputEl.addEventListener('input', () => {
+    const rawHours = parseLocalizedDecimal(timeIntervalMinInputEl.value);
+    const belowMin = Number.isFinite(rawHours) && rawHours < TIME_INTERVAL_MIN / 60;
+    timeIntervalMinInputEl.classList.toggle('input-warning', belowMin);
     pendingTimeIntervalMin = parseHoursToMinutes(timeIntervalMinInputEl.value, pendingTimeIntervalMin);
     renderHomeModeControls();
     setHomeModeStatus(isHomeModeDirty() ? 'Unsaved changes.' : 'Config synced.', false);
