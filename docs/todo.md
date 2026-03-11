@@ -159,15 +159,15 @@ Head networking mode = SoftAP always (local UI), STA hotspot only for upload (ma
   - [x] Implementation note: detailed reproducible flow documented in `pairing.md`
 - [x] Multi-head safety
   - [x] Node refuses pairing if multiple heads in pairing mode
-- [ ] Milestone 6.3: Multi-device pairing + persistence beyond SENSOR
+- [x] Milestone 6.3: Multi-device pairing + persistence beyond SENSOR
   - [x] Head supports multiple paired devices concurrently (at least SENSOR + CONTROL) (code ready)
   - [x] Head stores paired devices registry in NVS and restores on reboot
   - [x] Control stores paired HEAD info in NVS and restores on reboot (code ready)
-  - [ ] CONTROL hardware validation pending (run when module is available):
-    - [ ] Pair CONTROL with HEAD, verify join success + NVS save
-    - [ ] Reboot CONTROL and confirm auto-restore from NVS without manual join
-    - [ ] Reboot HEAD and confirm CONTROL is accepted from restored head registry
-    - [ ] Factory reset HEAD and verify CONTROL gets NOT_PAIRED and requires manual pair
+  - [x] CONTROL hardware validation completed:
+    - [x] Pair CONTROL with HEAD, verify join success + NVS save
+    - [x] Reboot CONTROL and confirm auto-restore from NVS without manual join
+    - [x] Reboot HEAD and confirm CONTROL is accepted from restored head registry
+    - [x] Factory reset HEAD and verify CONTROL gets NOT_PAIRED and requires manual pair
 
 ### 2.1. Moisture Sensor Calibrarion 
 
@@ -238,9 +238,9 @@ Head networking mode = SoftAP always (local UI), STA hotspot only for upload (ma
 - [ ] Sensor:
   - [ ] Sends low battery warning
   - [ ] Reduces activity
-- [ ] Control:
-  - [ ] Pump/Sensor disabled on critical battery
-  - [ ] Alert sent to head
+- [x] Control:
+  - [x] Pump/Sensor disabled on critical battery
+  - [x] Alert sent to head
 - [ ] Charging state (also send in Flags)
 
 
@@ -282,7 +282,7 @@ Head networking mode = SoftAP always (local UI), STA hotspot only for upload (ma
 
 - [ ] Recovery:
   - [x] Sensors reconnect after head reboot
-  - [ ] Control reconnects after head reboot
+  - [x] Control reconnects after head reboot
 - [ ] Registry:
   - [ ] lastSeen stored
   - [ ] Offline devices detected
