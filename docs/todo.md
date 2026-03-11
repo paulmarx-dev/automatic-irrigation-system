@@ -280,14 +280,14 @@ Head networking mode = SoftAP always (local UI), STA hotspot only for upload (ma
 
 **Done when:**
 
-- [ ] Recovery:
+- [x] Recovery:
   - [x] Sensors reconnect after head reboot
   - [x] Control reconnects after head reboot
 - [ ] Registry:
   - [ ] lastSeen stored
-  - [ ] Offline devices detected
-- [ ] Maintenance:
-  - [ ] Nodes can be removed
+  - [x] Offline devices detected
+- [x] Maintenance:
+  - [x] Nodes can be removed
 
 ### 10. Optional Features
 
