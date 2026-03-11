@@ -31,7 +31,7 @@
   - [x] Presence smoke checklist: node offline timeout log + online recovery log after return
   - [ ] Registry slot policy: slot0 is currently NOT reserved; when reserving slot0 for CONTROL, add explicit migration/backward-compat flow
 - [ ] Optional: time sync, irrigation-phase sampling
-- [ ] Web server for head: status page, manual control, pairing management, OTA updates
+- [ ] Web server for head: status page, manual control, pairing management
   - [x] JSON API for node presence (`lastSeenMs`, `online`, `nodeId`, `mac`) for UI integration
   - [x] Sensors UI cards with moisture/state/battery/lastSeen/MAC
   - [x] Sensors actions API+UI: rename/unpair (+ confirmation)
@@ -126,7 +126,7 @@ Head networking mode = SoftAP always (local UI), STA hotspot only for upload (ma
   - [x] Receive routing API returns handled flag for protocol multiplexing
   - [x] Handshake sessionId/nodeId checks reject stale or out-of-step packets
 
-- [ ] UX
+- [x] UX
   - [x] Head short press -> pairing open 120s
   - [x] Head short press again -> pairing closes
   - [x] Head long press -> factory reset
@@ -147,7 +147,7 @@ Head networking mode = SoftAP always (local UI), STA hotspot only for upload (ma
     - [x] nodeId
   - [x] Node reconnects after reboot
   - [x] Head accepts node after reboot
-- [ ] Safety
+- [x] Safety
   - [x] Paired node does NOT rebind by short press
   - [x] Rebind only after factory reset
 
@@ -314,9 +314,6 @@ Head networking mode = SoftAP always (local UI), STA hotspot only for upload (ma
   - [x] Stop irrigation
   - [x] Open pairing
   - [x] Close pairing
-- [ ] OTA:
-  - [ ] Firmware update works
-  - [ ] Registry preserved
 
 ### 12. Data Upload
 
