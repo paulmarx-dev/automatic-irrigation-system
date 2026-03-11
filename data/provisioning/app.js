@@ -26,6 +26,9 @@ const autoStartMoisturePctInputEl = document.getElementById('autoStartMoisturePc
 const autoStopMoisturePctInputEl = document.getElementById('autoStopMoisturePctInput');
 const timeIntervalMinInputEl = document.getElementById('timeIntervalMinInput');
 const timeRunDurationMinInputEl = document.getElementById('timeRunDurationMinInput');
+const timeRunDurationHintEl = document.getElementById('timeRunDurationHint');
+const timeIntervalHintEl = document.getElementById('timeIntervalHint');
+const timeScheduleHintEl = document.getElementById('timeScheduleHint');
 const homeManualStatusEl = document.getElementById('homeManualStatus');
 const homeControlLockoutStatusEl = document.getElementById('homeControlLockoutStatus');
 const unitApSsidEl = document.getElementById('unitApSsid');
@@ -55,8 +58,8 @@ let persistedAutoStopPermille = 450;
 let pendingAutoStopPermille = 450;
 let persistedTimeIntervalMin = 360;
 let pendingTimeIntervalMin = 360;
-let persistedTimeRunDurationMin = 5;
-let pendingTimeRunDurationMin = 5;
+let persistedTimeRunDurationSec = 300;
+let pendingTimeRunDurationSec = 300;
 let isManualIrrigationActive = false;
 let isControlLowBatteryLockoutActive = false;
 let manualRunRemainingSec = 0;
@@ -69,8 +72,8 @@ const MANUAL_DURATION_MIN_SEC = 0;
 const MANUAL_DURATION_MAX_SEC = 600;
 const TIME_INTERVAL_MIN = 5;
 const TIME_INTERVAL_MAX = 1440;
-const TIME_RUN_MIN = 1;
-const TIME_RUN_MAX = 180;
+const TIME_RUN_MIN_SEC = 0;
+const TIME_RUN_MAX_SEC = 600;
 const CAL_PROMPT_TIMEOUT_MS = 20000;
 const CAL_ERROR_HIDE_MS = 5000;
 const CAL_INFO_HIDE_MS = 5000;
@@ -143,6 +146,13 @@ function formatMinutesSeconds(totalSeconds) {
   return `${minutes}m ${secondsRemainder}s`;
 }
 
+function formatHoursMinutes(totalMinutes) {
+  const normalizedMinutes = Math.max(0, Math.floor(Number(totalMinutes) || 0));
+  const hours = Math.floor(normalizedMinutes / 60);
+  const minutes = normalizedMinutes % 60;
+  return `${hours}h ${minutes}m`;
+}
+
 function formatMinutesValueFromSeconds(totalSeconds) {
   const normalizedSec = Math.max(MANUAL_DURATION_MIN_SEC, Math.min(MANUAL_DURATION_MAX_SEC, Number(totalSeconds) || 0));
   const minutes = normalizedSec / 60;
@@ -168,6 +178,40 @@ function parseMinutesToSeconds(inputValue, fallbackSeconds = 0) {
   return clampNumber(roundedSeconds, MANUAL_DURATION_MIN_SEC, MANUAL_DURATION_MAX_SEC);
 }
 
+function parseLocalizedDecimal(inputValue) {
+  const normalizedInput = String(inputValue ?? '').trim().replace(',', '.');
+  if (normalizedInput.length === 0) {
+    return Number.NaN;
+  }
+  return Number.parseFloat(normalizedInput);
+}
+
+function parseHoursToMinutes(inputValue, fallbackMinutes = 0) {
+  const parsedHours = parseLocalizedDecimal(inputValue);
+  if (!Number.isFinite(parsedHours)) {
+    return clampNumber(fallbackMinutes, TIME_INTERVAL_MIN, TIME_INTERVAL_MAX);
+  }
+  const clampedHours = Math.min(TIME_INTERVAL_MAX / 60, Math.max(TIME_INTERVAL_MIN / 60, parsedHours));
+  return clampNumber(Math.round(clampedHours * 60), TIME_INTERVAL_MIN, TIME_INTERVAL_MAX);
+}
+
+function parseMinutesToRoundedSeconds(inputValue, fallbackSeconds = 0) {
+  const parsedMinutes = parseLocalizedDecimal(inputValue);
+  if (!Number.isFinite(parsedMinutes)) {
+    return clampNumber(fallbackSeconds, TIME_RUN_MIN_SEC, TIME_RUN_MAX_SEC);
+  }
+  const clampedMinutes = Math.min(TIME_RUN_MAX_SEC / 60, Math.max(TIME_RUN_MIN_SEC / 60, parsedMinutes));
+  return clampNumber(Math.round(clampedMinutes * 60), TIME_RUN_MIN_SEC, TIME_RUN_MAX_SEC);
+}
+
+function formatHoursValueFromMinutes(totalMinutes) {
+  const hours = Math.max(TIME_INTERVAL_MIN, Math.min(TIME_INTERVAL_MAX, Number(totalMinutes) || 0)) / 60;
+  if (Number.isInteger(hours)) {
+    return String(hours);
+  }
+  return hours.toFixed(2).replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1');
+}
+
 function isHomeModeDirty() {
   const selectedMode = normalizeIrrigationMode(pendingIrrigationMode);
   return isModeSelectionDirty() || isModeSettingsDirty(selectedMode);
@@ -185,7 +229,7 @@ function isModeSettingsDirty(mode) {
   }
   if (normalizedMode === 'TIME') {
     return pendingTimeIntervalMin !== persistedTimeIntervalMin
-      || pendingTimeRunDurationMin !== persistedTimeRunDurationMin;
+      || pendingTimeRunDurationSec !== persistedTimeRunDurationSec;
   }
   return false;
 }
@@ -289,7 +333,7 @@ function renderHomeModeControls() {
     pendingAutoStopPermille = Math.min(1000, pendingAutoStartPermille + 50);
   }
   pendingTimeIntervalMin = clampNumber(pendingTimeIntervalMin, TIME_INTERVAL_MIN, TIME_INTERVAL_MAX);
-  pendingTimeRunDurationMin = clampNumber(pendingTimeRunDurationMin, TIME_RUN_MIN, TIME_RUN_MAX);
+  pendingTimeRunDurationSec = clampNumber(pendingTimeRunDurationSec, TIME_RUN_MIN_SEC, TIME_RUN_MAX_SEC);
 
   const selectedMode = normalizeIrrigationMode(pendingIrrigationMode);
   const isModeDirty = isModeSelectionDirty();
@@ -374,10 +418,43 @@ function renderHomeModeControls() {
     autoStopMoisturePctInputEl.value = String(permilleToPercent(pendingAutoStopPermille));
   }
   if (timeIntervalMinInputEl && document.activeElement !== timeIntervalMinInputEl) {
-    timeIntervalMinInputEl.value = String(pendingTimeIntervalMin);
+    timeIntervalMinInputEl.value = formatHoursValueFromMinutes(pendingTimeIntervalMin);
   }
   if (timeRunDurationMinInputEl && document.activeElement !== timeRunDurationMinInputEl) {
-    timeRunDurationMinInputEl.value = String(pendingTimeRunDurationMin);
+    timeRunDurationMinInputEl.value = formatMinutesValueFromSeconds(pendingTimeRunDurationSec);
+  }
+  if (timeRunDurationHintEl) {
+    timeRunDurationHintEl.hidden = !showTimeConfig;
+    if (showTimeConfig) {
+      timeRunDurationHintEl.textContent = `Duration: ${formatMinutesSeconds(pendingTimeRunDurationSec)}`;
+    }
+  }
+  if (timeIntervalHintEl) {
+    timeIntervalHintEl.hidden = !showTimeConfig;
+    if (showTimeConfig) {
+      timeIntervalHintEl.textContent = `Interval: ${formatHoursMinutes(pendingTimeIntervalMin)}`;
+    }
+  }
+  if (timeScheduleHintEl) {
+    const isPersistedTimeMode = normalizeIrrigationMode(persistedIrrigationMode) === 'TIME';
+    const nextStartSec = window.__timeNextStartSec || 0;
+    const runRemainingSec = window.__timeRunRemainingSec || 0;
+    timeScheduleHintEl.hidden = !showTimeConfig;
+    if (showTimeConfig) {
+      let statusText = '';
+      if (!isModeDirty && !isSettingsDirty && isPersistedTimeMode) {
+        if (runRemainingSec > 0) {
+          statusText = `Watering now, next cycle in ${formatHoursMinutes(Math.round(nextStartSec / 60))}.`;
+        } else if (nextStartSec > 0) {
+          statusText = `Next watering in ${formatHoursMinutes(Math.round(nextStartSec / 60))}.`;
+        } else {
+          statusText = 'Schedule active.';
+        }
+      } else if (!isModeDirty && !isSettingsDirty) {
+        statusText = 'Schedule not active.';
+      }
+      timeScheduleHintEl.textContent = statusText;
+    }
   }
 }
 
@@ -391,7 +468,14 @@ function applyIrrigationConfig(config, allowOverridePending = true) {
     persistedAutoStopPermille = Math.min(1000, persistedAutoStartPermille + 50);
   }
   persistedTimeIntervalMin = readConfigNumber(config && config.timeIntervalMin, persistedTimeIntervalMin, TIME_INTERVAL_MIN, TIME_INTERVAL_MAX);
-  persistedTimeRunDurationMin = readConfigNumber(config && config.timeRunDurationMin, persistedTimeRunDurationMin, TIME_RUN_MIN, TIME_RUN_MAX);
+  persistedTimeRunDurationSec = readConfigNumber(
+    config && (typeof config.timeRunDurationSec !== 'undefined' ? config.timeRunDurationSec : Number(config.timeRunDurationMin) * 60),
+    persistedTimeRunDurationSec,
+    TIME_RUN_MIN_SEC,
+    TIME_RUN_MAX_SEC,
+  );
+  window.__timeNextStartSec = readConfigNumber(config && config.timeNextStartSec, 0, 0, TIME_INTERVAL_MAX * 60);
+  window.__timeRunRemainingSec = readConfigNumber(config && config.runRemainingSec, 0, 0, TIME_RUN_MAX_SEC);
   if (config && typeof config.manualActive !== 'undefined') {
     isManualIrrigationActive = Boolean(config.manualActive);
   }
@@ -407,7 +491,7 @@ function applyIrrigationConfig(config, allowOverridePending = true) {
     pendingAutoStartPermille = persistedAutoStartPermille;
     pendingAutoStopPermille = persistedAutoStopPermille;
     pendingTimeIntervalMin = persistedTimeIntervalMin;
-    pendingTimeRunDurationMin = persistedTimeRunDurationMin;
+    pendingTimeRunDurationSec = persistedTimeRunDurationSec;
   }
   renderHomeModeControls();
   setHomeManualStatus(
@@ -495,14 +579,14 @@ async function saveIrrigationConfig() {
       autoStartPermille: pendingAutoStartPermille,
       autoStopPermille: pendingAutoStopPermille,
       timeIntervalMin: pendingTimeIntervalMin,
-      timeRunDurationMin: pendingTimeRunDurationMin,
+      timeRunDurationSec: pendingTimeRunDurationSec,
     });
     persistedIrrigationMode = mode;
     persistedManualDurationSec = pendingManualDurationSec;
     persistedAutoStartPermille = pendingAutoStartPermille;
     persistedAutoStopPermille = pendingAutoStopPermille;
     persistedTimeIntervalMin = pendingTimeIntervalMin;
-    persistedTimeRunDurationMin = pendingTimeRunDurationMin;
+    persistedTimeRunDurationSec = pendingTimeRunDurationSec;
     renderHomeModeControls();
     setHomeModeStatus('Config saved.', false);
   } catch (error) {
@@ -1163,7 +1247,7 @@ if (autoStopMoisturePctInputEl) {
 
 if (timeIntervalMinInputEl) {
   timeIntervalMinInputEl.addEventListener('input', () => {
-    pendingTimeIntervalMin = clampNumber(Number(timeIntervalMinInputEl.value), TIME_INTERVAL_MIN, TIME_INTERVAL_MAX);
+    pendingTimeIntervalMin = parseHoursToMinutes(timeIntervalMinInputEl.value, pendingTimeIntervalMin);
     renderHomeModeControls();
     setHomeModeStatus(isHomeModeDirty() ? 'Unsaved changes.' : 'Config synced.', false);
   });
@@ -1171,7 +1255,7 @@ if (timeIntervalMinInputEl) {
 
 if (timeRunDurationMinInputEl) {
   timeRunDurationMinInputEl.addEventListener('input', () => {
-    pendingTimeRunDurationMin = clampNumber(Number(timeRunDurationMinInputEl.value), TIME_RUN_MIN, TIME_RUN_MAX);
+    pendingTimeRunDurationSec = parseMinutesToRoundedSeconds(timeRunDurationMinInputEl.value, pendingTimeRunDurationSec);
     renderHomeModeControls();
     setHomeModeStatus(isHomeModeDirty() ? 'Unsaved changes.' : 'Config synced.', false);
   });
