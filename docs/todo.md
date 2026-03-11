@@ -21,7 +21,11 @@
 - [ ] Battery-driven behavior: low battery thresholds, "critical" mode, messaging to head
   - [x] CONTROL battery telemetry and low-battery lockout flags reach HEAD via shared telemetry path
 - [ ] Control unit: duty-cycle listen vs active mode, heartbeat, command execution state machine
-- [ ] Head logic: command decisions (manual/web + automation), scheduling, irrigation state
+- [ ] Head logic: command state machine and remaining runtime semantics
+  - [x] Command decisions use sensor data
+  - [x] Manual/web commands are accepted as decision inputs
+  - [x] Time-based schedule decisions are implemented
+  - [x] Manual commands override automatic mode
 - [ ] Reliability: rejoin after head reboot, stale peer cleanup, registry maintenance
   - [x] Release smoke checklist (HEAD+2 SENSOR): pair -> reboot -> auto-restore -> telemetry ACK=OK
   - [x] Presence smoke checklist: node offline timeout log + online recovery log after return
@@ -247,14 +251,14 @@ Head networking mode = SoftAP always (local UI), STA hotspot only for upload (ma
 - [ ] Modes:
   - [ ] Idle duty-cycle listen works
   - [ ] Active mode works
-- [ ] Heartbeat:
+- [x] Heartbeat:
   - [x] Status sent periodically
   - [x] Head detects online/offline
 - [ ] Commands:
   - [x] START command works
   - [x] STOP command works
   - [ ] ACK messages correct
-- [ ] Safety:
+- [x] Safety:
   - [x] Pump OFF after reboot
 
 ### 8. Head Logic
@@ -266,11 +270,11 @@ Head networking mode = SoftAP always (local UI), STA hotspot only for upload (ma
   - [ ] STARTING
   - [ ] RUNNING
   - [ ] STOPPING
-- [ ] Decision inputs:
-  - [ ] Sensor data
-  - [ ] Manual commands
-  - [ ] Schedule
-- [ ] Manual commands override automatic mode
+- [x] Decision inputs:
+  - [x] Sensor data
+  - [x] Manual commands
+  - [x] Schedule
+- [x] Manual commands override automatic mode
 
 ### 9. Reliability
 
@@ -299,13 +303,13 @@ Head networking mode = SoftAP always (local UI), STA hotspot only for upload (ma
 
 **Done when:**
 
-- [ ] Status page shows:
+- [x] Status page shows:
   - [x] Devices list
   - [x] lastSeen
   - [x] battery
   - [x] moisture
   - [x] irrigation state
-- [ ] Controls:
+- [x] Controls:
   - [x] Start irrigation
   - [x] Stop irrigation
   - [x] Open pairing
