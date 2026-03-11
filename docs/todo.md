@@ -9,10 +9,10 @@
   - [x] Button + LED UX
   - [x] NVS persistence for paired state (Milestone 6: pair_node namespace, ver/paired/headMac)
   - [x] Safe rules: no accidental rebind; factory reset flow
-  - [ ] Multi-device pairing: head supports pairing/handling multiple nodes (SENSOR + CONTROL)
+  - [x] Multi-device pairing: head supports pairing/handling multiple nodes (SENSOR + CONTROL)
   - [x] NVS on HEAD: persist paired nodes registry (MAC/role/nodeId/lastSeen)
   - [x] NVS on HEAD: atomic registry save/load (single blob + CRC32)
-  - [ ] NVS on CONTROL: persist paired head state and restore after reboot
+  - [x] NVS on CONTROL: persist paired head state and restore after reboot
 - [ ] Base message definitions (telemetry, battery, cmd, cmd_ack), protocol versioning
 - [x] Sensor -> head telemetry (happy path) + ack policy + retries
 - [ ] Power management for sensor: deep sleep cycle, wake -> measure -> transmit -> sleep
@@ -139,9 +139,9 @@ Head networking mode = SoftAP always (local UI), STA hotspot only for upload (ma
     - [x] success:      1 long blink (1500 ON / 300 OFF once)
     - [x] error:        3 fast blinks (100 ON / 100 OFF ×3, repeat if persistent)
     - [x] factory reset: 6 rapid blinks (80 ON / 80 OFF ×6 once) + success
-- [ ] Functional
+- [x] Functional
   - [x] Unpaired node pairs in <10 seconds
-  - [ ] Node stores in NVS:
+  - [x] Node stores in NVS:
     - [x] paired flag
     - [x] headMAC
     - [x] nodeId
@@ -232,9 +232,9 @@ Head networking mode = SoftAP always (local UI), STA hotspot only for upload (ma
 
 **Done when:**
 
-- [ ] Thresholds:
-  - [ ] LOW threshold implemented
-  - [ ] CRITICAL threshold implemented
+- [x] Thresholds:
+  - [x] LOW/NEEDS_REPLACEMENT threshold implemented
+  - [x] CRITICAL threshold implemented
 - [ ] Sensor:
   - [ ] Sends low battery warning
   - [ ] Reduces activity
