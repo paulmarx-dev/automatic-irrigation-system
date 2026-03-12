@@ -1,0 +1,659 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<link rel="stylesheet" href="{{ url_for('static', filename='css/scales.css') }}">
+<script src="{{ url_for('static', filename='js/food-probe-component.js') }}"></script>
+<script src="{{ url_for('static', filename='js/shared-sse.js') }}"></script>
+
+<div class="tabs-box">
+    <button class="tab active" type="button" scale-id="big">
+        <div class="icon big mdi mdi-scale"></div>
+        <div>Platform Scales</div>
+    </button>
+    <button class="tab" type="button" scale-id="hangon_1">
+        <div class="icon mdi mdi-scale-balance"></div>
+        <div>Hanging Scales 1</div>
+    </button>
+    <button class="tab" type="button" scale-id="hangon_2">
+        <div class="icon mdi mdi-scale-balance"></div>
+        <div>Hanging Scales 2</div>
+    </button>
+    <button class="tab" type="button" scale-id="hangon_3">
+        <div class="icon mdi mdi-scale-balance"></div>
+        <div>Hanging Scales 3</div>
+    </button>
+</div>
+
+
+
+<div id="caption">
+</div>
+
+<!-- -->
+<!-- -->
+<!-- -->
+<!-- sensor display -->
+
+<div class="sensor-group">
+
+    <div class="weigth-loss">
+        <div class="header">WEIGHT LOSS</div>
+        <div class="value-container">
+            <div class="icon mdi mdi-arrow-down-bold-hexagon-outline"></div>
+            <div class="value" id="percentage">N/A</div>
+        </div>
+        <div class="days" id="days">N/A</div>
+    </div>
+
+    <div class="weight-info">
+        <div class="wi-line">
+            <div class="icon mdi mdi-calendar-today"></div>
+            <div class="wi-weight">
+                <div id="current-weight">N/A</div>
+                <div>Today</div>
+            </div>
+        </div>
+        <div class="wi-line">
+            <div class="icon mdi mdi-calendar-start"></div>
+            <div class="wi-weight">
+                <div id="initial-weight">N/A</div>
+                <div id="init-date">N/A</div>
+            </div>
+        </div>
+    </div>
+
+    <food-probe-component probe-id="4" color-code="#FFD700"></food-probe-component>
+    <food-probe-component probe-id="1" color-code="#FF6347" style="display:none"></food-probe-component>
+    <food-probe-component probe-id="2" color-code="#1E90FF" style="display:none"></food-probe-component>
+    <food-probe-component probe-id="3" color-code="#32CD32" style="display:none"></food-probe-component>
+
+</div>
+
+<div class="sensor-group">
+    <div id="graph-controls" style="margin: 10px 0; display: flex; flex-wrap: wrap; gap: 12px; align-items: center;">
+        <div>
+            <label>Run:</label>
+            <select id="run-select"></select>
+        </div>
+        <div>
+            <label>Start:</label>
+            <input type="datetime-local" id="range-start">
+        </div>
+        <div>
+            <label>End:</label>
+            <input type="datetime-local" id="range-end">
+        </div>
+        <button id="reset-range" class="button" type="button" style="padding:6px 10px; font-size:12px; width: unset;">Reset</button>
+        <div style="display:flex; gap:6px; align-items:center; font-size: 12px;">
+            <label><input type="checkbox" class="series-toggle" value="weight" checked> Weight</label>
+            <label><input type="checkbox" class="series-toggle" value="temperature" checked> Temp</label>
+            <label><input type="checkbox" class="series-toggle" value="target_temperature" checked> Target Temp</label>
+            <label><input type="checkbox" class="series-toggle" value="humidity" checked> Humidity</label>
+            <label><input type="checkbox" class="series-toggle" value="target_humidity" checked> Target Humidity</label>
+            <label><input type="checkbox" checked> <span id="product-probe-label">Product Probe (°C)</span></label>
+        </div>
+    </div>
+    <div id="graph-container" style="margin: 10px 0; width: 100%;">
+        <h3 id="graph-title">History</h3>
+        <div id="graph-coverage-note" style="display:none; font-size: 12px; color: #666; margin-bottom: 6px;"></div>
+        <div id="graph-wrapper" style="position: relative; min-height: 260px;">
+            <div id="graph-loading" style="display:none; position:absolute; inset:0; background: rgba(255,255,255,0.65); z-index:5; align-items:center; justify-content:center; font-size:13px; color:#333;">
+                Loading…
+            </div>
+            <div id="graph-coverage" style="display:none; position:absolute; inset:0; padding:8px 10px; font-size: 12px; color: #666; z-index:6; pointer-events:none; align-items:flex-start; justify-content:flex-start; background: transparent; border-radius:4px;"></div>
+            <canvas id="weightGraph" style="width:100%; min-height:260px;"></canvas>
+        </div>
+    </div>
+</div>
+
+<div class="sensor-group">
+    ACTIONS:
+</div>
+
+<div class="sensor-group">
+
+    <button class="button" type="button" id="tare-button">
+        <div class="icon big mdi mdi-restart"></div>
+        <div>Tare (Zero Container)</div>
+    </button>
+
+    <button class="button" type="button" id="calibration-button">
+        <div class="icon big mdi mdi-scale-unbalanced"></div>
+        <div>Hardware Calibration</div>
+    </button>
+
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+<!-- <script src="{{ url_for('static', filename='js/dynamic-poller-class.js') }}"></script> -->
+<script>
+    //
+    // init settings and variables
+    //
+    this.scaleId = null;
+    this.updateInterval = 5000;
+    this.initDate = "N/A";
+    this.percentage = "N/A";
+    this.currentWeight = "N/A";
+    this.initialWeight = "N/A";
+
+    // Function to initialize the settings based on the URL
+    function initializeScaleSettings() {
+        const currentUrl = window.location.href;
+        const scaleIdMatch = currentUrl.match(/\/products\/([\w_]+)/);
+        scaleId = scaleIdMatch ? scaleIdMatch[1] : "big"; // Default to "big" if no ID is found
+
+        const button = document.querySelector(`button[scale-id="${scaleId}"]`);
+
+        if (button) {
+            console.log(currentUrl, scaleIdMatch)
+            button.click();
+        } else {
+            console.warn(`No button found for scale ID: ${scaleId}`);
+        }
+    }
+
+    // Call the function on page load
+    document.addEventListener('DOMContentLoaded', initializeScaleSettings);
+
+
+
+
+    // event listener for buttons 
+    // switch tabs
+    const tabButtons = document.querySelectorAll('button.tab');
+    const foodProbes = document.querySelectorAll('food-probe-component');
+    tabButtons.forEach( (button, index) => {
+        button.addEventListener('click', () => {
+            // Remove the 'active' class from all buttons
+            tabButtons.forEach(btn => btn.classList.remove('active'));
+            foodProbes.forEach(probe => probe.style.display = 'none');
+            foodProbes[index].style.display = 'block';
+            console.log('Selected scale ID:', button.getAttribute('scale-id'));
+
+            // Add the 'active' class to the clicked button
+            button.classList.add('active');
+            this.scaleId = button.getAttribute('scale-id');
+            this.fetchWeightData();
+
+            updateProductProbeLabel();
+            loadHistory(); // Load graph for the selected scale
+
+            document.querySelector('#caption').textContent = button.querySelector('div:nth-of-type(2)').textContent;
+        });
+    });
+
+
+
+    //-----------------------------------------
+    //-----------------------------------------
+    //-----------------------------------------
+    //-----------------------------------------
+
+
+
+    async function fetchWeightData() {
+        try {
+            const response = await fetch(`/api/get-scale-data`);
+            const data = await response.json();
+            const scaleData = data.tracking ? data.tracking[this.scaleId] : null;
+            updateUIFromScaleData(scaleData);
+        } catch (error) {
+            console.error("Error fetching scale data:", error);
+        }
+    }
+
+    // Track SSE updates; fallback poll only if SSE stale (30s)
+    this.lastSSEUpdate = 0;
+    this.fallbackCheckId = setInterval(() => {
+        const now = Date.now();
+        if (now - this.lastSSEUpdate > 30000 && !window.sharedSSE?.connected) {
+            console.warn('SSE stale or unavailable, fetching fallback data');
+            this.fetchWeightData();
+        }
+    }, 30000);
+
+    // SSE: subscribe to weight_reading for live updates
+    function handleWeightEvent(payload) {
+        try {
+            if (!payload || !payload.tracking) return;
+            this.lastSSEUpdate = Date.now();
+            const scaleData = payload.tracking[this.scaleId];
+            updateUIFromScaleData(scaleData);
+        } catch (e) {
+            console.error('Error handling SSE weight_reading:', e);
+        }
+    }
+
+    // Shared UI updater for both SSE and fallback fetch
+    function updateUIFromScaleData(scaleData) {
+        if (!scaleData || !scaleData.connected) {
+            this.connected = false;
+            this.percentage = "N/A";
+            this.currentWeight = "N/A";
+            this.initialWeight = "N/A";
+            this.initDate = "N/A";
+        } else {
+            this.connected = true;
+            const pct = (scaleData.weight_loss_percent === null || scaleData.weight_loss_percent === undefined || scaleData.empty)
+                ? 'N/A'
+                : `${Number(scaleData.weight_loss_percent).toFixed(1)}%`;
+            this.percentage = pct;
+            this.currentWeight = (typeof scaleData.current_weight === 'number')
+                ? `${scaleData.current_weight.toFixed(1)}g`
+                : (scaleData.current_weight !== null && scaleData.current_weight !== undefined ? `${scaleData.current_weight}g` : 'N/A');
+            this.initialWeight = (typeof scaleData.initial_weight === 'number')
+                ? `${scaleData.initial_weight.toFixed(1)}g`
+                : (scaleData.initial_weight !== null && scaleData.initial_weight !== undefined ? `${scaleData.initial_weight}g` : 'N/A');
+            this.initDate = scaleData.initial_weight_timestamp ?? "N/A";
+        }
+
+        document.querySelector('#percentage').innerText = this.percentage;
+        document.querySelector('#current-weight').innerText = this.currentWeight;
+        document.querySelector('#initial-weight').innerText = this.initialWeight;
+        document.querySelector('#init-date').innerText = this.initDate !== 'N/A' ? ('on ' + formatDate(this.initDate)) : 'N/A';
+        document.querySelector('#days').innerText = this.initDate !== 'N/A' ? daysBetween(this.initDate) : 'N/A';
+    }
+    if (window.sharedSSE) {
+        window.sharedSSE.subscribe('weight_reading', handleWeightEvent.bind(this));
+    } else {
+        // SSE unavailable, fetch immediately
+        this.fetchWeightData();
+    }
+
+    function formatDate(isoOrEpoch) {
+        const date = typeof isoOrEpoch === 'number' ? new Date(isoOrEpoch * 1000) : new Date(isoOrEpoch);
+        const day = String(date.getDate()).padStart(2, '0'); // Get day, padded to 2 digits
+        const month = String(date.getMonth() + 1).padStart(2, '0'); // Get month (0-based, so +1)
+        const year = date.getFullYear(); // Get year
+
+        return `${day}.${month}.${year}`; // Format as DD.MM.YYYY
+    }
+
+    function daysBetween(isoOrEpoch) {
+        const givenDate = typeof isoOrEpoch === 'number' ? new Date(isoOrEpoch * 1000) : new Date(isoOrEpoch);
+        const currentDate = new Date();
+
+        // Normalize both dates to midnight (set hours, minutes, seconds, and ms to 0)
+        givenDate.setHours(0, 0, 0, 0);
+        currentDate.setHours(0, 0, 0, 0);
+
+        // Calculate the difference in milliseconds
+        const diffInMilliseconds = currentDate - givenDate;
+
+        // Convert milliseconds to days
+        const diffInDays = diffInMilliseconds / (1000 * 60 * 60 * 24);
+
+        // Check if it's today
+        if (diffInDays === 0) {
+            return "since today";
+        }
+
+        if (diffInDays === 1) {
+            return "since 1 day";
+        }
+
+        return "since " + Math.floor(diffInDays) + " days";
+    }
+
+
+</script>
+
+<script>
+    // calibration button - navigate to calibration wizard with scale_id
+    document.getElementById('calibration-button').addEventListener('click', function () {
+        window.location.href = `/calibration?scale_id=${scaleId}`;
+    });
+
+    // tare button - zeros the current scale for container weight
+    document.getElementById('tare-button').addEventListener('click', function () {
+        // Confirm with the user
+        const confirmTare = confirm(
+            'Tare will set the current weight as zero offset (for container weight).\n\n' +
+            'The scale factor will remain unchanged.\n\n' +
+            'Continue?'
+        );
+        if (!confirmTare) {
+            return;
+        }
+
+        // Send an API request to tare the scales
+        fetch(`/api/tare-scales`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ scale_id: scaleId })
+        })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Failed to tare the scale');
+                }
+                return response.json();
+            })
+            .then(data => {
+                notificator.notify(`Scale "${data.scale_id}" tared successfully! New offset: ${data.offset}`);
+            })
+            .catch(error => {
+                console.error(error);
+                notificator.error('An error occurred while taring the scale.');
+            });
+    });
+
+
+</script>
+
+
+
+
+
+<script src="{{ url_for('static', filename='js/chart.js') }}"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3"></script>
+<script>
+    // --- History graph ---
+    const seriesColors = {
+        weight: 'rgba(75, 192, 192, 1)',
+        temperature: 'rgba(255, 99, 132, 1)',
+        humidity: 'rgba(54, 162, 235, 1)',
+        target_temperature: 'rgba(255, 159, 64, 1)',
+        target_humidity: 'rgba(153, 102, 255, 1)',
+        probe1_temp: 'rgba(0, 200, 83, 1)',
+        probe2_temp: 'rgba(0, 150, 136, 1)',
+        probe3_temp: 'rgba(124, 77, 255, 1)',
+        probe4_temp: 'rgba(255, 99, 71, 1)',
+    };
+
+    const probeByScale = {
+        big: 'probe4_temp',
+        hangon_1: 'probe1_temp',
+        hangon_2: 'probe2_temp',
+        hangon_3: 'probe3_temp',
+    };
+
+    function getProductProbeField() {
+        return probeByScale[scaleId] || null;
+    }
+
+    function getProductProbeLabel() {
+        const labels = {
+            big: 'Probe 4',
+            hangon_1: 'Probe 1',
+            hangon_2: 'Probe 2',
+            hangon_3: 'Probe 3',
+        };
+        return labels[scaleId] || 'Probe';
+    }
+
+    function updateProductProbeLabel() {
+        const span = document.getElementById('product-probe-label');
+        if (!span) return;
+        span.textContent = `Product Probe (${getProductProbeLabel()})`;
+    }
+
+    function getSelectedSeries() {
+        return Array.from(document.querySelectorAll('.series-toggle'))
+            .filter(cb => cb.checked)
+            .map(cb => cb.value);
+    }
+
+    function isoLocal(ts) {
+        const d = new Date(ts * 1000);
+        const off = d.getTimezoneOffset();
+        const local = new Date(d.getTime() - off * 60000);
+        return local.toISOString().slice(0, 16);
+    }
+
+    function formatLocalEU(ts) {
+        const d = new Date(ts * 1000);
+        const pad = (v) => String(v).padStart(2, '0');
+        return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    }
+
+    async function fetchRuns(limit = 5) {
+        try {
+            const res = await fetch(`/api/runs?limit=${limit}`);
+            if (!res.ok) return [];
+            return await res.json();
+        } catch (e) {
+            console.error('runs fetch failed', e);
+            return [];
+        }
+    }
+
+    async function populateRuns() {
+        const sel = document.getElementById('run-select');
+        sel.innerHTML = '';
+        const optNone = document.createElement('option');
+        optNone.value = '';
+        optNone.textContent = 'Custom / idle';
+        sel.appendChild(optNone);
+        const runs = await fetchRuns(5);
+        runs.forEach(r => {
+            const o = document.createElement('option');
+            o.value = r.id;
+            const name = r.program_name || `Program ${r.program_id || ''}`;
+            const status = r.status || '';
+            o.textContent = `${name} (#${r.id}) [${status}]`;
+            sel.appendChild(o);
+        });
+    }
+
+    async function fetchHistory(scaleId, runId, start, end, fields) {
+        const params = new URLSearchParams();
+        params.set('scale_id', scaleId);
+        if (runId) params.set('run_id', runId);
+        if (start) params.set('start', start);
+        if (end) params.set('end', end);
+        if (fields && fields.length) params.set('fields', fields.join(','));
+        try {
+            const res = await fetch(`/api/history?${params.toString()}`);
+            if (!res.ok) throw new Error('history fetch failed');
+            return await res.json();
+        } catch (e) {
+            console.error('history error', e);
+            return null;
+        }
+    }
+
+    function renderHistory(history, fields, productProbeField) {
+        if (!history) return;
+        const ctx = document.getElementById('weightGraph').getContext('2d');
+        const graphTitle = document.getElementById('graph-title');
+        graphTitle.textContent = 'History';
+
+        if (window.weightGraph && typeof window.weightGraph.destroy === 'function') {
+            window.weightGraph.destroy();
+        }
+
+        const data = (history.data || []).map(d => ({
+            t: d.ts_epoch ? d.ts_epoch * 1000 : new Date(d.timestamp).getTime(),
+            ...d,
+        }));
+
+        const datasets = [];
+        const addLine = (key, label, axis, stepped=false) => {
+            if (!fields.includes(key)) return;
+            datasets.push({
+                label,
+                data: data.map(p => ({ x: p.t, y: p[key] })).filter(p => p.y !== null && p.y !== undefined),
+                borderColor: seriesColors[key] || 'rgba(100,100,100,1)',
+                backgroundColor: (seriesColors[key] || 'rgba(100,100,100,1)').replace('1)', '0.1)'),
+                borderWidth: 2,
+                tension: stepped ? 0 : 0.2,
+                stepped: stepped,
+                yAxisID: axis,
+                pointRadius: 0,
+            });
+        };
+
+        addLine('weight', 'Weight (g)', 'yWeight');
+        addLine('temperature', 'Temp (°C)', 'yEnv');
+        addLine('humidity', 'Humidity (%RH)', 'yEnv');
+        addLine('target_temperature', 'Target Temp (°C)', 'yEnv', true);
+        addLine('target_humidity', 'Target Humidity (%RH)', 'yEnv', true);
+        addLine(productProbeField, `${getProductProbeLabel()} (°C)`, 'yEnv');
+
+        window.weightGraph = new Chart(ctx, {
+            type: 'line',
+            data: { datasets },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                interaction: { mode: 'nearest', intersect: false },
+                scales: {
+                    x: {
+                        type: 'time',
+                        time: { tooltipFormat: 'yyyy-MM-dd HH:mm' },
+                        ticks: { source: 'auto' },
+                    },
+                    yWeight: {
+                        position: 'left',
+                        title: { display: true, text: 'Weight (g)' },
+                    },
+                    yEnv: {
+                        position: 'right',
+                        title: { display: true, text: 'Temp/Humidity' },
+                        grid: { drawOnChartArea: false },
+                    },
+                },
+                plugins: {
+                    legend: { display: true, position: 'top' },
+                },
+            },
+        });
+    }
+
+    async function loadHistory() {
+        const runId = document.getElementById('run-select').value || null;
+        const startVal = document.getElementById('range-start').value;
+        const endVal = document.getElementById('range-end').value;
+        const includeProductProbe = document.getElementById('product-probe-toggle').checked;
+        const productProbeField = includeProductProbe ? getProductProbeField() : null;
+        const fields = getSelectedSeries();
+        if (productProbeField) {
+            fields.push(productProbeField);
+        }
+
+        const loadingEl = document.getElementById('graph-loading');
+        const coverageEl = document.getElementById('graph-coverage');
+        const coverageNoteEl = document.getElementById('graph-coverage-note');
+        if (loadingEl) loadingEl.style.display = 'flex';
+        if (coverageEl) coverageEl.style.display = 'none';
+        if (coverageNoteEl) coverageNoteEl.style.display = 'none';
+
+        let history = null;
+        try {
+            history = await fetchHistory(
+                scaleId,
+                runId,
+                startVal ? new Date(startVal).toISOString() : null,
+                endVal ? new Date(endVal).toISOString() : null,
+                fields
+            );
+        } finally {
+            if (loadingEl) loadingEl.style.display = 'none';
+        }
+        if (!history) {
+            if (coverageEl) {
+                coverageEl.textContent = 'No data in range';
+                coverageEl.style.color = '#aa0000';
+                coverageEl.style.display = 'flex';
+                coverageEl.style.alignItems = 'center';
+                coverageEl.style.justifyContent = 'center';
+                coverageEl.style.background = 'rgba(255,255,255,0.15)';
+            }
+            if (coverageNoteEl) coverageNoteEl.style.display = 'none';
+            return;
+        }
+
+        // Find actual data coverage (first/last point) to drive defaults
+        let dataMinTs = null;
+        let dataMaxTs = null;
+        if (history.data && history.data.length) {
+            history.data.forEach(d => {
+                const ts = d.ts_epoch || (d.timestamp ? new Date(d.timestamp).getTime() / 1000 : null);
+                if (ts === null) return;
+                dataMinTs = dataMinTs === null ? ts : Math.min(dataMinTs, ts);
+                dataMaxTs = dataMaxTs === null ? ts : Math.max(dataMaxTs, ts);
+            });
+        }
+
+        const hasData = history.data && history.data.length > 0;
+        if (hasData && dataMinTs !== null && dataMaxTs !== null) {
+            if (coverageNoteEl) {
+                coverageNoteEl.textContent = `Data covers ${formatLocalEU(dataMinTs)} to ${formatLocalEU(dataMaxTs)}`;
+                coverageNoteEl.style.color = '#666';
+                coverageNoteEl.style.display = 'block';
+            }
+            if (coverageEl) coverageEl.style.display = 'none';
+        } else {
+            if (coverageEl) {
+                coverageEl.textContent = 'No data in range';
+                coverageEl.style.color = '#aa0000';
+                coverageEl.style.display = 'flex';
+                coverageEl.style.alignItems = 'center';
+                coverageEl.style.justifyContent = 'center';
+                coverageEl.style.background = 'rgba(255,255,255,0.15)';
+            }
+            if (coverageNoteEl) coverageNoteEl.style.display = 'none';
+        }
+
+        // set defaults in inputs if empty
+        if (!startVal) {
+            const ts = dataMinTs !== null ? dataMinTs : history.start;
+            if (ts) {
+                document.getElementById('range-start').value = isoLocal(ts);
+            }
+        }
+        if (!endVal) {
+            const ts = dataMaxTs !== null ? dataMaxTs : history.end;
+            if (ts) {
+                document.getElementById('range-end').value = isoLocal(ts);
+            }
+        }
+
+        renderHistory(history, fields, productProbeField);
+    }
+
+    document.getElementById('run-select').addEventListener('change', () => {
+        // Clear manual dates when selecting a run
+        if (document.getElementById('run-select').value) {
+            document.getElementById('range-start').value = '';
+            document.getElementById('range-end').value = '';
+        }
+        loadHistory();
+    });
+    document.querySelectorAll('.series-toggle').forEach(cb => {
+        cb.addEventListener('change', loadHistory);
+    });
+    document.getElementById('product-probe-toggle').addEventListener('change', loadHistory);
+    document.getElementById('range-start').addEventListener('change', loadHistory);
+    document.getElementById('range-end').addEventListener('change', loadHistory);
+    document.getElementById('reset-range').addEventListener('click', () => {
+        document.getElementById('run-select').value = '';
+        document.getElementById('range-start').value = '';
+        document.getElementById('range-end').value = '';
+        loadHistory();
+    });
+
+    // Initial load
+    populateRuns().then(() => {
+        updateProductProbeLabel();
+        loadHistory();
+    });
+
+</script>
+
+
+{% endblock %}

@@ -13,6 +13,7 @@
 
     <nav class="tabs" aria-label="Main sections">
       <button type="button" class="tab-btn active" data-tab="home">Home</button>
+      <button type="button" class="tab-btn" data-tab="stats">Stats</button>
       <button type="button" class="tab-btn" data-tab="sensors">Units</button>
       <button type="button" class="tab-btn" data-tab="unit">This Unit</button>
     </nav>
@@ -73,8 +74,17 @@
           <button type="button" id="manualStopBtn" class="ghost" disabled>Stop watering</button>
         </div>
         <p id="homeManualStatus" class="home-mode-status">Manual watering inactive.</p>
-        <p id="homeControlLockoutStatus" class="home-mode-status">Control battery lockout: unknown.</p>
+        <p id="homeControlLockoutStatus" class="home-mode-status">Control status: unknown.</p>
       </form>
+    </section>
+
+    <section class="card tab-panel" id="tabStats" data-panel="stats">
+      <h2>Stats</h2>
+      <p class="sub">Track exports for external analysis. Graphs will be added here later.</p>
+      <div class="home-export-actions">
+        <button type="button" id="trackExportCsvBtn" class="ghost">Export track CSV</button>
+      </div>
+      <p id="trackExportStatus" class="home-mode-status">Track export is ready.</p>
     </section>
 
     <section class="card tab-panel" id="tabSensors" data-panel="sensors">

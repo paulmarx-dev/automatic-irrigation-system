@@ -32,6 +32,8 @@ const timeIntervalHintEl = document.getElementById('timeIntervalHint');
 const timeScheduleHintEl = document.getElementById('timeScheduleHint');
 const homeManualStatusEl = document.getElementById('homeManualStatus');
 const homeControlLockoutStatusEl = document.getElementById('homeControlLockoutStatus');
+const trackExportCsvBtnEl = document.getElementById('trackExportCsvBtn');
+const trackExportStatusEl = document.getElementById('trackExportStatus');
 const unitApSsidEl = document.getElementById('unitApSsid');
 const unitFirmwareEl = document.getElementById('unitFirmware');
 const unitUptimeEl = document.getElementById('unitUptime');
@@ -64,6 +66,8 @@ let persistedTimeRunDurationSec = 300;
 let pendingTimeRunDurationSec = 300;
 let isManualIrrigationActive = false;
 let isControlLowBatteryLockoutActive = false;
+let controlAvailabilityStatus = 'not_paired';
+let manualStartBlockedReason = 'control_not_paired';
 let manualRunRemainingSec = 0;
 let timeNextStartRemainingSec = 0;
 let timeRunRemainingSec = 0;
@@ -81,6 +85,7 @@ const TIME_RUN_MAX_SEC = 600;
 const CAL_PROMPT_TIMEOUT_MS = 20000;
 const CAL_ERROR_HIDE_MS = 5000;
 const CAL_INFO_HIDE_MS = 5000;
+let latestSummaryUptimeSec = null;
 
 function render(el, data) {
   if (!el) {
@@ -300,35 +305,75 @@ function setHomeControlLockoutStatus(text, isError = false) {
   homeControlLockoutStatusEl.classList.toggle('error', isError);
 }
 
-function updateHomeControlLockoutStatus(nodes) {
-  if (!Array.isArray(nodes) || nodes.length === 0) {
-    isControlLowBatteryLockoutActive = false;
-    setHomeControlLockoutStatus('Control battery lockout: unknown.', false);
+function setTrackExportStatus(text, isError = false) {
+  if (!trackExportStatusEl) {
     return;
   }
+  trackExportStatusEl.textContent = text;
+  trackExportStatusEl.classList.toggle('error', isError);
+}
 
-  const controlNode = nodes.find((node) => String(node && node.role ? node.role : '').toUpperCase() === 'CONTROL');
-  if (!controlNode) {
-    isControlLowBatteryLockoutActive = false;
-    setHomeControlLockoutStatus('Control battery lockout: no control unit.', false);
+function buildTrackExportFileName() {
+  const now = new Date();
+  const pad = (value) => String(value).padStart(2, '0');
+  const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+  const uptimePart = Number.isFinite(latestSummaryUptimeSec) ? `_uptime${Math.floor(latestSummaryUptimeSec)}s` : '';
+  return `track_export_${stamp}${uptimePart}.csv`;
+}
+
+async function exportTrackCsv() {
+  if (trackExportCsvBtnEl) {
+    trackExportCsvBtnEl.disabled = true;
+  }
+  setTrackExportStatus('Preparing CSV export...', false);
+
+  try {
+    const response = await fetch('/api/track/export.csv', {
+      method: 'GET',
+      cache: 'no-store',
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const blob = await response.blob();
+    const fileName = buildTrackExportFileName();
+    const blobUrl = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = blobUrl;
+    anchor.download = fileName;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(blobUrl);
+
+    setTrackExportStatus(`CSV exported: ${fileName}`, false);
+  } catch (error) {
+    setTrackExportStatus(`CSV export failed: ${error.message}`, true);
+  } finally {
+    if (trackExportCsvBtnEl) {
+      trackExportCsvBtnEl.disabled = false;
+    }
+  }
+}
+
+function updateControlAvailabilityStatus() {
+  isControlLowBatteryLockoutActive = controlAvailabilityStatus === 'battery_lockout';
+
+  if (controlAvailabilityStatus === 'online') {
+    setHomeControlLockoutStatus('Control status: online. Wake ETA unavailable (sleep policy not defined).', false);
     return;
   }
-
-  const state = String(controlNode.state || '').toUpperCase();
-  const lockout = String(controlNode.irrigationLockout || 'NONE').toUpperCase();
-  isControlLowBatteryLockoutActive = lockout === 'LOW_BATTERY';
-
-  if (lockout === 'LOW_BATTERY') {
-    setHomeControlLockoutStatus('Control battery lockout: active (irrigation blocked).', true);
+  if (controlAvailabilityStatus === 'battery_lockout') {
+    setHomeControlLockoutStatus('Control status: battery lockout. Watering blocked. Wake ETA unavailable (sleep policy not defined).', true);
     return;
   }
-
-  if (state === 'OFFLINE') {
-    setHomeControlLockoutStatus('Control battery lockout: unknown (control offline).', true);
+  if (controlAvailabilityStatus === 'offline') {
+    setHomeControlLockoutStatus('Control status: offline. Watering blocked. Wake ETA unavailable (sleep policy not defined).', true);
     return;
   }
-
-  setHomeControlLockoutStatus('Control battery lockout: not active.', false);
+  setHomeControlLockoutStatus('Control status: not paired. Watering blocked. Wake ETA unavailable (sleep policy not defined).', true);
 }
 
 function setUnitConfigStatus(text, isError = false) {
@@ -421,7 +466,8 @@ function renderHomeModeControls() {
 
   if (manualStartBtnEl && manualStopBtnEl) {
     const secondsLeft = Math.max(0, Math.floor(manualRunRemainingSec));
-    manualStartBtnEl.disabled = !showManualActions || isManualIrrigationActive || isControlLowBatteryLockoutActive;
+    const isStartBlocked = manualStartBlockedReason !== 'none';
+    manualStartBtnEl.disabled = !showManualActions || isManualIrrigationActive || isStartBlocked;
     manualStartBtnEl.textContent = isManualIrrigationActive
       ? `Watering ${secondsLeft} sec`
       : 'Start watering';
@@ -538,6 +584,8 @@ function applyIrrigationConfig(config, allowOverridePending = true) {
   if (config && typeof config.manualActive !== 'undefined') {
     isManualIrrigationActive = Boolean(config.manualActive);
   }
+  controlAvailabilityStatus = String(config && config.control && config.control.status ? config.control.status : 'not_paired').toLowerCase();
+  manualStartBlockedReason = String(config && config.manualBlockedReason ? config.manualBlockedReason : 'control_not_paired').toLowerCase();
   manualRunRemainingSec = readConfigNumber(config && config.runRemainingSec, manualRunRemainingSec, 0, MANUAL_DURATION_MAX_SEC);
   if (!isManualIrrigationActive) {
     manualRunRemainingSec = 0;
@@ -552,6 +600,7 @@ function applyIrrigationConfig(config, allowOverridePending = true) {
     pendingTimeIntervalMin = persistedTimeIntervalMin;
     pendingTimeRunDurationSec = persistedTimeRunDurationSec;
   }
+  updateControlAvailabilityStatus();
   renderHomeModeControls();
   setHomeManualStatus(
     isManualIrrigationActive
@@ -745,6 +794,7 @@ function renderHomeSummary(summary) {
   const pairingOpen = Boolean(summary.pairingOpen);
   const pairingSec = Number(summary.pairingRemainingSec);
   const uptimeSec = Number(summary.uptimeSec);
+  latestSummaryUptimeSec = Number.isFinite(uptimeSec) ? uptimeSec : null;
 
   if (homeOnlineEl) {
     homeOnlineEl.textContent = `${online}/${total}`;
@@ -837,8 +887,14 @@ async function closePairingWindow() {
 }
 
 async function startManualIrrigation() {
-  if (isControlLowBatteryLockoutActive) {
-    setHomeManualStatus('Watering blocked: control battery lockout is active.', true, 5000);
+  if (manualStartBlockedReason !== 'none') {
+    if (manualStartBlockedReason === 'control_battery_lockout') {
+      setHomeManualStatus('Watering blocked: control battery lockout is active.', true, 5000);
+    } else if (manualStartBlockedReason === 'control_offline') {
+      setHomeManualStatus('Watering blocked: control is offline.', true, 5000);
+    } else {
+      setHomeManualStatus('Watering blocked: control is not paired.', true, 5000);
+    }
     return;
   }
 
@@ -1238,7 +1294,6 @@ async function tick() {
       );
     }
     applyUnitStatus(unitStatus, !unitNameSaveBtnEl || unitNameSaveBtnEl.disabled);
-    updateHomeControlLockoutStatus(latestNodes);
     syncPairingCountdown(webStatus);
     renderNodes(nodes);
     reconcileCalibrationState();
@@ -1257,7 +1312,7 @@ async function tick() {
     }
     setHomeModeStatus(`Config fetch error: ${error}`, true);
     setHomeManualStatus(`Manual control unavailable: ${error}`, true);
-    setHomeControlLockoutStatus(`Control battery lockout unavailable: ${error}`, true);
+    setHomeControlLockoutStatus(`Control availability unavailable: ${error}`, true);
     activeCalibration = null;
     calibrationStateByNode.clear();
     renderCalibrationBanner();
@@ -1499,5 +1554,11 @@ if (addSensorBtn) {
 if (closePairingBtn) {
   closePairingBtn.addEventListener('click', async () => {
     await closePairingWindow();
+  });
+}
+
+if (trackExportCsvBtnEl) {
+  trackExportCsvBtnEl.addEventListener('click', async () => {
+    await exportTrackCsv();
   });
 }

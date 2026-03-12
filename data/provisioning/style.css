@@ -124,6 +124,13 @@ body {
   flex-wrap: wrap;
 }
 
+.home-export-actions {
+  margin-top: 10px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .home-manual-actions .watering-active {
   background: #2f9e44;
 }

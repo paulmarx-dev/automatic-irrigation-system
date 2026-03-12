@@ -14,6 +14,7 @@
 #include "pairing.h"
 #include "protocol.h"
 #include "telemetry.h"
+#include "track_storage.h"
 
 namespace {
 
@@ -269,8 +270,15 @@ static bool computeAverageOnlineSensorMoisture(uint16_t* outPermille)
   return true;
 }
 
-static bool isControlLowBatteryLockoutActive()
+struct ControlAvailabilitySnapshot {
+  const char* status;
+  const char* manualBlockedReason;
+  bool lowBatteryLockoutActive;
+};
+
+static ControlAvailabilitySnapshot computeControlAvailabilitySnapshot()
 {
+  ControlAvailabilitySnapshot snapshot = {"not_paired", "control_not_paired", false};
   TelemetryHeadNodePresence nodes[8] = {};
   const uint8_t count = telemetryHeadGetPresence(nodes, 8);
   for (uint8_t i = 0; i < count; ++i) {
@@ -278,9 +286,26 @@ static bool isControlLowBatteryLockoutActive()
     if (!node.isControl) {
       continue;
     }
-    return node.lowBatteryLockout;
+
+    if (node.lowBatteryLockout) {
+      snapshot.status = "battery_lockout";
+      snapshot.manualBlockedReason = "control_battery_lockout";
+      snapshot.lowBatteryLockoutActive = true;
+      return snapshot;
+    }
+
+    if (node.state == TELEMETRY_HEAD_NODE_ONLINE) {
+      snapshot.status = "online";
+      snapshot.manualBlockedReason = "none";
+      return snapshot;
+    }
+
+    snapshot.status = "offline";
+    snapshot.manualBlockedReason = "control_offline";
+    return snapshot;
   }
-  return false;
+
+  return snapshot;
 }
 
 static void stopIrrigation(const char* reason)
@@ -388,6 +413,103 @@ static bool parseUint16Arg(const char* key, uint16_t* outValue)
 
   *outValue = static_cast<uint16_t>(parsed);
   return true;
+}
+
+static bool parseSizeArg(const char* key, size_t* outValue)
+{
+  if (!key || !outValue || !s_server.hasArg(key)) {
+    return false;
+  }
+
+  const String value = s_server.arg(key);
+  char* end = nullptr;
+  const unsigned long parsed = strtoul(value.c_str(), &end, 10);
+  if (end == value.c_str() || !end || *end != '\0') {
+    return false;
+  }
+
+  *outValue = static_cast<size_t>(parsed);
+  return true;
+}
+
+static void onTrackExportCsvApi()
+{
+  const size_t total = trackStorageSize();
+  size_t offset = 0;
+  size_t limit = total;
+
+  if (s_server.hasArg("offset") && !parseSizeArg("offset", &offset)) {
+    s_server.send(400, "application/json", "{\"ok\":0,\"error\":\"invalid_offset\"}");
+    return;
+  }
+  if (s_server.hasArg("limit") && !parseSizeArg("limit", &limit)) {
+    s_server.send(400, "application/json", "{\"ok\":0,\"error\":\"invalid_limit\"}");
+    return;
+  }
+
+  if (offset > total) {
+    offset = total;
+  }
+  const size_t available = total - offset;
+  if (limit > available) {
+    limit = available;
+  }
+
+  s_server.sendHeader("Cache-Control", "no-store");
+  s_server.sendHeader("Content-Disposition", "attachment; filename=track_export.csv");
+  s_server.setContentLength(CONTENT_LENGTH_UNKNOWN);
+  s_server.send(200, "text/csv; charset=utf-8", "");
+
+  char line[256] = {0};
+  (void)snprintf(line, sizeof(line), "# head_uptime_ms=%lu\n", static_cast<unsigned long>(millis()));
+  s_server.sendContent(line);
+  (void)snprintf(line, sizeof(line), "# total_records=%u\n", static_cast<unsigned>(total));
+  s_server.sendContent(line);
+  (void)snprintf(line, sizeof(line), "# offset=%u\n", static_cast<unsigned>(offset));
+  s_server.sendContent(line);
+  (void)snprintf(line, sizeof(line), "# limit=%u\n", static_cast<unsigned>(limit));
+  s_server.sendContent(line);
+  s_server.sendContent("seq,ts_ms,node_id,telemetry_seq,moisture_permille,moisture_raw_mv,battery_raw_mv,battery_est_mv,flags,mac\n");
+
+  static constexpr size_t CSV_CHUNK = 64;
+  TrackRecord buffer[CSV_CHUNK] = {};
+  size_t emitted = 0;
+
+  while (emitted < limit) {
+    const size_t chunkMax = ((limit - emitted) < CSV_CHUNK) ? (limit - emitted) : CSV_CHUNK;
+    const size_t copied = trackStorageCopyWindow(buffer, chunkMax, offset + emitted);
+    if (copied == 0) {
+      break;
+    }
+
+    for (size_t i = 0; i < copied; ++i) {
+      const TrackRecord& rec = buffer[i];
+      (void)snprintf(
+          line,
+          sizeof(line),
+          "%lu,%lu,%u,%u,%u,%u,%u,%u,%u,%02X:%02X:%02X:%02X:%02X:%02X\n",
+          static_cast<unsigned long>(rec.seq),
+          static_cast<unsigned long>(rec.tsMs),
+          static_cast<unsigned>(rec.nodeId),
+          static_cast<unsigned>(rec.telemetrySeq),
+          static_cast<unsigned>(rec.moisturePermille),
+          static_cast<unsigned>(rec.moistureRawMv),
+          static_cast<unsigned>(rec.batteryRawMv),
+          static_cast<unsigned>(rec.batteryEstMv),
+          static_cast<unsigned>(rec.flags),
+          rec.mac[0],
+          rec.mac[1],
+          rec.mac[2],
+          rec.mac[3],
+          rec.mac[4],
+          rec.mac[5]);
+      s_server.sendContent(line);
+    }
+
+    emitted += copied;
+  }
+
+  s_server.sendContent("");
 }
 
 static bool sendDesiredIrrigationState()
@@ -757,6 +879,7 @@ static void onSensorCalibrateApi()
 static void onIrrigationConfigGetApi()
 {
   const uint32_t nowMs = millis();
+  const ControlAvailabilitySnapshot controlSnapshot = computeControlAvailabilitySnapshot();
   uint32_t runRemainingSec = 0;
   if (s_manualIrrigationActive && s_manualRunDeadlineMs != 0 && (int32_t)(s_manualRunDeadlineMs - nowMs) > 0) {
     runRemainingSec = static_cast<uint32_t>(s_manualRunDeadlineMs - nowMs) / 1000UL;
@@ -767,11 +890,11 @@ static void onIrrigationConfigGetApi()
     timeNextStartSec = static_cast<uint32_t>(s_timeNextStartMs - nowMs) / 1000UL;
   }
 
-  char body[320] = {0};
+  char body[512] = {0};
   (void)snprintf(
       body,
       sizeof(body),
-      "{\"mode\":\"%s\",\"manualActive\":%s,\"manualDurationSec\":%u,\"autoStartPermille\":%u,\"autoStopPermille\":%u,\"timeIntervalMin\":%u,\"timeRunDurationSec\":%u,\"timeNextStartSec\":%lu,\"runRemainingSec\":%lu}",
+      "{\"mode\":\"%s\",\"manualActive\":%s,\"manualDurationSec\":%u,\"autoStartPermille\":%u,\"autoStopPermille\":%u,\"timeIntervalMin\":%u,\"timeRunDurationSec\":%u,\"timeNextStartSec\":%lu,\"runRemainingSec\":%lu,\"manualBlockedReason\":\"%s\",\"control\":{\"status\":\"%s\",\"nextWakeKnown\":false,\"nextWakeEtaSec\":null}}",
       irrigationModeToText(s_irrigationMode),
       s_manualIrrigationActive ? "true" : "false",
       static_cast<unsigned>(s_manualDurationSec),
@@ -780,7 +903,9 @@ static void onIrrigationConfigGetApi()
       static_cast<unsigned>(s_timeIntervalMin),
       static_cast<unsigned>(s_timeRunDurationSec),
       static_cast<unsigned long>(timeNextStartSec),
-      static_cast<unsigned long>(runRemainingSec));
+      static_cast<unsigned long>(runRemainingSec),
+      controlSnapshot.manualBlockedReason,
+      controlSnapshot.status);
   s_server.send(200, "application/json", body);
 }
 
@@ -882,9 +1007,19 @@ static void onIrrigationManualStartApi()
     return;
   }
 
-  if (isControlLowBatteryLockoutActive()) {
-    Serial.println("OBS: manual irrigation start rejected: control low battery lockout");
-    s_server.send(409, "application/json", "{\"ok\":0,\"error\":\"low_battery_lockout\"}");
+  const ControlAvailabilitySnapshot controlSnapshot = computeControlAvailabilitySnapshot();
+  if (strcmp(controlSnapshot.manualBlockedReason, "none") != 0) {
+    Serial.print("OBS: manual irrigation start rejected: ");
+    Serial.println(controlSnapshot.manualBlockedReason);
+
+    char body[160] = {0};
+    (void)snprintf(
+        body,
+        sizeof(body),
+        "{\"ok\":0,\"error\":\"manual_start_blocked\",\"reason\":\"%s\",\"controlStatus\":\"%s\"}",
+        controlSnapshot.manualBlockedReason,
+        controlSnapshot.status);
+    s_server.send(409, "application/json", body);
     return;
   }
 
@@ -1098,6 +1233,7 @@ void headObservabilityInit()
   s_server.on("/api/irrigation/config", HTTP_POST, onIrrigationConfigPostApi);
   s_server.on("/api/irrigation/manual/start", HTTP_POST, onIrrigationManualStartApi);
   s_server.on("/api/irrigation/manual/stop", HTTP_POST, onIrrigationManualStopApi);
+  s_server.on("/api/track/export.csv", HTTP_GET, onTrackExportCsvApi);
   s_server.on("/api/sensors/rename", HTTP_POST, onSensorRenameApi);
   s_server.on("/api/sensors/unpair", HTTP_POST, onSensorUnpairApi);
   s_server.on("/api/sensors/calibrate", HTTP_POST, onSensorCalibrateApi);

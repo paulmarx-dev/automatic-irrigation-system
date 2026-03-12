@@ -325,8 +325,10 @@ void telemetryTickSensor(const SensorMeasurement* measurement, bool hasMeasureme
 #include "button.h"
 #include "head_observability.h"
 #include "leds.h"
+#include "track_storage.h"
 
 static const uint8_t MAX_NODE_REGISTRY = 8;
+static const size_t TRACK_STORAGE_CAPACITY = 4096;
 static const uint8_t BROADCAST_MAC[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 static const uint32_t EXPECTED_TELEMETRY_PERIOD_MS = TELEMETRY_BASE_INTERVAL_MS + TELEMETRY_INTERVAL_JITTER_MS;
 static const uint32_t NODE_SUSPECT_TIMEOUT_MS = 3 * EXPECTED_TELEMETRY_PERIOD_MS;
@@ -384,6 +386,46 @@ void telemetryInit()
 {
   memset(s_nodes, 0, sizeof(s_nodes));
   s_ackSeq = 0;
+  trackStorageInit(TRACK_STORAGE_CAPACITY);
+}
+
+static uint8_t mapTrackFlags(const MsgTelemetry* telemetry, bool isDuplicate)
+{
+  uint8_t trackFlags = 0;
+  if ((telemetry->flags & FLAG_NODE_ROLE_CONTROL) != 0) {
+    trackFlags |= TRACK_FL_CONTROL;
+  }
+  if ((telemetry->flags & FLAG_NODE_LOW_BATTERY_LOCKOUT) != 0) {
+    trackFlags |= TRACK_FL_LOW_BATTERY_LOCKOUT;
+  }
+  if ((telemetry->flags & FLAG_BATT_EST_VALID) != 0) {
+    trackFlags |= TRACK_FL_BATT_EST_VALID;
+  }
+  if ((telemetry->flags & FLAG_CAL_VALID) != 0) {
+    trackFlags |= TRACK_FL_CAL_VALID;
+  }
+  if ((telemetry->flags & FLAG_DIAG_RAW_PRESENT) != 0) {
+    trackFlags |= TRACK_FL_RAW_PRESENT;
+  }
+  if (isDuplicate) {
+    trackFlags |= TRACK_FL_DUPLICATE;
+  }
+  return trackFlags;
+}
+
+static void pushTrackRecord(const MsgTelemetry* telemetry, const uint8_t src_mac[6], uint32_t nowMs, bool isDuplicate)
+{
+  TrackRecord rec{};
+  rec.tsMs = nowMs;
+  rec.nodeId = telemetry->hdr.nodeId;
+  rec.telemetrySeq = telemetry->hdr.seq;
+  rec.moisturePermille = telemetry->moisturePermille;
+  rec.moistureRawMv = telemetry->moistureRawMv;
+  rec.batteryRawMv = telemetry->batteryRawMv;
+  rec.batteryEstMv = telemetry->batteryEstMv;
+  rec.flags = mapTrackFlags(telemetry, isDuplicate);
+  memcpy(rec.mac, src_mac, sizeof(rec.mac));
+  (void)trackStoragePush(rec);
 }
 
 static NodeTelemetryState* getOrCreateNodeState(uint16_t nodeId, const uint8_t src_mac[6], uint32_t nowMs)
@@ -581,6 +623,8 @@ void telemetryOnRecv(const uint8_t* src_mac, const uint8_t* data, int len)
   nodeState->lastSeenMs = nowMs;
 
   const bool isDuplicate = nodeState->hasLastSeq && (nodeState->lastSeq == telemetry->hdr.seq);
+  pushTrackRecord(telemetry, src_mac, nowMs, isDuplicate);
+
   if (isDuplicate) {
     nodeState->rxDuplicates++;
   } else {
