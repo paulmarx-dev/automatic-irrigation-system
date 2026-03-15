@@ -10,6 +10,7 @@
 - [x] Stale transient fetch errors in Home tab now auto-clear on fresh snapshot after head reboot/reflash.
 - [x] Manual pending/ACK presentation improved (pending guards and ACK precedence handling).
 - [x] TIME mode stale-cycle protection added: missed window while control is offline is skipped, no delayed catch-up start.
+- [x] Canonical sleep coordination rules fixed in one place: `docs/unit-sleep-coordination-spec.md`.
 
 - [x] Project skeleton: common config structs, logging, build flags (roles: HEAD/SENSOR/CONTROL)
 - [x] ESP-NOW basics: init, channel, send, receive callbacks, peer management
