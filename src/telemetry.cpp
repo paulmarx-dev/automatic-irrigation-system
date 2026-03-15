@@ -14,6 +14,7 @@
 #include "button.h"
 #include "leds.h"
 #include "pairing_nvs.h"
+#include "sleep_logic.h"
 #if defined(DEVICE_ROLE_SENSOR)
 #include "sensor_remote_control.h"
 #endif
@@ -40,6 +41,27 @@ static uint8_t s_nodeStatusFlags = 0;
 
 static MsgTelemetry s_pendingTelemetry{};
 static uint8_t s_pendingHeadMac[6] = {0};
+
+static SleepNodeMode defaultSleepModeForRole()
+{
+#if defined(DEVICE_ROLE_SENSOR)
+  if (SENSOR_SLEEP_MODE_DEFAULT == 5) {
+    return SLEEP_NODE_MODE_DEEP;
+  }
+  if (SENSOR_SLEEP_MODE_DEFAULT == 1) {
+    return SLEEP_NODE_MODE_LIGHT;
+  }
+  return SLEEP_NODE_MODE_OFF;
+#else
+  if (CONTROL_SLEEP_MODE_DEFAULT == 5) {
+    return SLEEP_NODE_MODE_DEEP;
+  }
+  if (CONTROL_SLEEP_MODE_DEFAULT == 1) {
+    return SLEEP_NODE_MODE_LIGHT;
+  }
+  return SLEEP_NODE_MODE_OFF;
+#endif
+}
 
 static bool sendPendingTelemetry()
 {
@@ -101,6 +123,17 @@ void telemetryInit()
   s_nodeStatusFlags = 0;
   memset(&s_pendingTelemetry, 0, sizeof(s_pendingTelemetry));
   memset(s_pendingHeadMac, 0, sizeof(s_pendingHeadMac));
+    sleepLogicInit(
+  #if defined(DEVICE_ROLE_CONTROL)
+    true,
+    BUTTON_CONTROL_CONFIG.pin,
+    BUTTON_CONTROL_CONFIG.activeLow,
+  #else
+    false,
+    BUTTON_SENSOR_CONFIG.pin,
+    BUTTON_SENSOR_CONFIG.activeLow,
+  #endif
+    defaultSleepModeForRole());
 }
 
 void telemetrySetNodeStatusFlags(uint8_t mask, bool enabled)
@@ -146,6 +179,43 @@ void telemetryOnRecv(const uint8_t* src_mac, const uint8_t* data, int len)
     return;
   }
 
+  if (hdr->type == MSG_SLEEP_PLAN && len == (int)sizeof(MsgSleepPlan)) {
+    if (!pairingNodeIsPaired()) {
+      return;
+    }
+
+    const MsgSleepPlan* plan = reinterpret_cast<const MsgSleepPlan*>(data);
+    MsgSleepAck ack{};
+    const bool shouldReply = sleepLogicOnSleepPlan(*plan, pairingNodeId(), millis(), &ack);
+    if (!shouldReply) {
+      return;
+    }
+
+    (void)espnowEnsurePeer(src_mac, ESPNOW_CHANNEL, false);
+    const bool sent = espnowSend(src_mac, reinterpret_cast<const uint8_t*>(&ack), sizeof(ack));
+    sleepLogicNotifyAckSent(sent, millis());
+
+    Serial.print("SLEEP_ACK sent=");
+    Serial.print(sent ? 1 : 0);
+    Serial.print(" planId=");
+    Serial.print((unsigned long)ack.planId);
+    Serial.print(" accepted=");
+    Serial.print((unsigned long)ack.accepted);
+    Serial.print(" reject=");
+    Serial.println((unsigned long)ack.rejectReason);
+    return;
+  }
+
+  if (hdr->type == MSG_SLEEP_ACK_ACK && len == (int)sizeof(MsgSleepAckAck)) {
+    if (!pairingNodeIsPaired()) {
+      return;
+    }
+
+    const MsgSleepAckAck* ackAck = reinterpret_cast<const MsgSleepAckAck*>(data);
+    sleepLogicOnSleepAckAck(*ackAck, pairingNodeId(), millis());
+    return;
+  }
+
   if (hdr->type != MSG_TELEMETRY_ACK || len != (int)sizeof(MsgTelemetryAck)) {
     return;
   }
@@ -178,6 +248,7 @@ void telemetryOnRecv(const uint8_t* src_mac, const uint8_t* data, int len)
     ledsTriggerOnce(LED_MODE_ERROR_ONCE);
     s_waitingAck = false;
     s_noAckCycles = 0;
+    sleepLogicReset();
     return;
   }
 
@@ -191,6 +262,7 @@ void telemetryOnRecv(const uint8_t* src_mac, const uint8_t* data, int len)
   const uint32_t rttMs = millis() - s_lastSendStartMs;
   s_waitingAck = false;
   s_noAckCycles = 0;
+  sleepLogicOnTelemetryAck(ack->ackSeq, millis());
 
   if (buttonIsDebugEnabled()) {
     ledsPulseOnce(30);
@@ -210,7 +282,19 @@ void telemetryTickSensor(const SensorMeasurement* measurement, bool hasMeasureme
     s_waitingAck = false;
     s_noAckCycles = 0;
     s_nextTelemetryDueMs = 0;
+    sleepLogicReset();
     return;
+  }
+
+  MsgSleepAck retryAck{};
+  if (sleepLogicBuildRetryAck(nowMs, &retryAck)) {
+    (void)espnowEnsurePeer(s_pendingHeadMac, ESPNOW_CHANNEL, false);
+    const bool retrySent = espnowSend(s_pendingHeadMac, reinterpret_cast<const uint8_t*>(&retryAck), sizeof(retryAck));
+    sleepLogicNotifyAckSent(retrySent, nowMs);
+    Serial.print("SLEEP_ACK retry sent=");
+    Serial.print(retrySent ? 1 : 0);
+    Serial.print(" planId=");
+    Serial.println((unsigned long)retryAck.planId);
   }
 
   if (s_waitingAck) {
@@ -238,6 +322,7 @@ void telemetryTickSensor(const SensorMeasurement* measurement, bool hasMeasureme
           ledsPulseOnce(120);
         }
         s_waitingAck = false;
+        sleepLogicReset();
         if (s_noAckCycles < 255) {
           s_noAckCycles++;
         }
@@ -300,6 +385,9 @@ void telemetryTickSensor(const SensorMeasurement* measurement, bool hasMeasureme
 
   if (!sent) {
     s_waitingAck = false;
+    sleepLogicReset();
+  } else {
+    sleepLogicOnTelemetrySent(s_lastSentSeq, nowMs);
   }
 
   Serial.print("TELEMETRY sent=");
@@ -367,11 +455,23 @@ struct NodeTelemetryState {
   uint32_t rxInvalid;
   uint32_t ackOkSent;
   uint32_t ackNotPairedSent;
+  bool sleepAwaitAck;
+  bool sleepAcked;
+  uint8_t sleepRetries;
+  uint16_t sleepPlanSeq;
+  uint32_t sleepPlanId;
+  uint32_t sleepHeadBootId;
+  uint32_t sleepPlannedMs;
+  uint32_t sleepValidUntilMs;
+  uint32_t sleepNextRetryAtMs;
+  uint32_t sleepExpectedReportDeadlineMs;
 };
 
 static NodeTelemetryState s_nodes[MAX_NODE_REGISTRY] = {};
 static uint16_t s_ackSeq = 0;
 static TelemetryHeadCommandAck s_latestCommandAck = {};
+static uint32_t s_sleepPlanIdSeq = 1;
+static uint32_t s_headBootId = 1;
 
 static uint8_t commandAckPriority(uint8_t status)
 {
@@ -419,6 +519,11 @@ void telemetryInit()
 {
   memset(s_nodes, 0, sizeof(s_nodes));
   s_ackSeq = 0;
+  s_sleepPlanIdSeq = 1;
+  s_headBootId = static_cast<uint32_t>(esp_random());
+  if (s_headBootId == 0) {
+    s_headBootId = 1;
+  }
   trackStorageInit(TRACK_STORAGE_CAPACITY);
 }
 
@@ -500,6 +605,16 @@ static NodeTelemetryState* getOrCreateNodeState(uint16_t nodeId, const uint8_t s
   target->isControl = false;
   target->lowBatteryLockout = false;
   target->irrigationActive = false;
+  target->sleepAwaitAck = false;
+  target->sleepAcked = false;
+  target->sleepRetries = 0;
+  target->sleepPlanSeq = 0;
+  target->sleepPlanId = 0;
+  target->sleepHeadBootId = 0;
+  target->sleepPlannedMs = 0;
+  target->sleepValidUntilMs = 0;
+  target->sleepNextRetryAtMs = 0;
+  target->sleepExpectedReportDeadlineMs = 0;
   return target;
 }
 
@@ -515,6 +630,104 @@ static NodeTelemetryState* findNodeState(uint16_t nodeId, const uint8_t src_mac[
     }
   }
   return nullptr;
+}
+
+static uint32_t headRandomBoundedMs(uint32_t maxExclusive)
+{
+  if (maxExclusive == 0) {
+    return 0;
+  }
+  return static_cast<uint32_t>(esp_random() % maxExclusive);
+}
+
+static uint32_t computeNodeSlotDelayMs(uint16_t nodeId)
+{
+  if (SLEEP_SLOT_MAX_UNITS == 0 || nodeId == 0) {
+    return 0;
+  }
+  const uint32_t slot = static_cast<uint32_t>((nodeId - 1) % SLEEP_SLOT_MAX_UNITS);
+  const uint32_t deterministic = slot * SLEEP_SLOT_WIDTH_MS;
+  const uint32_t microJitter = headRandomBoundedMs(SLEEP_SLOT_MICRO_JITTER_MS + 1);
+  return deterministic + microJitter;
+}
+
+static bool sendSleepPlanToNode(NodeTelemetryState* node, uint32_t nowMs, bool isRetry)
+{
+  if (!node || !node->used || node->state != TELEMETRY_HEAD_NODE_ONLINE) {
+    return false;
+  }
+
+  if (!isRetry) {
+    node->sleepPlanId = s_sleepPlanIdSeq++;
+    if (s_sleepPlanIdSeq == 0) {
+      s_sleepPlanIdSeq = 1;
+    }
+    node->sleepHeadBootId = s_headBootId;
+    const uint32_t slotDelayMs = computeNodeSlotDelayMs(node->nodeId);
+    node->sleepPlannedMs = SLEEP_BASE_DURATION_MS + slotDelayMs;
+    node->sleepValidUntilMs = nowMs + SLEEP_PLAN_VALID_WINDOW_MS;
+    node->sleepAwaitAck = true;
+    node->sleepAcked = false;
+    node->sleepRetries = 0;
+    node->sleepExpectedReportDeadlineMs = nowMs + node->sleepPlannedMs + SLEEP_EXPECTED_WAKE_GRACE_MS;
+  }
+
+  MsgSleepPlan plan{};
+  plan.hdr.ver = PROTO_VER;
+  plan.hdr.type = MSG_SLEEP_PLAN;
+  plan.hdr.seq = ++s_ackSeq;
+  plan.hdr.nodeId = node->nodeId;
+  plan.planId = node->sleepPlanId;
+  plan.headBootId = node->sleepHeadBootId;
+  plan.sleepMs = node->sleepPlannedMs;
+  plan.validUntilMs = node->sleepValidUntilMs;
+  plan.baseSleepSec = static_cast<uint16_t>(SLEEP_BASE_DURATION_MS / 1000UL);
+  plan.slotDelayMs = static_cast<uint16_t>(node->sleepPlannedMs - SLEEP_BASE_DURATION_MS);
+
+  node->sleepPlanSeq = plan.hdr.seq;
+  node->sleepNextRetryAtMs = nowMs + SLEEP_ACK_RETRY_MIN_MS + headRandomBoundedMs(SLEEP_ACK_RETRY_JITTER_MS + 1);
+
+  (void)espnowEnsurePeer(node->mac, ESPNOW_CHANNEL, false);
+  const bool sent = espnowSend(node->mac, reinterpret_cast<const uint8_t*>(&plan), sizeof(plan));
+
+  Serial.print("[nodeId=");
+  Serial.print((unsigned long)node->nodeId);
+  Serial.print("] sleep_plan sent=");
+  Serial.print(sent ? 1 : 0);
+  Serial.print(" retry=");
+  Serial.print(isRetry ? 1 : 0);
+  Serial.print(" planId=");
+  Serial.print((unsigned long)plan.planId);
+  Serial.print(" sleepMs=");
+  Serial.println((unsigned long)plan.sleepMs);
+  return sent;
+}
+
+static bool sendSleepAckAckToNode(NodeTelemetryState* node)
+{
+  if (!node || !node->used) {
+    return false;
+  }
+
+  MsgSleepAckAck msg{};
+  msg.hdr.ver = PROTO_VER;
+  msg.hdr.type = MSG_SLEEP_ACK_ACK;
+  msg.hdr.seq = ++s_ackSeq;
+  msg.hdr.nodeId = node->nodeId;
+  msg.planId = node->sleepPlanId;
+  msg.headBootId = node->sleepHeadBootId;
+  msg.commit = 1;
+
+  (void)espnowEnsurePeer(node->mac, ESPNOW_CHANNEL, false);
+  const bool sent = espnowSend(node->mac, reinterpret_cast<const uint8_t*>(&msg), sizeof(msg));
+
+  Serial.print("[nodeId=");
+  Serial.print((unsigned long)node->nodeId);
+  Serial.print("] sleep_ack_ack sent=");
+  Serial.print(sent ? 1 : 0);
+  Serial.print(" planId=");
+  Serial.println((unsigned long)msg.planId);
+  return sent;
 }
 
 static void logTelemetry(const MsgTelemetry* telemetry, const uint8_t src_mac[6])
@@ -598,6 +811,37 @@ void telemetryOnRecv(const uint8_t* src_mac, const uint8_t* data, int len)
 
   if (len >= (int)sizeof(MsgHdr)) {
     const MsgHdr* hdr = reinterpret_cast<const MsgHdr*>(data);
+    if (hdr->ver == PROTO_VER && hdr->type == MSG_SLEEP_ACK && len == (int)sizeof(MsgSleepAck)) {
+      const MsgSleepAck* ack = reinterpret_cast<const MsgSleepAck*>(data);
+      NodeTelemetryState* node = findNodeState(ack->hdr.nodeId, src_mac);
+      if (node && pairingHeadIsKnownNode(ack->hdr.nodeId, src_mac)) {
+        const bool planMatch = node->sleepAwaitAck &&
+                               ack->planId == node->sleepPlanId &&
+                               ack->headBootId == node->sleepHeadBootId;
+
+        if (planMatch && ack->accepted) {
+          node->sleepAwaitAck = false;
+          node->sleepAcked = true;
+          node->sleepExpectedReportDeadlineMs = millis() + node->sleepPlannedMs + SLEEP_EXPECTED_WAKE_GRACE_MS;
+          (void)sendSleepAckAckToNode(node);
+        } else if (planMatch && !ack->accepted) {
+          node->sleepAwaitAck = false;
+          node->sleepAcked = false;
+          node->state = TELEMETRY_HEAD_NODE_SUSPECT;
+        }
+
+        Serial.print("[nodeId=");
+        Serial.print((unsigned long)ack->hdr.nodeId);
+        Serial.print("] sleep_ack accepted=");
+        Serial.print((unsigned long)ack->accepted);
+        Serial.print(" reject=");
+        Serial.print((unsigned long)ack->rejectReason);
+        Serial.print(" planId=");
+        Serial.println((unsigned long)ack->planId);
+      }
+      return;
+    }
+
     if (hdr->ver == PROTO_VER && hdr->type == MSG_COMMAND_ACK && len == (int)sizeof(MsgCommandAck)) {
       const MsgCommandAck* ack = reinterpret_cast<const MsgCommandAck*>(data);
       if (pairingHeadIsKnownNode(ack->hdr.nodeId, src_mac)) {
@@ -686,6 +930,8 @@ void telemetryOnRecv(const uint8_t* src_mac, const uint8_t* data, int len)
   }
 
   nodeState->lastSeenMs = nowMs;
+  nodeState->sleepAwaitAck = false;
+  nodeState->sleepAcked = false;
 
   const bool isDuplicate = nodeState->hasLastSeq && (nodeState->lastSeq == telemetry->hdr.seq);
   pushTrackRecord(telemetry, src_mac, nowMs, isDuplicate);
@@ -710,6 +956,10 @@ void telemetryOnRecv(const uint8_t* src_mac, const uint8_t* data, int len)
   }
 
   sendTelemetryAck(src_mac, telemetry->hdr.nodeId, telemetry->hdr.seq, TELEMETRY_ACK_STATUS_OK);
+
+  if (!(nodeState->isControl && nodeState->irrigationActive)) {
+    (void)sendSleepPlanToNode(nodeState, nowMs, false);
+  }
 }
 
 void telemetryTickHead(uint32_t nowMs)
@@ -720,6 +970,19 @@ void telemetryTickHead(uint32_t nowMs)
       continue;
     }
 
+    if (entry->sleepAwaitAck && (int32_t)(nowMs - entry->sleepNextRetryAtMs) >= 0) {
+      if (entry->sleepRetries < SLEEP_ACK_RETRY_MAX) {
+        const bool sent = sendSleepPlanToNode(entry, nowMs, true);
+        if (sent) {
+          entry->sleepRetries++;
+        }
+      } else {
+        entry->sleepAwaitAck = false;
+        entry->sleepAcked = false;
+        entry->state = TELEMETRY_HEAD_NODE_SUSPECT;
+      }
+    }
+
     const uint32_t sinceLastMs = static_cast<uint32_t>(nowMs - entry->lastSeenMs);
 
     TelemetryHeadNodeState nextState = TELEMETRY_HEAD_NODE_ONLINE;
@@ -727,6 +990,15 @@ void telemetryTickHead(uint32_t nowMs)
       nextState = TELEMETRY_HEAD_NODE_OFFLINE;
     } else if (sinceLastMs >= NODE_SUSPECT_TIMEOUT_MS) {
       nextState = TELEMETRY_HEAD_NODE_SUSPECT;
+    }
+
+    if (entry->sleepExpectedReportDeadlineMs != 0 &&
+        (int32_t)(nowMs - entry->sleepExpectedReportDeadlineMs) >= 0) {
+      if (nextState == TELEMETRY_HEAD_NODE_ONLINE) {
+        nextState = TELEMETRY_HEAD_NODE_SUSPECT;
+      } else if (nextState == TELEMETRY_HEAD_NODE_SUSPECT) {
+        nextState = TELEMETRY_HEAD_NODE_OFFLINE;
+      }
     }
 
     if (nextState != entry->state) {
@@ -760,6 +1032,7 @@ uint8_t telemetryHeadGetPresence(TelemetryHeadNodePresence* outNodes, uint8_t ma
     outNodes[written].state = entry->state;
     outNodes[written].batteryState = entry->batteryState;
     outNodes[written].lowBatteryLockout = entry->lowBatteryLockout;
+    outNodes[written].sleepAcked = entry->sleepAcked;
     outNodes[written].nodeId = entry->nodeId;
     outNodes[written].moisturePermille = entry->moisturePermille;
     outNodes[written].batteryEstMv = entry->batteryEstMv;
@@ -772,6 +1045,7 @@ uint8_t telemetryHeadGetPresence(TelemetryHeadNodePresence* outNodes, uint8_t ma
     outNodes[written].ackNotPairedSent = entry->ackNotPairedSent;
     outNodes[written].isControl = entry->isControl;
     outNodes[written].irrigationActive = entry->irrigationActive;
+    outNodes[written].sleepExpectedReportDeadlineMs = entry->sleepExpectedReportDeadlineMs;
     written++;
   }
   return written;

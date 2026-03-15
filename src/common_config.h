@@ -80,3 +80,29 @@ static constexpr uint32_t CONTROL_BATT_LOCKOUT_CONFIRM_MS = 2500;
   Protocol version (will be used later in all messages).
 */
 static constexpr uint8_t PROTOCOL_VERSION = 1;
+
+/*
+  Sleep coordination defaults (current iteration scope).
+  HEAD issues 60s base sleep with slot+jitter spread.
+*/
+static constexpr uint32_t SLEEP_BASE_DURATION_MS = 60000;
+static constexpr uint8_t SLEEP_SLOT_MAX_UNITS = 9;
+static constexpr uint32_t SLEEP_SLOT_WIDTH_MS = 180;
+static constexpr uint32_t SLEEP_SLOT_MICRO_JITTER_MS = 30;
+static constexpr uint32_t SLEEP_PLAN_VALID_WINDOW_MS = 5000;
+static constexpr uint32_t SLEEP_EXPECTED_WAKE_GRACE_MS = 15000;
+
+/*
+  Node-side sleep handshake timing.
+*/
+static constexpr uint32_t WAIT_ACK_ACK_TIMEOUT_MS = 1200;
+static constexpr uint8_t SLEEP_ACK_RETRY_MAX = 3;
+static constexpr uint32_t SLEEP_ACK_RETRY_MIN_MS = 150;
+static constexpr uint32_t SLEEP_ACK_RETRY_JITTER_MS = 200;
+
+/*
+  Node sleep mode defaults.
+  0=off, 1=light sleep, 5=deep sleep.
+*/
+static constexpr uint8_t SENSOR_SLEEP_MODE_DEFAULT = 5;
+static constexpr uint8_t CONTROL_SLEEP_MODE_DEFAULT = 1;

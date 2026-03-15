@@ -10,6 +10,7 @@
 #include "leds.h"
 #include "button.h"
 #include "app_log.h"
+#include "sleep_logic.h"
 
 #if defined(DEVICE_ROLE_CONTROL)
 
@@ -587,6 +588,20 @@ void loop() {
   batteryLockoutTick(now);
 
   telemetryTickSensor(s_haveMeasurement ? &s_latestMeasurement : nullptr, s_haveMeasurement, now);
+
+  sleepLogicSetDebugNoSleep(buttonIsDebugEnabled());
+  sleepLogicSetServiceMode(pairingNodeIsInJoinMode());
+  sleepLogicSetIrrigationActive(s_manualIrrigationActive);
+
+  uint32_t sleepMs = 0;
+  bool deepSleep = false;
+  if (sleepLogicShouldEnterSleep(now, &sleepMs, &deepSleep)) {
+    Serial.print("SLEEP: entering ");
+    Serial.print(deepSleep ? "deep" : "light");
+    Serial.print(" sleepMs=");
+    Serial.println((unsigned long)sleepMs);
+    sleepLogicEnterSleep(sleepMs, deepSleep);
+  }
 
   const bool joinModeNow = pairingNodeIsInJoinMode();
   if (joinModeNow && !lastJoinModeActive) {

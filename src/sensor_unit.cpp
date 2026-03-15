@@ -12,6 +12,7 @@
 #include "leds.h"
 #include "button.h"
 #include "app_log.h"
+#include "sleep_logic.h"
 
 #if defined(DEVICE_ROLE_SENSOR)
 
@@ -525,7 +526,21 @@ void loop() {
 		latestMeasurement = measureSensors();
 		haveMeasurement = true;
 	}
+
+	sleepLogicSetDebugNoSleep(buttonIsDebugEnabled());
+	sleepLogicSetServiceMode(pairingNodeIsInJoinMode() || s_calibrationActive);
+	sleepLogicSetIrrigationActive(false);
 	telemetryTickSensor(haveMeasurement ? &latestMeasurement : nullptr, haveMeasurement, now);
+
+	uint32_t sleepMs = 0;
+	bool deepSleep = false;
+	if (sleepLogicShouldEnterSleep(now, &sleepMs, &deepSleep)) {
+		Serial.print("SLEEP: entering ");
+		Serial.print(deepSleep ? "deep" : "light");
+		Serial.print(" sleepMs=");
+		Serial.println((unsigned long)sleepMs);
+		sleepLogicEnterSleep(sleepMs, deepSleep);
+	}
 }
 
 #endif

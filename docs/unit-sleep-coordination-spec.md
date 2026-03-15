@@ -25,7 +25,7 @@ This document is normative for implementation and conflict resolution.
 3. Sleep command flow uses a 3-step handshake: HEAD `SLEEP_PLAN` -> UNIT `SLEEP_ACK` -> HEAD `SLEEP_ACK_ACK`.
 4. UNIT may enter sleep only after receiving valid `SLEEP_ACK_ACK` for the same `plan_id`.
 5. If HEAD does not receive `SLEEP_ACK`, it retries `SLEEP_PLAN` up to 3 times, then marks UNIT as `SUSPECT`.
-6. If communication is still absent after the configured suspect window, HEAD escalates UNIT state to `LOST`.
+6. If UNIT is `SUSPECT` and still does not report in the next expected wake/report opportunity, HEAD escalates UNIT state to `LOST`.
 7. UNIT that sent `SLEEP_ACK` but did not receive `SLEEP_ACK_ACK` must stay awake and must not sleep silently.
 8. In the case from rule 7, UNIT retries `SLEEP_ACK` up to 3 times with short jittered backoff.
 9. After `SLEEP_ACK` retry exhaustion, UNIT enters temporary safe-awake mode and requests a fresh directive from HEAD.
@@ -83,6 +83,20 @@ These constants are mandatory implementation values for v1 and map directly to t
 19. `SCHEDULING_CAPACITY_GRACEFUL_MAX = 12` (rule 36)
 20. `RENDEZVOUS_SLOT_MS = 120..180 (+micro-jitter)` (rules 29, 30)
 
+## This Iteration Decisions (locked)
+
+1. SENSOR and CONTROL use one shared sleep protocol message set; role-specific behavior is policy-level only.
+2. CONTROL follows normal sleep handshake rules only when irrigation is not active.
+3. State transition policy is retry-based, not abstract window-based:
+  - after 3 missed `SLEEP_PLAN`/`SLEEP_ACK` attempts: `SUSPECT`
+  - if still absent at next expected wake/report: `LOST`
+4. `WAKE_HELLO` means a unit-initiated resynchronization message sent after wake when no confirmed executable plan exists.
+5. Debug no-sleep TTL default is 30 minutes.
+6. Advanced AUTO irrigation rendezvous strategy is deferred to a dedicated next iteration.
+7. If CONTROL is considered lost/unavailable, HEAD cancels active irrigation and all scheduled irrigation intents.
+8. HEAD must publish explicit service reason/status that irrigation is unavailable due to CONTROL loss.
+9. Manual irrigation requested while CONTROL sleeps is represented as `scheduled` and starts at nearest CONTROL wake, unless canceled by rule 7.
+
 ## Timebase and Identity Constraints (resolved ambiguity)
 
 - `valid_until_ms` is measured in HEAD monotonic uptime milliseconds.
@@ -100,6 +114,7 @@ These constants are mandatory implementation values for v1 and map directly to t
 - `SLEEP_ACK_ACK`
   - Fields: `unit_id`, `plan_id`, `head_boot_id`, `commit=true`
 - `WAKE_HELLO`
+  - Purpose: unit-initiated resync request after wake when plan state is uncertain
   - Fields: `unit_id`, `wake_reason`, `last_plan_id`, `boot_counter`, `uptime_ms`
 - `WAKE_DIRECTIVE`
   - Fields: `unit_id`, `head_boot_id`, `directive_type`, `sleep_ms`, `window_open_ms`, `reason_code`
@@ -115,6 +130,7 @@ If values diverge, the "Operational Constants Lock" section is authoritative.
 - Retry jitter on UNIT ACK resend: 150-350 ms
 - Safe-awake hold before fallback sleep: 20-30 s
 - Fallback sleep when HEAD unreachable: 30-60 s
+- Debug no-sleep TTL default: 30 min
 
 ## State Model (minimum)
 
@@ -138,7 +154,7 @@ UNIT local states:
 4. Implement UNIT recovery path (`WAKE_HELLO`/`WAKE_DIRECTIVE`) for reboot/battery replacement cases.
 5. Gate button-driven pairing/calibration/debug above sleep transitions.
 6. Enforce CONTROL no-sleep during active irrigation with explicit rejection.
-7. Implement AUTO rendezvous + slotting and verify RF load under nominal sensor count.
+7. Implement base slotting primitives; defer advanced AUTO rendezvous strategy to next iteration.
 8. Validate timing constants from this spec and only then tune with measured telemetry.
 
 ## Conflict Resolution Rule

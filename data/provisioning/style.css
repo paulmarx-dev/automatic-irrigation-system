@@ -492,6 +492,65 @@ pre {
   margin: 6px 0;
 }
 
+.sensor-state-row {
+  margin-top: 8px;
+}
+
+.state-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 84px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.state-badge.state-online {
+  background: #e7f9ef;
+  border-color: #69cc90;
+  color: #1f7a47;
+}
+
+.state-badge.state-sleep {
+  background: #e9f2ff;
+  border-color: #79a9ff;
+  color: #2456a6;
+}
+
+.state-badge.state-suspect {
+  background: #fff5e7;
+  border-color: #ffbe66;
+  color: #9b5a00;
+}
+
+.state-badge.state-offline {
+  background: #ffecee;
+  border-color: #ff8b95;
+  color: #a31d2e;
+}
+
+.state-badge.state-unknown {
+  background: #f2f2f5;
+  border-color: #d6d6dd;
+  color: #555b66;
+}
+
+.sensor-state-note {
+  margin: 4px 0 0;
+  color: #6a6f79;
+  font-size: 12px;
+}
+
+.sensor-next-contact {
+  margin-top: 10px;
+  color: #5f6773;
+  font-size: 12px;
+}
+
 .sensor-actions {
   display: flex;
   gap: 8px;

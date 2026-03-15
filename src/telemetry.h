@@ -20,6 +20,7 @@ struct TelemetryHeadNodePresence {
 	bool used;
 	bool isControl;
 	bool lowBatteryLockout;
+	bool sleepAcked;
 	TelemetryHeadNodeState state;
 	TelemetryHeadBatteryState batteryState;
 	uint16_t nodeId;
@@ -33,6 +34,7 @@ struct TelemetryHeadNodePresence {
 	uint32_t ackOkSent;
 	uint32_t ackNotPairedSent;
 	bool irrigationActive;
+	uint32_t sleepExpectedReportDeadlineMs;
 };
 
 struct TelemetryHeadCommandAck {

@@ -307,6 +307,7 @@ static bool desiredIrrigationActive()
   return s_manualIrrigationActive;
 }
 
+static void stopIrrigation(const char* reason);
 static void markIrrigationSyncDirty();
 static void resolveSensorName(uint16_t nodeId, char outName[SENSOR_NAME_MAX]);
 
@@ -434,6 +435,10 @@ static void pendingControlCommandTick(uint32_t nowMs)
     s_controlPhase = CONTROL_CMD_LOST;
     s_controlConfirmedIrrigationActive = false;
     s_manualRunDeadlineMs = 0;
+    if (s_manualIrrigationActive) {
+      stopIrrigation("control command timeout");
+      Serial.println("OBS: irrigation canceled due to control command timeout");
+    }
     return;
   }
 
@@ -600,11 +605,17 @@ static size_t composeNodesJson(char* body, size_t bodySize, uint32_t nowMs)
     macToString(node.mac, mac, sizeof(mac));
     resolveSensorName(node.nodeId, name);
     const uint32_t lastSeenSecAgo = static_cast<uint32_t>(nowMs - node.lastSeenMs) / 1000;
+    const bool sleepActive = node.sleepAcked &&
+                             node.sleepExpectedReportDeadlineMs != 0 &&
+                             (int32_t)(node.sleepExpectedReportDeadlineMs - nowMs) > 0;
+    const uint32_t nextContactSec = sleepActive
+      ? static_cast<uint32_t>(node.sleepExpectedReportDeadlineMs - nowMs) / 1000UL
+      : 0;
 
     offset += static_cast<size_t>(snprintf(
         body + offset,
         bodySize - offset,
-        "%s{\"slot\":%u,\"mac\":\"%s\",\"name\":\"%s\",\"nodeId\":%u,\"role\":\"%s\",\"state\":\"%s\",\"irrigationLockout\":\"%s\",\"moisturePermille\":%u,\"batteryEstMv\":%u,\"batteryState\":\"%s\",\"lastSeenSecAgo\":%lu,\"rxPackets\":%lu,\"rxDuplicates\":%lu,\"rxInvalid\":%lu,\"ackOkSent\":%lu,\"ackNotPairedSent\":%lu}",
+        "%s{\"slot\":%u,\"mac\":\"%s\",\"name\":\"%s\",\"nodeId\":%u,\"role\":\"%s\",\"state\":\"%s\",\"sleepActive\":%s,\"nextContactSec\":%lu,\"irrigationLockout\":\"%s\",\"moisturePermille\":%u,\"batteryEstMv\":%u,\"batteryState\":\"%s\",\"lastSeenSecAgo\":%lu,\"rxPackets\":%lu,\"rxDuplicates\":%lu,\"rxInvalid\":%lu,\"ackOkSent\":%lu,\"ackNotPairedSent\":%lu}",
         (i == 0) ? "" : ",",
         static_cast<unsigned>(i),
         mac,
@@ -612,6 +623,8 @@ static size_t composeNodesJson(char* body, size_t bodySize, uint32_t nowMs)
         static_cast<unsigned>(node.nodeId),
         nodeRoleToText(node.isControl),
         nodeStateToText(node.state),
+        sleepActive ? "true" : "false",
+        static_cast<unsigned long>(nextContactSec),
         irrigationLockoutToText(node.lowBatteryLockout),
         static_cast<unsigned>(node.moisturePermille),
         static_cast<unsigned>(node.batteryEstMv),
@@ -649,7 +662,7 @@ static size_t composeNodesJson(char* body, size_t bodySize, uint32_t nowMs)
     offset += static_cast<size_t>(snprintf(
         body + offset,
         bodySize - offset,
-        "%s{\"slot\":%u,\"mac\":\"%s\",\"name\":\"%s\",\"nodeId\":%u,\"role\":\"UNKNOWN\",\"state\":\"OFFLINE\",\"irrigationLockout\":\"NONE\",\"moisturePermille\":0,\"batteryEstMv\":0,\"batteryState\":\"UNKNOWN\",\"lastSeenSecAgo\":0,\"rxPackets\":0,\"rxDuplicates\":0,\"rxInvalid\":0,\"ackOkSent\":0,\"ackNotPairedSent\":0}",
+      "%s{\"slot\":%u,\"mac\":\"%s\",\"name\":\"%s\",\"nodeId\":%u,\"role\":\"UNKNOWN\",\"state\":\"OFFLINE\",\"sleepActive\":false,\"nextContactSec\":0,\"irrigationLockout\":\"NONE\",\"moisturePermille\":0,\"batteryEstMv\":0,\"batteryState\":\"UNKNOWN\",\"lastSeenSecAgo\":0,\"rxPackets\":0,\"rxDuplicates\":0,\"rxInvalid\":0,\"ackOkSent\":0,\"ackNotPairedSent\":0}",
         (offset > 1) ? "," : "",
         static_cast<unsigned>(count + i),
         mac,
@@ -883,6 +896,18 @@ static void startIrrigation(uint32_t nowMs, uint32_t durationSec, const char* re
 
 static void irrigationAutomationTick(uint32_t nowMs)
 {
+  if (s_manualIrrigationActive &&
+      s_controlConfirmedIrrigationActive &&
+      !s_pendingControlCmd.active &&
+      !hasControlOnlinePresence()) {
+    s_controlPhase = CONTROL_CMD_LOST;
+    s_controlConfirmedIrrigationActive = false;
+    s_manualRunDeadlineMs = 0;
+    stopIrrigation("control offline during irrigation");
+    Serial.println("OBS: irrigation canceled due to control loss");
+    return;
+  }
+
   if (s_irrigationMode == IRRIGATION_MODE_TIME &&
       s_manualIrrigationActive &&
       !s_controlConfirmedIrrigationActive &&
@@ -1544,7 +1569,8 @@ static void onIrrigationManualStartApi()
   }
 
   const ControlAvailabilitySnapshot controlSnapshot = computeControlAvailabilitySnapshot();
-  if (strcmp(controlSnapshot.manualBlockedReason, "none") != 0) {
+  const bool controlOffline = strcmp(controlSnapshot.manualBlockedReason, "control_offline") == 0;
+  if (!controlOffline && strcmp(controlSnapshot.manualBlockedReason, "none") != 0) {
     Serial.print("OBS: manual irrigation start rejected: ");
     Serial.println(controlSnapshot.manualBlockedReason);
 
@@ -1571,21 +1597,35 @@ static void onIrrigationManualStartApi()
   }
 
   startIrrigation(millis(), requestedDurationSec, "MANUAL start API");
-  s_controlPhase = CONTROL_CMD_PENDING_START;
-  beginPendingControlCommand(REMOTE_BUTTON_IRRIGATION_START, millis());
-  const bool sentNow = sendDesiredIrrigationState();
-  if (sentNow) {
-    s_lastIrrigationSyncMs = millis();
-    s_irrigationSyncDirty = false;
+  bool sentNow = false;
+  if (controlOffline) {
+    s_controlPhase = CONTROL_CMD_PENDING_START;
+    s_pendingControlCmd.active = false;
+    Serial.println("OBS: manual irrigation start scheduled (control offline)");
+  } else {
+    s_controlPhase = CONTROL_CMD_PENDING_START;
+    beginPendingControlCommand(REMOTE_BUTTON_IRRIGATION_START, millis());
+    sentNow = sendDesiredIrrigationState();
+    if (sentNow) {
+      s_lastIrrigationSyncMs = millis();
+      s_irrigationSyncDirty = false;
+    }
   }
 
   Serial.println("OBS: manual irrigation start accepted");
-  s_server.send(
-      200,
-      "application/json",
-      sentNow
-        ? "{\"ok\":1,\"manualActive\":false,\"syncPending\":0,\"pendingCommand\":1}"
-        : "{\"ok\":1,\"manualActive\":false,\"syncPending\":1,\"pendingCommand\":1}");
+  if (controlOffline) {
+    s_server.send(
+        200,
+        "application/json",
+        "{\"ok\":1,\"manualActive\":false,\"syncPending\":1,\"pendingCommand\":0,\"scheduled\":1}");
+  } else {
+    s_server.send(
+        200,
+        "application/json",
+        sentNow
+          ? "{\"ok\":1,\"manualActive\":false,\"syncPending\":0,\"pendingCommand\":1,\"scheduled\":0}"
+          : "{\"ok\":1,\"manualActive\":false,\"syncPending\":1,\"pendingCommand\":1,\"scheduled\":0}");
+  }
 }
 
 static void onIrrigationManualStopApi()

@@ -100,6 +100,8 @@ const TIME_INTERVAL_MIN = 5;
 const TIME_INTERVAL_MAX = 1440;
 const TIME_RUN_MIN_SEC = 0;
 const TIME_RUN_MAX_SEC = 600;
+const NODE_SUSPECT_AFTER_SEC = 20;
+const NODE_OFFLINE_AFTER_SEC = 52;
 const CAL_PROMPT_TIMEOUT_MS = 20000;
 const CAL_ERROR_HIDE_MS = 5000;
 const CAL_INFO_HIDE_MS = 5000;
@@ -300,6 +302,67 @@ function formatHoursMinutesSeconds(totalSeconds) {
     return `${hours}h ${minutes}m ${seconds}s`;
   }
   return `${minutes}m ${seconds}s`;
+}
+
+function isManualStartBlocked(reason) {
+  const normalized = String(reason || '').toLowerCase();
+  return normalized === 'control_battery_lockout' || normalized === 'control_not_paired';
+}
+
+function buildNodeStateView(node) {
+  const state = String(node && node.state ? node.state : 'UNKNOWN').toUpperCase();
+  const sleepActive = Boolean(node && node.sleepActive) && state === 'ONLINE';
+  const nextContactSec = Math.max(0, Math.floor(Number(node && node.nextContactSec) || 0));
+
+  if (sleepActive) {
+    return {
+      badgeText: 'SLEEP',
+      badgeClass: 'state-sleep',
+      sleepActive: true,
+      nextContactSec,
+      note: nextContactSec > 0
+        ? `Expected wake/contact in ${formatHoursMinutesSeconds(nextContactSec)}.`
+        : 'Expected wake/contact now.',
+    };
+  }
+
+  if (state === 'ONLINE') {
+    return {
+      badgeText: 'ONLINE',
+      badgeClass: 'state-online',
+      sleepActive: false,
+      nextContactSec: 0,
+      note: '',
+    };
+  }
+
+  if (state === 'SUSPECT') {
+    return {
+      badgeText: 'SUSPECT',
+      badgeClass: 'state-suspect',
+      sleepActive: false,
+      nextContactSec: 0,
+      note: `No telemetry for about ${NODE_SUSPECT_AFTER_SEC}s.`,
+    };
+  }
+
+  if (state === 'OFFLINE') {
+    return {
+      badgeText: 'OFFLINE',
+      badgeClass: 'state-offline',
+      sleepActive: false,
+      nextContactSec: 0,
+      note: `No telemetry for about ${NODE_OFFLINE_AFTER_SEC}s.`,
+    };
+  }
+
+  return {
+    badgeText: 'UNKNOWN',
+    badgeClass: 'state-unknown',
+    sleepActive: false,
+    nextContactSec: 0,
+    note: '',
+  };
 }
 
 function formatMinutesValueFromSeconds(totalSeconds) {
@@ -581,18 +644,18 @@ function updateControlAvailabilityStatus() {
   isControlLowBatteryLockoutActive = controlAvailabilityStatus === 'battery_lockout';
 
   if (controlAvailabilityStatus === 'online') {
-    setHomeControlLockoutStatus('Control status: online. Wake ETA unavailable (sleep policy not defined).', false);
+    setHomeControlLockoutStatus('Control status: online.', false);
     return;
   }
   if (controlAvailabilityStatus === 'battery_lockout') {
-    setHomeControlLockoutStatus('Control status: battery lockout. Watering blocked. Wake ETA unavailable (sleep policy not defined).', true);
+    setHomeControlLockoutStatus('Control status: battery lockout. Watering blocked.', true);
     return;
   }
   if (controlAvailabilityStatus === 'offline') {
-    setHomeControlLockoutStatus('Control status: offline. Watering blocked. Wake ETA unavailable (sleep policy not defined).', true);
+    setHomeControlLockoutStatus('Control status: sleeping/offline. Manual start will be scheduled for next contact.', false);
     return;
   }
-  setHomeControlLockoutStatus('Control status: not paired. Watering blocked. Wake ETA unavailable (sleep policy not defined).', true);
+  setHomeControlLockoutStatus('Control status: not paired. Watering blocked.', true);
 }
 
 function setUnitConfigStatus(text, isError = false) {
@@ -685,7 +748,7 @@ function renderHomeModeControls() {
 
   if (manualStartBtnEl && manualStopBtnEl) {
     const secondsLeft = Math.max(0, Math.floor(manualRunRemainingSec));
-    const isStartBlocked = manualStartBlockedReason !== 'none';
+    const isStartBlocked = isManualStartBlocked(manualStartBlockedReason);
     const isPendingStart = controlConfirmedState === 'pending_start';
     const isPendingStop = controlConfirmedState === 'pending_stop';
 
@@ -1174,11 +1237,9 @@ async function closePairingWindow() {
 }
 
 async function startManualIrrigation() {
-  if (manualStartBlockedReason !== 'none') {
+  if (isManualStartBlocked(manualStartBlockedReason)) {
     if (manualStartBlockedReason === 'control_battery_lockout') {
       setHomeManualStatus('Watering blocked: control battery lockout is active.', true, 5000);
-    } else if (manualStartBlockedReason === 'control_offline') {
-      setHomeManualStatus('Watering blocked: control is offline.', true, 5000);
     } else {
       setHomeManualStatus('Watering blocked: control is not paired.', true, 5000);
     }
@@ -1502,6 +1563,7 @@ function renderNodes(nodes) {
           : batteryState === 'NEEDS_REPLACEMENT'
             ? 'battery-state needs-replacement'
             : 'battery-state';
+      const stateView = buildNodeStateView(node);
       const calibrationState = calibrationStateFor(node.nodeId);
       const calibrateLabel = calibrationState === 'measure_wet'
         ? 'Measure wet'
@@ -1528,6 +1590,9 @@ function renderNodes(nodes) {
       const calibrateButton = isControl
         ? ''
         : `<button type="button" class="sensor-btn calibrate" data-action="calibrate" data-node-id="${node.nodeId ?? ''}" ${calibrateDisabled}>${calibrateLabel}</button>`;
+      const stateNoteLine = (!stateView.sleepActive && stateView.note)
+        ? `<p class="sensor-state-note">${stateView.note}</p>`
+        : '';
 
       return `
         <article class="${cardClasses.join(' ')}" data-sensor-node-id="${node.nodeId ?? ''}">
@@ -1535,7 +1600,8 @@ function renderNodes(nodes) {
           <p>Role: ${roleBadge}</p>
           ${moistureLine}
           ${irrigationLine}
-          <p>State: ${node.state ?? 'UNKNOWN'}</p>
+          <p class="sensor-state-row"><span class="state-badge ${stateView.badgeClass}">${stateView.badgeText}</span></p>
+          ${stateNoteLine}
           <p>Battery: ${formatBatteryVolts(node.batteryEstMv)} <span class="${batteryClass}">[${batteryState}]</span></p>
           <p>Last seen: ${node.lastSeenSecAgo ?? '-'} sec ago</p>
           <div class="sensor-actions">
@@ -1543,6 +1609,7 @@ function renderNodes(nodes) {
             ${calibrateButton}
             <button type="button" class="sensor-btn unpair" data-action="unpair" data-node-id="${node.nodeId ?? ''}">Unpair</button>
           </div>
+          ${stateView.sleepActive ? `<p class="sensor-next-contact">${stateView.note}</p>` : ''}
           <p class="sensor-mac">MAC: ${node.mac ?? 'N/A'}</p>
         </article>
       `;
@@ -1950,6 +2017,24 @@ setInterval(() => {
   if (pairingRemainingSec > 0) {
     pairingRemainingSec -= 1;
     renderPairingBannerState(pairingRemainingSec > 0);
+  }
+
+  if (Array.isArray(latestNodes) && latestNodes.length > 0) {
+    let hasCountdown = false;
+    latestNodes = latestNodes.map((node) => {
+      const nextContactSec = Math.max(0, Math.floor(Number(node && node.nextContactSec) || 0));
+      if (!node || !node.sleepActive || nextContactSec <= 0) {
+        return node;
+      }
+      hasCountdown = true;
+      return {
+        ...node,
+        nextContactSec: nextContactSec - 1,
+      };
+    });
+    if (hasCountdown) {
+      renderNodes(latestNodes);
+    }
   }
 
   reconcileCalibrationState();
