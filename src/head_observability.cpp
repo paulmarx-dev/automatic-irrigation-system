@@ -95,6 +95,7 @@ static uint16_t s_timeRunDurationSec = TIME_RUN_DEFAULT_SEC;
 static uint32_t s_manualRunDeadlineMs = 0;
 static uint32_t s_requestedRunDurationSec = 0;
 static uint32_t s_timeNextStartMs = 0;
+static uint32_t s_timeCycleStartMs = 0;
 static bool s_irrigationSyncDirty = true;
 static uint32_t s_lastIrrigationSyncMs = 0;
 static uint64_t s_irrigationLeaseId = 1;
@@ -844,6 +845,7 @@ static void stopIrrigation(const char* reason)
     return;
   }
   s_manualIrrigationActive = false;
+  s_timeCycleStartMs = 0;
   s_requestedRunDurationSec = 0;
   s_manualRunDeadlineMs = 0;
   markIrrigationSyncDirty();
@@ -881,6 +883,23 @@ static void startIrrigation(uint32_t nowMs, uint32_t durationSec, const char* re
 
 static void irrigationAutomationTick(uint32_t nowMs)
 {
+  if (s_irrigationMode == IRRIGATION_MODE_TIME &&
+      s_manualIrrigationActive &&
+      !s_controlConfirmedIrrigationActive &&
+      s_timeCycleStartMs != 0 &&
+      s_requestedRunDurationSec > 0) {
+    const uint32_t startupWindowMs = s_requestedRunDurationSec * 1000UL;
+    if (static_cast<uint32_t>(nowMs - s_timeCycleStartMs) >= startupWindowMs) {
+      if (s_pendingControlCmd.active || s_controlPhase == CONTROL_CMD_PENDING_START) {
+        s_pendingControlCmd.active = false;
+      }
+      s_controlPhase = CONTROL_CMD_IDLE;
+      s_controlConfirmedIrrigationActive = false;
+      stopIrrigation("TIME cycle missed: no control confirmation");
+      Serial.println("OBS: TIME cycle skipped (control did not confirm in-slot start)");
+    }
+  }
+
   if (s_manualIrrigationActive && s_controlConfirmedIrrigationActive &&
       s_manualRunDeadlineMs != 0 && (int32_t)(nowMs - s_manualRunDeadlineMs) >= 0) {
     stopIrrigation("duration elapsed");
@@ -926,7 +945,14 @@ static void irrigationAutomationTick(uint32_t nowMs)
     }
 
     if (!s_manualIrrigationActive && (int32_t)(nowMs - s_timeNextStartMs) >= 0) {
+      if (!hasControlOnlinePresence()) {
+        s_timeNextStartMs = nowMs + intervalMs;
+        Serial.println("OBS: TIME cycle skipped (control offline)");
+        return;
+      }
+
       startIrrigation(nowMs, runSec, "TIME interval trigger");
+      s_timeCycleStartMs = nowMs;
       s_timeNextStartMs = nowMs + intervalMs;
     }
   }
@@ -1486,6 +1512,7 @@ static void onIrrigationConfigPostApi()
     s_timeNextStartMs = millis() + static_cast<uint32_t>(s_timeIntervalMin) * 60UL * 1000UL;
   } else {
     s_timeNextStartMs = 0;
+    s_timeCycleStartMs = 0;
   }
   markIrrigationSyncDirty();
   if (!saveIrrigationConfigToNvs()) {
@@ -1646,6 +1673,11 @@ void headObservabilityTick()
         continue;
       }
       if (nodes[i].irrigationActive) {
+        if (s_requestedRunDurationSec > 0 && s_manualRunDeadlineMs == 0) {
+          s_manualRunDeadlineMs = nowMs + (s_requestedRunDurationSec * 1000UL);
+          Serial.print("OBS: run deadline restored from telemetry presence sec=");
+          Serial.println((unsigned long)s_requestedRunDurationSec);
+        }
         s_controlConfirmedIrrigationActive = true;
         s_controlPhase = CONTROL_CMD_ACTIVE;
       } else if (s_controlPhase != CONTROL_CMD_PENDING_START && s_controlPhase != CONTROL_CMD_PENDING_STOP) {

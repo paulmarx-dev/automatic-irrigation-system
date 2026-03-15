@@ -422,6 +422,51 @@ function setHomeModeStatus(text, isError = false) {
   homeModeStatusEl.classList.toggle('error', isError);
 }
 
+function clearStaleHomeModeFetchError() {
+  if (!homeModeStatusEl || !homeModeStatusEl.classList.contains('error')) {
+    return;
+  }
+
+  const currentText = String(homeModeStatusEl.textContent || '');
+  if (!currentText.startsWith('Config fetch error:')) {
+    return;
+  }
+
+  setHomeModeStatus(homeModeStatusText(), false);
+}
+
+function clearStaleManualFetchError() {
+  if (!homeManualStatusEl || !homeManualStatusEl.classList.contains('error')) {
+    return;
+  }
+
+  const currentText = String(homeManualStatusEl.textContent || '');
+  if (!currentText.startsWith('Manual control unavailable:')) {
+    return;
+  }
+
+  setHomeManualStatus(manualStatusFromControlState(), false);
+}
+
+function clearStaleControlAvailabilityFetchError() {
+  if (!homeControlLockoutStatusEl || !homeControlLockoutStatusEl.classList.contains('error')) {
+    return;
+  }
+
+  const currentText = String(homeControlLockoutStatusEl.textContent || '');
+  if (!currentText.startsWith('Control availability unavailable:')) {
+    return;
+  }
+
+  updateControlAvailabilityStatus();
+}
+
+function clearStaleFetchErrorsFromFreshSnapshot() {
+  clearStaleHomeModeFetchError();
+  clearStaleManualFetchError();
+  clearStaleControlAvailabilityFetchError();
+}
+
 function homeModeStatusText() {
   const selectedMode = normalizeIrrigationMode(pendingIrrigationMode);
   if (isModeSettingsDirty(selectedMode)) {
@@ -758,7 +803,6 @@ function renderHomeModeControls() {
 
 function applyIrrigationConfig(config, allowOverridePending = true) {
   const nowMs = Date.now();
-  const prevPersistedMode = normalizeIrrigationMode(persistedIrrigationMode);
   const prevManualActive = isManualIrrigationActive;
   const prevControlState = controlConfirmedState;
   const mode = normalizeIrrigationMode(config && config.mode);
@@ -818,7 +862,6 @@ function applyIrrigationConfig(config, allowOverridePending = true) {
   manualStartBlockedReason = String(config && config.manualBlockedReason ? config.manualBlockedReason : 'control_not_paired').toLowerCase();
   const controlStateChanged = resolvedConfirmedState !== prevControlState;
   const manualStateChanged = isManualIrrigationActive !== prevManualActive;
-  const modeChanged = mode !== prevPersistedMode;
 
   manualRunRemainingSec = blendRemainingSeconds(
     manualRunRemainingSec,
@@ -831,16 +874,10 @@ function applyIrrigationConfig(config, allowOverridePending = true) {
     resolvedPendingElapsedSec,
     controlStateChanged,
   );
-  timeRunRemainingSec = blendRemainingSeconds(
-    timeRunRemainingSec,
-    serverTimeRunRemainingSec,
-    modeChanged,
-  );
-  timeNextStartRemainingSec = blendRemainingSeconds(
-    timeNextStartRemainingSec,
-    serverTimeNextStartSec,
-    modeChanged,
-  );
+  // TIME schedule countdowns should follow a single authoritative source
+  // from backend snapshots to avoid visual oscillation.
+  timeRunRemainingSec = Math.max(0, Math.floor(Number(serverTimeRunRemainingSec) || 0));
+  timeNextStartRemainingSec = Math.max(0, Math.floor(Number(serverTimeNextStartSec) || 0));
   if (!isManualIrrigationActive) {
     manualRunRemainingSec = 0;
   }
@@ -854,6 +891,7 @@ function applyIrrigationConfig(config, allowOverridePending = true) {
     pendingTimeIntervalMin = persistedTimeIntervalMin;
     pendingTimeRunDurationSec = persistedTimeRunDurationSec;
   }
+
   updateControlAvailabilityStatus();
   renderHomeModeControls();
   setHomeManualStatus(manualStatusFromControlState(), controlConfirmedState === 'lost');
@@ -1530,6 +1568,10 @@ function applyDashboardSnapshot(snapshot, allowOverridePending = true) {
   const unitStatus = snapshot && snapshot.unitStatus ? snapshot.unitStatus : null;
   markTransportDataUpdate();
 
+  // Fresh snapshot (SSE or polling) should clear transient fetch errors
+  // that might have been shown while the head was rebooting.
+  clearStaleFetchErrorsFromFreshSnapshot();
+
   latestNodes = nodes;
 
   if (webStatus) {
@@ -1908,26 +1950,6 @@ setInterval(() => {
   if (pairingRemainingSec > 0) {
     pairingRemainingSec -= 1;
     renderPairingBannerState(pairingRemainingSec > 0);
-  }
-
-  if (isManualIrrigationActive && manualRunRemainingSec > 0) {
-    manualRunRemainingSec = Math.max(0, manualRunRemainingSec - 1);
-    renderHomeModeControls();
-  }
-
-  if (controlConfirmedState === 'pending_start' || controlConfirmedState === 'pending_stop') {
-    controlPendingElapsedSec = Math.max(0, Math.floor(controlPendingElapsedSec) + 1);
-    renderHomeModeControls();
-  }
-
-  const isActiveTimeMode = normalizeIrrigationMode(persistedIrrigationMode) === 'TIME';
-  if (isActiveTimeMode) {
-    if (timeRunRemainingSec > 0) {
-      timeRunRemainingSec = Math.max(0, timeRunRemainingSec - 1);
-    } else if (timeNextStartRemainingSec > 0) {
-      timeNextStartRemainingSec = Math.max(0, timeNextStartRemainingSec - 1);
-    }
-    renderHomeModeControls();
   }
 
   reconcileCalibrationState();

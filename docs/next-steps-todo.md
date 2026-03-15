@@ -1,5 +1,14 @@
 # Next Steps TODO
 
+## Completed in this cycle (2026-03-15)
+
+- [x] Web status transport moved to SSE-first snapshots with polling fallback only.
+- [x] Transport diagnostics indicator added to UI.
+- [x] TIME countdown/status rendering unified to snapshot-authoritative values.
+- [x] Home transient fetch errors auto-clear after snapshot recovery.
+- [x] Basic UI-facing CONTROL availability model is active (`online` / `offline` / `battery_lockout` / `not_paired`).
+- [x] TIME mode stale delayed-start behavior removed (missed cycle is skipped).
+
 ## Priority backlog
 
 - [x] CONTROL battery telemetry: send battery metrics from control node (same HW path as sensor) using shared node-side code.
@@ -11,8 +20,8 @@
   - [x] HEAD remains source of truth for desired irrigation state.
   - [x] CONTROL executes with lease/deadline.
   - [x] Add max run cap enforcement.
-- [ ] Irrigation UI: show that watering is unavailable when CONTROL is absent.
-  - Distinguish between not paired and missing several expected wake windows.
+- [x] Irrigation UI: show that watering is unavailable when CONTROL is absent.
+  - [ ] Distinguish between not paired and missing several expected wake windows.
 - [ ] Irrigation UI: show time until next scheduled CONTROL wake.
 - [ ] Irrigation UI: adapt AUTO/TIME/MANUAL status text using CONTROL wake ETA.
 - [ ] Define UI-facing CONTROL availability model.

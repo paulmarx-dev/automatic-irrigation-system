@@ -3,6 +3,12 @@
 Status: Draft (implementation plan)
 Owner: HEAD firmware/web
 
+Implementation update (2026-03-15):
+- Dashboard now uses SSE-first snapshot stream (`/api/events`) with automatic polling fallback.
+- Transport state indicator/popover is implemented in UI.
+- Home TIME countdown/status uses backend-authoritative snapshot values (no local ticker drift).
+- Home transient fetch errors auto-clear when fresh snapshots return after reboot/reflash.
+
 ## 1) Product concept
 
 Head provides a **local web console** over its own AP for:
@@ -28,6 +34,7 @@ Reference policy: `docs/head-web-operating-model.md`.
 - Basic control modes: Auto / Time / Manual / OFF.
 - Basic settings persistence in NVS.
 - Status updates with low radio overhead.
+  - Implemented as SSE snapshot stream with fallback polling.
 
 ### Deferred explicitly (do not implement in this phase)
 - Internet/cloud sync.
@@ -224,6 +231,8 @@ Note:
 - [ ] Final AP password policy (default value + first-change flow)
 - [ ] Exact max clients allowed in AP mode
 - [ ] Polling-only in MVP or SSE for read-only status stream
+- [x] Polling-only in MVP or SSE for read-only status stream
+  - Resolved: SSE snapshot stream is primary; polling remains fallback only.
 - [ ] Final wording and localization (RU/EN) for user-facing text
 - [x] Calibration reset from web UI in MVP
   - Decision: do not add reset-calibration action to web UI in MVP; keep it sensor-local only.

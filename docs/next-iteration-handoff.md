@@ -1,5 +1,14 @@
 # Next Iteration Handoff (after context reset)
 
+## Archive update (2026-03-15)
+
+This handoff is largely completed in implementation:
+- Head web provisioning MVP is active.
+- AP-first UI flow is active with SSE-first status updates and polling fallback.
+- Irrigation Home status UX has been stabilized (authoritative countdown source, stale error recovery).
+
+Keep this file as historical handoff context; use `docs/todo.md` and `docs/next-steps-todo.md` as active planning sources.
+
 ## Goal
 Implement **Head Wi-Fi provisioning MVP** (industry-standard AP onboarding flow) **without breaking existing ESP-NOW pairing/telemetry stability**.
 

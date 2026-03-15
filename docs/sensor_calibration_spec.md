@@ -1,5 +1,9 @@
 ## TODO
 
+Update 2026-03-15:
+- No calibration logic changes in this cycle.
+- Recent work was focused on head web transport/recovery UX and TIME scheduling behavior.
+
 - [x] Sensor calibration flow (button-triggered): dry/wet points, NVS storage, moisture normalization
 
 

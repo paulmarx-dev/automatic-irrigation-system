@@ -1,5 +1,16 @@
 ## TODO
 
+## Update 2026-03-15 (implemented)
+
+- [x] Dashboard transport model migrated to SSE-first snapshots (`/api/events`) with polling as fallback only.
+- [x] Fallback polling auto-disables on SSE recovery; reconnect loop and fallback state are visible in UI.
+- [x] Transport indicator added (live/fallback/reconnect/offline) with diagnostics popover.
+- [x] Home TIME countdown rendering switched to backend-authoritative values to eliminate oscillation.
+- [x] Conflicting local timer mutations in UI removed (single source of truth from snapshots).
+- [x] Stale transient fetch errors in Home tab now auto-clear on fresh snapshot after head reboot/reflash.
+- [x] Manual pending/ACK presentation improved (pending guards and ACK precedence handling).
+- [x] TIME mode stale-cycle protection added: missed window while control is offline is skipped, no delayed catch-up start.
+
 - [x] Project skeleton: common config structs, logging, build flags (roles: HEAD/SENSOR/CONTROL)
 - [x] ESP-NOW basics: init, channel, send, receive callbacks, peer management
 - [ ] Pairing protocol (service messages): beacon/join/offer/confirm/ack

@@ -3,6 +3,11 @@
 ## Status
 Accepted for current and near-term project scope.
 
+Implementation update (2026-03-15):
+- Status delivery in web console is SSE-first with polling fallback.
+- UI shows transport diagnostics (live/fallback/reconnect/offline).
+- After head reboot/reflash, transient Home fetch errors clear automatically when snapshot flow recovers.
+
 ## Intent
 Provide useful local web access for:
 - end-user information and control,
