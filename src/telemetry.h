@@ -32,6 +32,18 @@ struct TelemetryHeadNodePresence {
 	uint32_t rxInvalid;
 	uint32_t ackOkSent;
 	uint32_t ackNotPairedSent;
+	bool irrigationActive;
+};
+
+struct TelemetryHeadCommandAck {
+	bool valid;
+	uint16_t nodeId;
+	uint16_t cmdId;
+	uint8_t action;
+	uint8_t status;
+	uint8_t irrigationState;
+	uint32_t remainingSec;
+	uint32_t receivedAtMs;
 };
 
 void telemetryInit();
@@ -41,6 +53,7 @@ void telemetryTickHead(uint32_t nowMs);
 uint8_t telemetryHeadGetPresence(TelemetryHeadNodePresence* outNodes, uint8_t maxNodes);
 void telemetryHeadClearPresence();
 bool telemetryHeadRemovePresenceByNodeId(uint16_t nodeId);
-bool telemetryHeadSendRemoteButtonAction(uint16_t nodeId, uint8_t action);
+bool telemetryHeadSendRemoteButtonAction(uint16_t nodeId, uint8_t action, uint16_t cmdId = 0);
 bool telemetryHeadSendIrrigationState(uint8_t desiredState, uint64_t leaseId, uint32_t remainingLeaseMs);
+bool telemetryHeadConsumeCommandAck(TelemetryHeadCommandAck* outAck);
 void telemetrySetNodeStatusFlags(uint8_t mask, bool enabled);

@@ -175,52 +175,65 @@ static void serveFile(const char* path, const char* contentType)
   file.close();
 }
 
+static size_t provisioningComposeWebStatusJson(char* body, size_t bodySize, uint32_t nowMs)
+{
+  if (!body || bodySize == 0) {
+    return 0;
+  }
+
+  const uint32_t remainingMs = pairingHeadRemainingMs(nowMs);
+  const uint32_t remainingSec = (remainingMs + 999UL) / 1000UL;
+  const String apIp = WiFi.softAPIP().toString();
+  const int written = snprintf(
+      body,
+      bodySize,
+      "{\"mode\":\"AP_ONLY\",\"apSsid\":\"%s\",\"apIp\":\"%s\",\"pairingOpen\":%s,\"pairingRemainingSec\":%lu}",
+      s_apSsid.c_str(),
+      apIp.c_str(),
+      pairingHeadIsOpen() ? "true" : "false",
+      static_cast<unsigned long>(remainingSec));
+  if (written <= 0) {
+    body[0] = '\0';
+    return 0;
+  }
+  return static_cast<size_t>(written < static_cast<int>(bodySize) ? written : static_cast<int>(bodySize - 1));
+}
+
+static size_t provisioningComposeUnitStatusJson(char* body, size_t bodySize, uint32_t nowMs)
+{
+  if (!body || bodySize == 0) {
+    return 0;
+  }
+
+  const uint32_t uptimeSec = nowMs / 1000UL;
+  const int written = snprintf(
+      body,
+      bodySize,
+      "{\"unitName\":\"%s\",\"apSsid\":\"%s\",\"apPasswordSet\":%s,\"firmwareVersion\":\"%s %s\",\"uptimeSec\":%lu}",
+      s_unitName.c_str(),
+      s_apSsid.c_str(),
+      s_apPassword.length() > 0 ? "true" : "false",
+      __DATE__,
+      __TIME__,
+      static_cast<unsigned long>(uptimeSec));
+  if (written <= 0) {
+    body[0] = '\0';
+    return 0;
+  }
+  return static_cast<size_t>(written < static_cast<int>(bodySize) ? written : static_cast<int>(bodySize - 1));
+}
+
 static void onWebStatusApi()
 {
-  const uint32_t remainingMs = pairingHeadRemainingMs(millis());
-  const uint32_t remainingSec = (remainingMs + 999UL) / 1000UL;
-
-  String body;
-  body.reserve(256);
-  body += "{";
-  body += "\"mode\":\"AP_ONLY\",";
-  body += "\"apSsid\":\"";
-  body += s_apSsid;
-  body += "\",";
-  body += "\"apIp\":\"";
-  body += WiFi.softAPIP().toString();
-  body += "\",";
-  body += "\"pairingOpen\":";
-  body += pairingHeadIsOpen() ? "true" : "false";
-  body += ",";
-  body += "\"pairingRemainingSec\":";
-  body += String(static_cast<unsigned long>(remainingSec));
-  body += "}";
-
+  char body[320] = {0};
+  (void)provisioningComposeWebStatusJson(body, sizeof(body), millis());
   s_server->send(200, "application/json", body);
 }
 
 static void onUnitStatusApi()
 {
-  const uint32_t uptimeSec = millis() / 1000UL;
-  String body;
-  body.reserve(320);
-  body += "{";
-  body += "\"unitName\":\"";
-  body += s_unitName;
-  body += "\",";
-  body += "\"apSsid\":\"";
-  body += s_apSsid;
-  body += "\",";
-  body += "\"apPasswordSet\":";
-  body += s_apPassword.length() > 0 ? "true" : "false";
-  body += ",";
-  body += "\"firmwareVersion\":\"";
-  body += String(__DATE__) + " " + String(__TIME__);
-  body += "\",";
-  body += "\"uptimeSec\":";
-  body += String(static_cast<unsigned long>(uptimeSec));
-  body += "}";
+  char body[320] = {0};
+  (void)provisioningComposeUnitStatusJson(body, sizeof(body), millis());
   s_server->send(200, "application/json", body);
 }
 
@@ -320,6 +333,16 @@ static void registerRoutes()
 
 }  // namespace
 
+size_t headProvisioningComposeWebStatusJson(char* body, size_t bodySize, uint32_t nowMs)
+{
+  return provisioningComposeWebStatusJson(body, bodySize, nowMs);
+}
+
+size_t headProvisioningComposeUnitStatusJson(char* body, size_t bodySize, uint32_t nowMs)
+{
+  return provisioningComposeUnitStatusJson(body, bodySize, nowMs);
+}
+
 void headProvisioningInit(WebServer* server)
 {
   s_server = server;
@@ -388,6 +411,26 @@ void headProvisioningInit(WebServer* server)
 void headProvisioningTick(uint32_t nowMs)
 {
   (void)nowMs;
+}
+
+size_t headProvisioningComposeWebStatusJson(char* body, size_t bodySize, uint32_t nowMs)
+{
+  (void)nowMs;
+  if (!body || bodySize == 0) {
+    return 0;
+  }
+  body[0] = '\0';
+  return 0;
+}
+
+size_t headProvisioningComposeUnitStatusJson(char* body, size_t bodySize, uint32_t nowMs)
+{
+  (void)nowMs;
+  if (!body || bodySize == 0) {
+    return 0;
+  }
+  body[0] = '\0';
+  return 0;
 }
 
 void headProvisioningFactoryReset()

@@ -61,6 +61,7 @@ static void applyMotorState(bool enabled)
 static void setManualIrrigationActive(bool active, uint32_t nowMs)
 {
   s_manualIrrigationActive = active;
+  telemetrySetNodeStatusFlags(FLAG_IRRIGATION_ACTIVE, active);
   if (active) {
     s_motorSafetyDeadlineMs = nowMs + CONTROL_MOTOR_MAX_RUN_CAP_MS;
     applyMotorState(true);
@@ -164,7 +165,7 @@ static bool sendIrrigationStateRequestToHead(uint32_t nowMs)
   command.hdr.seq = ++s_controlRemoteSeq;
   command.hdr.nodeId = pairingNodeId();
   command.action = REMOTE_BUTTON_IRRIGATION_STATE_REQUEST;
-  command.reserved = 0;
+  command.cmdId = 0;
 
   (void)espnowEnsurePeer(headMac, ESPNOW_CHANNEL, false);
   const bool sent = espnowSend(headMac, reinterpret_cast<const uint8_t*>(&command), sizeof(command));
@@ -233,9 +234,50 @@ static PressArbEvents processMultipressArbitration(bool shortPress, uint32_t now
   return events;
 }
 
-static bool handleRemoteCommand(const uint8_t* data, int len)
+static void sendControlCommandAck(const uint8_t* dstMac, uint16_t cmdId, uint8_t action, uint8_t status)
 {
-  if (!data || len < (int)sizeof(MsgHdr)) {
+  if (!dstMac || !pairingNodeIsPaired()) {
+    return;
+  }
+
+  MsgCommandAck ack{};
+  ack.hdr.ver = PROTO_VER;
+  ack.hdr.type = MSG_COMMAND_ACK;
+  ack.hdr.seq = ++s_controlRemoteSeq;
+  ack.hdr.nodeId = pairingNodeId();
+  ack.cmdId = cmdId;
+  ack.action = action;
+  ack.status = status;
+  ack.irrigationState = s_manualIrrigationActive ? IRRIGATION_STATE_RUN : IRRIGATION_STATE_OFF;
+
+  uint32_t remainingSec = 0;
+  if (s_manualIrrigationActive && s_motorSafetyDeadlineMs != 0) {
+    const uint32_t nowMs = millis();
+    if ((int32_t)(s_motorSafetyDeadlineMs - nowMs) > 0) {
+      remainingSec = static_cast<uint32_t>(s_motorSafetyDeadlineMs - nowMs) / 1000UL;
+    }
+  }
+  ack.remainingSec = remainingSec;
+
+  (void)espnowEnsurePeer(dstMac, ESPNOW_CHANNEL, false);
+  const bool sent = espnowSend(dstMac, reinterpret_cast<const uint8_t*>(&ack), sizeof(ack));
+  Serial.print("CONTROL: cmd_ack sent=");
+  Serial.print(sent ? 1 : 0);
+  Serial.print(" cmdId=");
+  Serial.print((unsigned long)cmdId);
+  Serial.print(" action=");
+  Serial.print((unsigned long)action);
+  Serial.print(" status=");
+  Serial.print((unsigned long)status);
+  Serial.print(" irState=");
+  Serial.print((unsigned long)ack.irrigationState);
+  Serial.print(" remainingSec=");
+  Serial.println((unsigned long)ack.remainingSec);
+}
+
+static bool handleRemoteCommand(const uint8_t* src_mac, const uint8_t* data, int len)
+{
+  if (!src_mac || !data || len < (int)sizeof(MsgHdr)) {
     return false;
   }
 
@@ -328,11 +370,14 @@ static bool handleRemoteCommand(const uint8_t* data, int len)
       return false;
     }
 
+    sendControlCommandAck(src_mac, cmd->cmdId, cmd->action, COMMAND_ACK_STATUS_RECEIVED);
+
     if (cmd->action == REMOTE_BUTTON_IRRIGATION_START) {
       s_headSyncPending = false;
       if (!s_manualIrrigationActive) {
         if (s_lowBatteryLockout) {
           Serial.println("CONTROL: irrigation START command ignored (low battery lockout)");
+          sendControlCommandAck(src_mac, cmd->cmdId, cmd->action, COMMAND_ACK_STATUS_REJECTED);
           return true;
         }
         setManualIrrigationActive(true, millis());
@@ -340,6 +385,7 @@ static bool handleRemoteCommand(const uint8_t* data, int len)
         Serial.println("CONTROL: irrigation START command applied (legacy)");
         triggerIrrigationLedIfDebug(LED_MODE_SUCCESS_ONCE);
       }
+      sendControlCommandAck(src_mac, cmd->cmdId, cmd->action, COMMAND_ACK_STATUS_APPLIED);
       return true;
     }
 
@@ -351,6 +397,12 @@ static bool handleRemoteCommand(const uint8_t* data, int len)
         Serial.println("CONTROL: irrigation STOP command applied (legacy)");
         triggerIrrigationLedIfDebug(LED_MODE_ERROR_ONCE);
       }
+      sendControlCommandAck(src_mac, cmd->cmdId, cmd->action, COMMAND_ACK_STATUS_APPLIED);
+      return true;
+    }
+
+    if (cmd->action == REMOTE_BUTTON_IRRIGATION_STATE_REQUEST) {
+      sendControlCommandAck(src_mac, cmd->cmdId, cmd->action, COMMAND_ACK_STATUS_APPLIED);
       return true;
     }
   }
@@ -363,7 +415,7 @@ static void onRecv(const uint8_t* src_mac, const uint8_t* data, int len)
   if (pairingOnRecv(src_mac, data, len)) {
     return;
   }
-  if (handleRemoteCommand(data, len)) {
+  if (handleRemoteCommand(src_mac, data, len)) {
     return;
   }
   telemetryOnRecv(src_mac, data, len);

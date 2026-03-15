@@ -4,6 +4,13 @@ const addSensorBtn = document.getElementById('addSensorBtn');
 const closePairingBtn = document.getElementById('closePairingBtn');
 const pairingBannerEl = document.getElementById('pairingBanner');
 const calibrationBannerEl = document.getElementById('calibrationBanner');
+const transportIndicatorBtnEl = document.getElementById('transportIndicatorBtn');
+const transportPopoverEl = document.getElementById('transportPopover');
+const transportPopoverTransportEl = document.getElementById('transportPopoverTransport');
+const transportPopoverStatusEl = document.getElementById('transportPopoverStatus');
+const transportPopoverLastUpdateEl = document.getElementById('transportPopoverLastUpdate');
+const transportPopoverPollIntervalEl = document.getElementById('transportPopoverPollInterval');
+const transportPopoverReconnectsEl = document.getElementById('transportPopoverReconnects');
 const tabsEl = document.querySelector('.tabs');
 const tabButtons = Array.from(document.querySelectorAll('.tab-btn'));
 const tabPanels = Array.from(document.querySelectorAll('.tab-panel'));
@@ -69,6 +76,10 @@ let isControlLowBatteryLockoutActive = false;
 let controlAvailabilityStatus = 'not_paired';
 let manualStartBlockedReason = 'control_not_paired';
 let manualRunRemainingSec = 0;
+let controlConfirmedState = 'idle';
+let controlPendingElapsedSec = 0;
+let localManualPendingCommand = 'none';
+let localManualPendingSinceMs = 0;
 let timeNextStartRemainingSec = 0;
 let timeRunRemainingSec = 0;
 let homeManualStatusResetTimer = 0;
@@ -76,6 +87,13 @@ let manualDurationDirty = false;
 let persistedUnitName = '';
 let pendingUnitName = '';
 let unitNameInitialized = false;
+let irrigationEventsSource = null;
+let irrigationEventsReconnectTimer = 0;
+let tickIntervalId = 0;
+let activeTickIntervalMs = 0;
+let transportStatus = 'reconnect';
+let transportLastUpdateMs = 0;
+let transportReconnectAttempts = 0;
 const MANUAL_DURATION_MIN_SEC = 0;
 const MANUAL_DURATION_MAX_SEC = 600;
 const TIME_INTERVAL_MIN = 5;
@@ -85,7 +103,111 @@ const TIME_RUN_MAX_SEC = 600;
 const CAL_PROMPT_TIMEOUT_MS = 20000;
 const CAL_ERROR_HIDE_MS = 5000;
 const CAL_INFO_HIDE_MS = 5000;
+const MANUAL_PENDING_GUARD_SEC = 8;
+const POLL_INTERVAL_FAST_MS = 3000;
+const COUNTDOWN_RESYNC_THRESHOLD_SEC = 3;
 let latestSummaryUptimeSec = null;
+
+function transportStatusLabel(status) {
+  if (status === 'live') {
+    return 'Live SSE';
+  }
+  if (status === 'fallback') {
+    return 'Fallback polling';
+  }
+  if (status === 'reconnect') {
+    return 'Reconnecting';
+  }
+  return 'Offline/error';
+}
+
+function transportTypeLabel(status) {
+  if (status === 'live' || status === 'reconnect') {
+    return 'SSE';
+  }
+  if (status === 'fallback') {
+    return 'Polling fallback';
+  }
+  return 'Unavailable';
+}
+
+function formatLastUpdateAge() {
+  if (!transportLastUpdateMs) {
+    return '-';
+  }
+  const ageSec = Math.max(0, Math.floor((Date.now() - transportLastUpdateMs) / 1000));
+  return `${ageSec}s ago`;
+}
+
+function updateTransportPopover() {
+  if (transportPopoverTransportEl) {
+    transportPopoverTransportEl.textContent = transportTypeLabel(transportStatus);
+  }
+  if (transportPopoverStatusEl) {
+    transportPopoverStatusEl.textContent = transportStatusLabel(transportStatus);
+  }
+  if (transportPopoverLastUpdateEl) {
+    transportPopoverLastUpdateEl.textContent = formatLastUpdateAge();
+  }
+  if (transportPopoverPollIntervalEl) {
+    transportPopoverPollIntervalEl.textContent = activeTickIntervalMs > 0 ? `${Math.floor(activeTickIntervalMs / 1000)}s` : '-';
+  }
+  if (transportPopoverReconnectsEl) {
+    transportPopoverReconnectsEl.textContent = String(transportReconnectAttempts);
+  }
+}
+
+function setTransportStatus(nextStatus) {
+  const allowed = nextStatus === 'live'
+    || nextStatus === 'fallback'
+    || nextStatus === 'reconnect'
+    || nextStatus === 'offline';
+  if (!allowed) {
+    return;
+  }
+  transportStatus = nextStatus;
+
+  if (transportIndicatorBtnEl) {
+    transportIndicatorBtnEl.classList.remove('status-live', 'status-fallback', 'status-reconnect', 'status-offline');
+    transportIndicatorBtnEl.classList.add(`status-${nextStatus}`);
+    transportIndicatorBtnEl.setAttribute('aria-label', `Transport status: ${transportStatusLabel(nextStatus)}`);
+  }
+
+  updateTransportPopover();
+}
+
+function markTransportDataUpdate() {
+  transportLastUpdateMs = Date.now();
+  updateTransportPopover();
+}
+
+function openTransportPopover() {
+  if (!transportPopoverEl || !transportIndicatorBtnEl) {
+    return;
+  }
+  transportPopoverEl.hidden = false;
+  transportIndicatorBtnEl.setAttribute('aria-expanded', 'true');
+  updateTransportPopover();
+}
+
+function closeTransportPopover() {
+  if (!transportPopoverEl || !transportIndicatorBtnEl) {
+    return;
+  }
+  transportPopoverEl.hidden = true;
+  transportIndicatorBtnEl.setAttribute('aria-expanded', 'false');
+}
+
+function toggleTransportPopover() {
+  if (!transportPopoverEl) {
+    return;
+  }
+  if (transportPopoverEl.hidden) {
+    openTransportPopover();
+  } else {
+    closeTransportPopover();
+  }
+}
 
 function render(el, data) {
   if (!el) {
@@ -153,6 +275,13 @@ function formatMinutesSeconds(totalSeconds) {
   const minutes = Math.floor(seconds / 60);
   const secondsRemainder = seconds % 60;
   return `${minutes}m ${secondsRemainder}s`;
+}
+
+function formatClockMmSs(totalSeconds) {
+  const seconds = Math.max(0, Math.floor(Number(totalSeconds) || 0));
+  const minutes = Math.floor(seconds / 60);
+  const secondsRemainder = seconds % 60;
+  return `${String(minutes).padStart(2, '0')}:${String(secondsRemainder).padStart(2, '0')}`;
 }
 
 function formatHoursMinutes(totalMinutes) {
@@ -232,6 +361,37 @@ function formatHoursValueFromMinutes(totalMinutes) {
   return hours.toFixed(2).replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1');
 }
 
+function blendRemainingSeconds(localSec, serverSec, forceServer = false) {
+  const server = Math.max(0, Math.floor(Number(serverSec) || 0));
+  const local = Math.max(0, Math.floor(Number(localSec) || 0));
+  if (forceServer) {
+    return server;
+  }
+  const drift = server - local;
+  if (Math.abs(drift) >= COUNTDOWN_RESYNC_THRESHOLD_SEC) {
+    if (drift > 0) {
+      return local + 1;
+    }
+    return Math.max(0, local - 1);
+  }
+  return local;
+}
+
+function blendIncreasingSeconds(localSec, serverSec, forceServer = false) {
+  const server = Math.max(0, Math.floor(Number(serverSec) || 0));
+  const local = Math.max(0, Math.floor(Number(localSec) || 0));
+  if (forceServer) {
+    return server;
+  }
+  if (server + 1 < local) {
+    return local - 1;
+  }
+  if (server > local + COUNTDOWN_RESYNC_THRESHOLD_SEC) {
+    return local + 1;
+  }
+  return Math.max(local, server);
+}
+
 function isHomeModeDirty() {
   const selectedMode = normalizeIrrigationMode(pendingIrrigationMode);
   return isModeSelectionDirty() || isModeSettingsDirty(selectedMode);
@@ -288,13 +448,27 @@ function setHomeManualStatus(text, isError = false, resetAfterMs = 0) {
   homeManualStatusEl.classList.toggle('error', isError);
   if (resetAfterMs > 0) {
     homeManualStatusResetTimer = setTimeout(() => {
-      homeManualStatusEl.textContent = isManualIrrigationActive
-        ? 'Watering in progress.'
-        : 'Manual watering inactive.';
+      homeManualStatusEl.textContent = manualStatusFromControlState();
       homeManualStatusEl.classList.remove('error');
       homeManualStatusResetTimer = 0;
     }, resetAfterMs);
   }
+}
+
+function manualStatusFromControlState() {
+  if (controlConfirmedState === 'pending_start') {
+    return `Starting... ${Math.max(0, Math.floor(controlPendingElapsedSec))}s`;
+  }
+  if (controlConfirmedState === 'pending_stop') {
+    return `Stopping... ${Math.max(0, Math.floor(controlPendingElapsedSec))}s`;
+  }
+  if (controlConfirmedState === 'lost') {
+    return 'Control lost. Watering forced OFF in UI.';
+  }
+  if (isManualIrrigationActive) {
+    return `Watering in progress (${formatClockMmSs(manualRunRemainingSec)})`;
+  }
+  return 'Manual watering inactive.';
 }
 
 function setHomeControlLockoutStatus(text, isError = false) {
@@ -467,13 +641,32 @@ function renderHomeModeControls() {
   if (manualStartBtnEl && manualStopBtnEl) {
     const secondsLeft = Math.max(0, Math.floor(manualRunRemainingSec));
     const isStartBlocked = manualStartBlockedReason !== 'none';
-    manualStartBtnEl.disabled = !showManualActions || isManualIrrigationActive || isStartBlocked;
-    manualStartBtnEl.textContent = isManualIrrigationActive
-      ? `Watering ${secondsLeft} sec`
-      : 'Start watering';
+    const isPendingStart = controlConfirmedState === 'pending_start';
+    const isPendingStop = controlConfirmedState === 'pending_stop';
+
+    manualStartBtnEl.disabled = !showManualActions || isManualIrrigationActive || isStartBlocked || isPendingStart || isPendingStop;
+    manualStartBtnEl.textContent = isPendingStart
+      ? `Starting... ${Math.max(0, Math.floor(controlPendingElapsedSec))}s`
+      : (isManualIrrigationActive
+        ? `Watering ${formatClockMmSs(secondsLeft)}`
+        : 'Start watering');
     manualStartBtnEl.classList.toggle('watering-active', isManualIrrigationActive);
-    manualStopBtnEl.disabled = !showManualActions || !isManualIrrigationActive;
-    manualStopBtnEl.textContent = 'Stop watering';
+    manualStartBtnEl.classList.toggle('is-pending', isPendingStart);
+
+    manualStopBtnEl.disabled = !showManualActions || (!isManualIrrigationActive && !isPendingStart) || isPendingStop;
+    manualStopBtnEl.textContent = isPendingStop
+      ? `Stopping... ${Math.max(0, Math.floor(controlPendingElapsedSec))}s`
+      : 'Stop watering';
+    manualStopBtnEl.classList.toggle('is-pending', isPendingStop);
+  }
+
+  if (showManualActions && homeManualStatusEl) {
+    if (homeManualStatusResetTimer) {
+      clearTimeout(homeManualStatusResetTimer);
+      homeManualStatusResetTimer = 0;
+    }
+    homeManualStatusEl.textContent = manualStatusFromControlState();
+    homeManualStatusEl.classList.toggle('error', controlConfirmedState === 'lost');
   }
 
   if (manualDurationSecInputEl && document.activeElement !== manualDurationSecInputEl) {
@@ -564,6 +757,10 @@ function renderHomeModeControls() {
 }
 
 function applyIrrigationConfig(config, allowOverridePending = true) {
+  const nowMs = Date.now();
+  const prevPersistedMode = normalizeIrrigationMode(persistedIrrigationMode);
+  const prevManualActive = isManualIrrigationActive;
+  const prevControlState = controlConfirmedState;
   const mode = normalizeIrrigationMode(config && config.mode);
   persistedIrrigationMode = mode;
   persistedManualDurationSec = readConfigNumber(config && config.manualDurationSec, persistedManualDurationSec, MANUAL_DURATION_MIN_SEC, MANUAL_DURATION_MAX_SEC);
@@ -579,14 +776,71 @@ function applyIrrigationConfig(config, allowOverridePending = true) {
     TIME_RUN_MIN_SEC,
     TIME_RUN_MAX_SEC,
   );
-  timeNextStartRemainingSec = readConfigNumber(config && config.timeNextStartSec, 0, 0, TIME_INTERVAL_MAX * 60);
-  timeRunRemainingSec = readConfigNumber(config && config.runRemainingSec, 0, 0, TIME_RUN_MAX_SEC);
+  const serverTimeNextStartSec = readConfigNumber(config && config.timeNextStartSec, 0, 0, TIME_INTERVAL_MAX * 60);
+  const serverTimeRunRemainingSec = readConfigNumber(config && config.runRemainingSec, 0, 0, TIME_RUN_MAX_SEC);
+  const serverManualActive = Boolean(config && config.manualActive);
+  const serverConfirmedState = String(config && config.confirmedState ? config.confirmedState : 'idle').toLowerCase();
+  const serverPendingElapsedSec = readConfigNumber(config && config.pendingElapsedSec, controlPendingElapsedSec, 0, 3600);
+  const serverManualRunRemainingSec = readConfigNumber(config && config.runRemainingSec, manualRunRemainingSec, 0, MANUAL_DURATION_MAX_SEC);
+
+  let resolvedConfirmedState = serverConfirmedState;
+  let resolvedPendingElapsedSec = serverPendingElapsedSec;
+  const localPendingElapsedSec = localManualPendingSinceMs > 0
+    ? Math.max(0, Math.floor((nowMs - localManualPendingSinceMs) / 1000))
+    : 0;
+  const withinPendingGuard = localPendingElapsedSec <= MANUAL_PENDING_GUARD_SEC;
+
+  if (localManualPendingCommand === 'start') {
+    if (serverConfirmedState === 'idle' && !serverManualActive && withinPendingGuard) {
+      resolvedConfirmedState = 'pending_start';
+      resolvedPendingElapsedSec = Math.max(serverPendingElapsedSec, localPendingElapsedSec);
+    }
+    if (serverManualActive || serverConfirmedState === 'active' || serverConfirmedState === 'pending_stop' || serverConfirmedState === 'lost' || !withinPendingGuard) {
+      localManualPendingCommand = 'none';
+      localManualPendingSinceMs = 0;
+    }
+  } else if (localManualPendingCommand === 'stop') {
+    if (serverManualActive && serverConfirmedState !== 'pending_stop' && withinPendingGuard) {
+      resolvedConfirmedState = 'pending_stop';
+      resolvedPendingElapsedSec = Math.max(serverPendingElapsedSec, localPendingElapsedSec);
+    }
+    if (!serverManualActive || serverConfirmedState === 'lost' || !withinPendingGuard) {
+      localManualPendingCommand = 'none';
+      localManualPendingSinceMs = 0;
+    }
+  }
+
+  const effectiveManualActive = serverManualActive || resolvedConfirmedState === 'active';
   if (config && typeof config.manualActive !== 'undefined') {
-    isManualIrrigationActive = Boolean(config.manualActive);
+    isManualIrrigationActive = effectiveManualActive;
   }
   controlAvailabilityStatus = String(config && config.control && config.control.status ? config.control.status : 'not_paired').toLowerCase();
   manualStartBlockedReason = String(config && config.manualBlockedReason ? config.manualBlockedReason : 'control_not_paired').toLowerCase();
-  manualRunRemainingSec = readConfigNumber(config && config.runRemainingSec, manualRunRemainingSec, 0, MANUAL_DURATION_MAX_SEC);
+  const controlStateChanged = resolvedConfirmedState !== prevControlState;
+  const manualStateChanged = isManualIrrigationActive !== prevManualActive;
+  const modeChanged = mode !== prevPersistedMode;
+
+  manualRunRemainingSec = blendRemainingSeconds(
+    manualRunRemainingSec,
+    serverManualRunRemainingSec,
+    manualStateChanged || controlStateChanged,
+  );
+  controlConfirmedState = resolvedConfirmedState;
+  controlPendingElapsedSec = blendIncreasingSeconds(
+    controlPendingElapsedSec,
+    resolvedPendingElapsedSec,
+    controlStateChanged,
+  );
+  timeRunRemainingSec = blendRemainingSeconds(
+    timeRunRemainingSec,
+    serverTimeRunRemainingSec,
+    modeChanged,
+  );
+  timeNextStartRemainingSec = blendRemainingSeconds(
+    timeNextStartRemainingSec,
+    serverTimeNextStartSec,
+    modeChanged,
+  );
   if (!isManualIrrigationActive) {
     manualRunRemainingSec = 0;
   }
@@ -602,12 +856,7 @@ function applyIrrigationConfig(config, allowOverridePending = true) {
   }
   updateControlAvailabilityStatus();
   renderHomeModeControls();
-  setHomeManualStatus(
-    isManualIrrigationActive
-      ? 'Watering in progress.'
-      : 'Manual watering inactive.',
-    false,
-  );
+  setHomeManualStatus(manualStatusFromControlState(), controlConfirmedState === 'lost');
 }
 
 function renderUnitConfigControls() {
@@ -900,13 +1149,15 @@ async function startManualIrrigation() {
 
   try {
     await postForm('/api/irrigation/manual/start', { durationSec: pendingManualDurationSec });
-    isManualIrrigationActive = true;
-    manualRunRemainingSec = pendingManualDurationSec;
     persistedManualDurationSec = pendingManualDurationSec;
     manualDurationDirty = false;
+    localManualPendingCommand = 'start';
+    localManualPendingSinceMs = Date.now();
+    controlConfirmedState = 'pending_start';
+    controlPendingElapsedSec = 0;
     renderHomeModeControls();
     await tick();
-    setHomeManualStatus(`Watering started for ${formatMinutesSeconds(pendingManualDurationSec)}.`, false, 5000);
+    setHomeManualStatus(manualStatusFromControlState(), false, 5000);
   } catch (error) {
     setHomeManualStatus(`Watering start failed: ${error.message}`, true);
   }
@@ -915,11 +1166,13 @@ async function startManualIrrigation() {
 async function stopManualIrrigation() {
   try {
     await postForm('/api/irrigation/manual/stop', {});
-    isManualIrrigationActive = false;
-    manualRunRemainingSec = 0;
+    localManualPendingCommand = 'stop';
+    localManualPendingSinceMs = Date.now();
+    controlConfirmedState = 'pending_stop';
+    controlPendingElapsedSec = 0;
     renderHomeModeControls();
     await tick();
-    setHomeManualStatus('Watering stopped by user.', false, 5000);
+    setHomeManualStatus(manualStatusFromControlState(), false, 5000);
   } catch (error) {
     setHomeManualStatus(`Watering stop failed: ${error.message}`, true);
   }
@@ -1269,6 +1522,36 @@ async function fetchJson(url) {
   return response.json();
 }
 
+function applyDashboardSnapshot(snapshot, allowOverridePending = true) {
+  const webStatus = snapshot && snapshot.webStatus ? snapshot.webStatus : null;
+  const nodes = Array.isArray(snapshot && snapshot.nodes) ? snapshot.nodes : [];
+  const summary = snapshot && snapshot.summary ? snapshot.summary : null;
+  const irrigationConfig = snapshot && snapshot.irrigationConfig ? snapshot.irrigationConfig : null;
+  const unitStatus = snapshot && snapshot.unitStatus ? snapshot.unitStatus : null;
+  markTransportDataUpdate();
+
+  latestNodes = nodes;
+
+  if (webStatus) {
+    render(webStatusEl, webStatus);
+    syncPairingCountdown(webStatus);
+  }
+
+  renderHomeSummary(summary);
+  if (irrigationConfig) {
+    applyIrrigationConfig(irrigationConfig, allowOverridePending);
+  }
+
+  if (unitStatus) {
+    applyUnitStatus(unitStatus, !unitNameSaveBtnEl || unitNameSaveBtnEl.disabled);
+  }
+
+  renderNodes(nodes);
+  reconcileCalibrationState();
+  renderCalibrationBanner();
+  placeCalibrationBanner();
+}
+
 async function tick() {
   try {
     const [webStatus, nodes, summary, irrigationConfig, unitStatus] = await Promise.all([
@@ -1278,27 +1561,16 @@ async function tick() {
       fetchJson('/api/irrigation/config'),
       fetchJson('/api/unit/status'),
     ]);
-    latestNodes = Array.isArray(nodes) ? nodes : [];
-
-    render(webStatusEl, webStatus);
-    renderHomeSummary(summary);
-    applyIrrigationConfig(irrigationConfig, !isHomeModeDirty());
-    if (summary && typeof summary.manualIrrigationActive !== 'undefined') {
-      isManualIrrigationActive = Boolean(summary.manualIrrigationActive);
-      renderHomeModeControls();
-      setHomeManualStatus(
-        isManualIrrigationActive
-          ? 'Watering in progress.'
-          : 'Manual watering inactive.',
-        false,
-      );
+    applyDashboardSnapshot({
+      webStatus,
+      nodes,
+      summary,
+      irrigationConfig,
+      unitStatus,
+    }, !isHomeModeDirty());
+    if (!irrigationEventsSource) {
+      setTransportStatus('fallback');
     }
-    applyUnitStatus(unitStatus, !unitNameSaveBtnEl || unitNameSaveBtnEl.disabled);
-    syncPairingCountdown(webStatus);
-    renderNodes(nodes);
-    reconcileCalibrationState();
-    renderCalibrationBanner();
-    placeCalibrationBanner();
   } catch (error) {
     if (webStatusEl) {
       webStatusEl.textContent = `fetch error: ${error}`;
@@ -1316,8 +1588,118 @@ async function tick() {
     activeCalibration = null;
     calibrationStateByNode.clear();
     renderCalibrationBanner();
+    if (!irrigationEventsSource && tickIntervalId) {
+      setTransportStatus('offline');
+    }
   }
 }
+
+function stopTickPolling() {
+  if (!tickIntervalId) {
+    return;
+  }
+  clearInterval(tickIntervalId);
+  tickIntervalId = 0;
+  activeTickIntervalMs = 0;
+  updateTransportPopover();
+}
+
+function ensureTickPolling(intervalMs) {
+  const normalized = Math.max(500, Math.floor(Number(intervalMs) || 0));
+  if (tickIntervalId && activeTickIntervalMs === normalized) {
+    return;
+  }
+  stopTickPolling();
+  tickIntervalId = setInterval(tick, normalized);
+  activeTickIntervalMs = normalized;
+  if (!irrigationEventsSource) {
+    setTransportStatus('fallback');
+  } else {
+    updateTransportPopover();
+  }
+}
+
+function connectIrrigationEvents() {
+  if (typeof window === 'undefined' || typeof window.EventSource === 'undefined') {
+    return;
+  }
+
+  if (irrigationEventsSource) {
+    irrigationEventsSource.close();
+    irrigationEventsSource = null;
+  }
+
+  const source = new EventSource('/api/events');
+  irrigationEventsSource = source;
+  setTransportStatus('reconnect');
+
+  source.onopen = () => {
+    stopTickPolling();
+    setTransportStatus('live');
+  };
+
+  source.addEventListener('snapshot', (event) => {
+    try {
+      const snapshot = JSON.parse(event.data);
+      applyDashboardSnapshot(snapshot, !isHomeModeDirty());
+      setTransportStatus('live');
+    } catch (error) {
+      if (webStatusEl) {
+        webStatusEl.textContent = `events parse error: ${error}`;
+      }
+    }
+  });
+
+  source.onerror = () => {
+    if (irrigationEventsSource === source) {
+      irrigationEventsSource = null;
+    }
+    source.close();
+    setTransportStatus('reconnect');
+    ensureTickPolling(POLL_INTERVAL_FAST_MS);
+    if (irrigationEventsReconnectTimer) {
+      return;
+    }
+    transportReconnectAttempts += 1;
+    updateTransportPopover();
+    irrigationEventsReconnectTimer = setTimeout(() => {
+      irrigationEventsReconnectTimer = 0;
+      connectIrrigationEvents();
+    }, 2000);
+  };
+}
+
+if (transportIndicatorBtnEl) {
+  transportIndicatorBtnEl.addEventListener('click', (event) => {
+    event.stopPropagation();
+    toggleTransportPopover();
+  });
+}
+
+if (transportPopoverEl) {
+  transportPopoverEl.addEventListener('click', (event) => {
+    event.stopPropagation();
+  });
+}
+
+document.addEventListener('click', (event) => {
+  if (transportPopoverEl && !transportPopoverEl.hidden) {
+    const target = event.target;
+    if (target instanceof Node
+      && transportPopoverEl
+      && !transportPopoverEl.contains(target)
+      && transportIndicatorBtnEl
+      && !transportIndicatorBtnEl.contains(target)) {
+      closeTransportPopover();
+    }
+  }
+});
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') {
+    closeTransportPopover();
+  }
+});
 
 if (homeModeFormEl) {
   homeModeFormEl.addEventListener('change', (event) => {
@@ -1516,10 +1898,13 @@ nodesEl.addEventListener('click', async (event) => {
   }
 });
 
-setInterval(tick, 3000);
+ensureTickPolling(POLL_INTERVAL_FAST_MS);
 tick();
+connectIrrigationEvents();
+setTransportStatus('reconnect');
 
 setInterval(() => {
+  updateTransportPopover();
   if (pairingRemainingSec > 0) {
     pairingRemainingSec -= 1;
     renderPairingBannerState(pairingRemainingSec > 0);
@@ -1527,6 +1912,11 @@ setInterval(() => {
 
   if (isManualIrrigationActive && manualRunRemainingSec > 0) {
     manualRunRemainingSec = Math.max(0, manualRunRemainingSec - 1);
+    renderHomeModeControls();
+  }
+
+  if (controlConfirmedState === 'pending_start' || controlConfirmedState === 'pending_stop') {
+    controlPendingElapsedSec = Math.max(0, Math.floor(controlPendingElapsedSec) + 1);
     renderHomeModeControls();
   }
 

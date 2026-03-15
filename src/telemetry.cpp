@@ -352,6 +352,7 @@ struct NodeTelemetryState {
   bool used;
   bool isControl;
   bool lowBatteryLockout;
+  bool irrigationActive;
   TelemetryHeadNodeState state;
   TelemetryHeadBatteryState batteryState;
   bool hasLastSeq;
@@ -370,6 +371,38 @@ struct NodeTelemetryState {
 
 static NodeTelemetryState s_nodes[MAX_NODE_REGISTRY] = {};
 static uint16_t s_ackSeq = 0;
+static TelemetryHeadCommandAck s_latestCommandAck = {};
+
+static uint8_t commandAckPriority(uint8_t status)
+{
+  if (status == COMMAND_ACK_STATUS_APPLIED) {
+    return 3;
+  }
+  if (status == COMMAND_ACK_STATUS_REJECTED) {
+    return 2;
+  }
+  if (status == COMMAND_ACK_STATUS_RECEIVED) {
+    return 1;
+  }
+  return 0;
+}
+
+static bool shouldReplaceLatestCommandAck(const TelemetryHeadCommandAck& current, const MsgCommandAck& incoming)
+{
+  if (!current.valid) {
+    return true;
+  }
+
+  const bool sameCommand =
+      current.nodeId == incoming.hdr.nodeId &&
+      current.cmdId == incoming.cmdId &&
+      current.action == incoming.action;
+  if (!sameCommand) {
+    return true;
+  }
+
+  return commandAckPriority(incoming.status) >= commandAckPriority(current.status);
+}
 
 static TelemetryHeadBatteryState classifyBatteryState(uint16_t batteryEstMv)
 {
@@ -466,6 +499,7 @@ static NodeTelemetryState* getOrCreateNodeState(uint16_t nodeId, const uint8_t s
   target->ackNotPairedSent = 0;
   target->isControl = false;
   target->lowBatteryLockout = false;
+  target->irrigationActive = false;
   return target;
 }
 
@@ -564,6 +598,36 @@ void telemetryOnRecv(const uint8_t* src_mac, const uint8_t* data, int len)
 
   if (len >= (int)sizeof(MsgHdr)) {
     const MsgHdr* hdr = reinterpret_cast<const MsgHdr*>(data);
+    if (hdr->ver == PROTO_VER && hdr->type == MSG_COMMAND_ACK && len == (int)sizeof(MsgCommandAck)) {
+      const MsgCommandAck* ack = reinterpret_cast<const MsgCommandAck*>(data);
+      if (pairingHeadIsKnownNode(ack->hdr.nodeId, src_mac)) {
+        if (shouldReplaceLatestCommandAck(s_latestCommandAck, *ack)) {
+          s_latestCommandAck.valid = true;
+          s_latestCommandAck.nodeId = ack->hdr.nodeId;
+          s_latestCommandAck.cmdId = ack->cmdId;
+          s_latestCommandAck.action = ack->action;
+          s_latestCommandAck.status = ack->status;
+          s_latestCommandAck.irrigationState = ack->irrigationState;
+          s_latestCommandAck.remainingSec = ack->remainingSec;
+          s_latestCommandAck.receivedAtMs = millis();
+        }
+
+        Serial.print("[nodeId=");
+        Serial.print((unsigned long)ack->hdr.nodeId);
+        Serial.print("] cmd_ack cmdId=");
+        Serial.print((unsigned long)ack->cmdId);
+        Serial.print(" action=");
+        Serial.print((unsigned long)ack->action);
+        Serial.print(" status=");
+        Serial.print((unsigned long)ack->status);
+        Serial.print(" irrigationState=");
+        Serial.print((unsigned long)ack->irrigationState);
+        Serial.print(" remainingSec=");
+        Serial.println((unsigned long)ack->remainingSec);
+      }
+      return;
+    }
+
     if (hdr->ver == PROTO_VER && hdr->type == MSG_REMOTE_BUTTON && len == (int)sizeof(MsgRemoteButton)) {
       const MsgRemoteButton* cmd = reinterpret_cast<const MsgRemoteButton*>(data);
       if (cmd->action == REMOTE_BUTTON_IRRIGATION_STATE_REQUEST &&
@@ -597,6 +661,7 @@ void telemetryOnRecv(const uint8_t* src_mac, const uint8_t* data, int len)
     }
     nodeState->isControl = (telemetry->flags & FLAG_NODE_ROLE_CONTROL) != 0;
     nodeState->lowBatteryLockout = (telemetry->flags & FLAG_NODE_LOW_BATTERY_LOCKOUT) != 0;
+    nodeState->irrigationActive = (telemetry->flags & FLAG_IRRIGATION_ACTIVE) != 0;
   } else {
     nodeState = findNodeState(telemetry->hdr.nodeId, src_mac);
   }
@@ -632,6 +697,7 @@ void telemetryOnRecv(const uint8_t* src_mac, const uint8_t* data, int len)
     nodeState->lastSeq = telemetry->hdr.seq;
     nodeState->isControl = (telemetry->flags & FLAG_NODE_ROLE_CONTROL) != 0;
     nodeState->lowBatteryLockout = (telemetry->flags & FLAG_NODE_LOW_BATTERY_LOCKOUT) != 0;
+    nodeState->irrigationActive = (telemetry->flags & FLAG_IRRIGATION_ACTIVE) != 0;
     nodeState->moisturePermille = telemetry->moisturePermille;
     nodeState->batteryEstMv = telemetry->batteryEstMv;
     nodeState->batteryState = classifyBatteryState(telemetry->batteryEstMv);
@@ -705,6 +771,7 @@ uint8_t telemetryHeadGetPresence(TelemetryHeadNodePresence* outNodes, uint8_t ma
     outNodes[written].ackOkSent = entry->ackOkSent;
     outNodes[written].ackNotPairedSent = entry->ackNotPairedSent;
     outNodes[written].isControl = entry->isControl;
+    outNodes[written].irrigationActive = entry->irrigationActive;
     written++;
   }
   return written;
@@ -735,12 +802,13 @@ bool telemetryHeadRemovePresenceByNodeId(uint16_t nodeId)
   return false;
 }
 
-bool telemetryHeadSendRemoteButtonAction(uint16_t nodeId, uint8_t action)
+bool telemetryHeadSendRemoteButtonAction(uint16_t nodeId, uint8_t action, uint16_t cmdId)
 {
   const bool isCalibrationAction =
       action == REMOTE_BUTTON_CALIBRATE_START || action == REMOTE_BUTTON_CALIBRATE_MEASURE_WET;
   const bool isIrrigationAction =
-      action == REMOTE_BUTTON_IRRIGATION_START || action == REMOTE_BUTTON_IRRIGATION_STOP;
+    action == REMOTE_BUTTON_IRRIGATION_START || action == REMOTE_BUTTON_IRRIGATION_STOP ||
+    action == REMOTE_BUTTON_IRRIGATION_STATE_REQUEST;
 
   if (!isCalibrationAction && !isIrrigationAction) {
     return false;
@@ -757,7 +825,7 @@ bool telemetryHeadSendRemoteButtonAction(uint16_t nodeId, uint8_t action)
     command.hdr.seq = ++s_ackSeq;
     command.hdr.nodeId = 0;
     command.action = action;
-    command.reserved = 0;
+    command.cmdId = cmdId;
 
     const bool sent = espnowSend(BROADCAST_MAC, reinterpret_cast<const uint8_t*>(&command), sizeof(command));
     Serial.print("[nodeId=*] remote_btn broadcast sent=");
@@ -791,7 +859,7 @@ bool telemetryHeadSendRemoteButtonAction(uint16_t nodeId, uint8_t action)
   command.hdr.seq = ++s_ackSeq;
   command.hdr.nodeId = nodeId;
   command.action = action;
-  command.reserved = 0;
+  command.cmdId = cmdId;
 
   (void)espnowEnsurePeer(node->mac, ESPNOW_CHANNEL, false);
   const bool sent = espnowSend(node->mac, reinterpret_cast<const uint8_t*>(&command), sizeof(command));
@@ -808,6 +876,16 @@ bool telemetryHeadSendRemoteButtonAction(uint16_t nodeId, uint8_t action)
   Serial.println((unsigned long)action);
 
   return sent;
+}
+
+bool telemetryHeadConsumeCommandAck(TelemetryHeadCommandAck* outAck)
+{
+  if (!outAck || !s_latestCommandAck.valid) {
+    return false;
+  }
+  *outAck = s_latestCommandAck;
+  s_latestCommandAck.valid = false;
+  return true;
 }
 
 bool telemetryHeadSendIrrigationState(uint8_t desiredState, uint64_t leaseId, uint32_t remainingLeaseMs)
@@ -889,10 +967,11 @@ bool telemetryHeadRemovePresenceByNodeId(uint16_t nodeId)
   return false;
 }
 
-bool telemetryHeadSendRemoteButtonAction(uint16_t nodeId, uint8_t action)
+bool telemetryHeadSendRemoteButtonAction(uint16_t nodeId, uint8_t action, uint16_t cmdId)
 {
   (void)nodeId;
   (void)action;
+  (void)cmdId;
   return false;
 }
 
@@ -901,6 +980,12 @@ bool telemetryHeadSendIrrigationState(uint8_t desiredState, uint64_t leaseId, ui
   (void)desiredState;
   (void)leaseId;
   (void)remainingLeaseMs;
+  return false;
+}
+
+bool telemetryHeadConsumeCommandAck(TelemetryHeadCommandAck* outAck)
+{
+  (void)outAck;
   return false;
 }
 

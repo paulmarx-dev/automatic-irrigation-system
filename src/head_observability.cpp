@@ -93,12 +93,60 @@ static uint16_t s_manualDurationSec = MANUAL_DURATION_DEFAULT_SEC;
 static uint16_t s_timeIntervalMin = TIME_INTERVAL_DEFAULT_MIN;
 static uint16_t s_timeRunDurationSec = TIME_RUN_DEFAULT_SEC;
 static uint32_t s_manualRunDeadlineMs = 0;
+static uint32_t s_requestedRunDurationSec = 0;
 static uint32_t s_timeNextStartMs = 0;
 static bool s_irrigationSyncDirty = true;
 static uint32_t s_lastIrrigationSyncMs = 0;
 static uint64_t s_irrigationLeaseId = 1;
 static bool s_lastLeaseDesiredActiveInitialized = false;
 static bool s_lastLeaseDesiredActive = false;
+
+enum ControlCommandPhase : uint8_t {
+  CONTROL_CMD_IDLE = 0,
+  CONTROL_CMD_PENDING_START = 1,
+  CONTROL_CMD_ACTIVE = 2,
+  CONTROL_CMD_PENDING_STOP = 3,
+  CONTROL_CMD_LOST = 4,
+};
+
+struct PendingControlCommand {
+  bool active;
+  uint16_t cmdId;
+  uint8_t action;
+  bool receivedAck;
+  uint32_t sentAtMs;
+  uint32_t hardDeadlineMs;
+  uint32_t softDeadlineMs;
+  uint32_t nextRetryAtMs;
+  uint8_t retriesUsed;
+  uint32_t nextStatusProbeAtMs;
+};
+
+static ControlCommandPhase s_controlPhase = CONTROL_CMD_IDLE;
+static PendingControlCommand s_pendingControlCmd = {};
+static uint16_t s_nextControlCmdId = 1;
+static bool s_controlConfirmedIrrigationActive = false;
+
+static constexpr uint32_t CONTROL_CMD_HARD_TIMEOUT_MS = 30000;
+static constexpr uint32_t CONTROL_CMD_SOFT_TIMEOUT_MS = 2500;
+static constexpr uint32_t CONTROL_STATUS_PROBE_INTERVAL_MS = 1200;
+static constexpr uint32_t CONTROL_DESIRED_RECONCILE_MS = 2000;
+static constexpr uint32_t CONTROL_CMD_RETRY_DELAYS_MS[3] = {180, 500, 1200};
+static constexpr uint32_t CONTROL_ACK_PRESENCE_GRACE_MS = 7000;
+static uint32_t s_nextControlDesiredReconcileAtMs = 0;
+static uint32_t s_lastControlAckAtMs = 0;
+
+static WiFiClient s_sseClient;
+static bool s_sseClientActive = false;
+static char s_lastSseSnapshotJson[8192] = {0};
+static char s_sseSnapshotJson[8192] = {0};
+static char s_sseWebStatusJson[320] = {0};
+static char s_sseUnitStatusJson[320] = {0};
+static char s_sseIrrigationConfigJson[640] = {0};
+static char s_sseSystemSummaryJson[384] = {0};
+static char s_sseNodesJson[4096] = {0};
+static uint32_t s_nextSseHeartbeatMs = 0;
+static constexpr uint32_t SSE_HEARTBEAT_MS = 10000;
 
 static bool saveIrrigationLeaseIdToNvs()
 {
@@ -184,6 +232,24 @@ static const char* irrigationModeToText(IrrigationMode mode)
   }
 }
 
+static const char* controlPhaseToText(ControlCommandPhase phase)
+{
+  switch (phase) {
+    case CONTROL_CMD_IDLE:
+      return "idle";
+    case CONTROL_CMD_PENDING_START:
+      return "pending_start";
+    case CONTROL_CMD_ACTIVE:
+      return "active";
+    case CONTROL_CMD_PENDING_STOP:
+      return "pending_stop";
+    case CONTROL_CMD_LOST:
+      return "lost";
+    default:
+      return "idle";
+  }
+}
+
 static uint16_t clampU16(uint16_t value, uint16_t minValue, uint16_t maxValue)
 {
   if (value < minValue) {
@@ -241,6 +307,7 @@ static bool desiredIrrigationActive()
 }
 
 static void markIrrigationSyncDirty();
+static void resolveSensorName(uint16_t nodeId, char outName[SENSOR_NAME_MAX]);
 
 static bool computeAverageOnlineSensorMoisture(uint16_t* outPermille)
 {
@@ -270,11 +337,474 @@ static bool computeAverageOnlineSensorMoisture(uint16_t* outPermille)
   return true;
 }
 
+static bool hasControlOnlinePresence()
+{
+  TelemetryHeadNodePresence nodes[8] = {};
+  const uint8_t count = telemetryHeadGetPresence(nodes, 8);
+  for (uint8_t i = 0; i < count; ++i) {
+    if (nodes[i].isControl && nodes[i].state == TELEMETRY_HEAD_NODE_ONLINE) {
+      return true;
+    }
+  }
+  return false;
+}
+
+static bool sendControlCommandOnce(uint8_t action, uint16_t cmdId)
+{
+  const bool sent = telemetryHeadSendRemoteButtonAction(0, action, cmdId);
+  Serial.print("OBS: control command sent=");
+  Serial.print(sent ? 1 : 0);
+  Serial.print(" action=");
+  Serial.print((unsigned long)action);
+  Serial.print(" cmdId=");
+  Serial.println((unsigned long)cmdId);
+  return sent;
+}
+
+static void beginPendingControlCommand(uint8_t action, uint32_t nowMs)
+{
+  s_pendingControlCmd.active = true;
+  s_pendingControlCmd.cmdId = s_nextControlCmdId++;
+  if (s_nextControlCmdId == 0) {
+    s_nextControlCmdId = 1;
+  }
+  s_pendingControlCmd.action = action;
+  s_pendingControlCmd.receivedAck = false;
+  s_pendingControlCmd.sentAtMs = nowMs;
+  s_pendingControlCmd.hardDeadlineMs = nowMs + CONTROL_CMD_HARD_TIMEOUT_MS;
+  s_pendingControlCmd.softDeadlineMs = nowMs + CONTROL_CMD_SOFT_TIMEOUT_MS;
+  s_pendingControlCmd.nextRetryAtMs = nowMs + CONTROL_CMD_RETRY_DELAYS_MS[0];
+  s_pendingControlCmd.retriesUsed = 0;
+  s_pendingControlCmd.nextStatusProbeAtMs = nowMs + CONTROL_STATUS_PROBE_INTERVAL_MS;
+  (void)sendControlCommandOnce(action, s_pendingControlCmd.cmdId);
+}
+
+static void settleControlPhaseFromIrrigationState(uint8_t irrigationState)
+{
+  s_controlConfirmedIrrigationActive = (irrigationState == IRRIGATION_STATE_RUN);
+  if (s_controlConfirmedIrrigationActive) {
+    s_controlPhase = CONTROL_CMD_ACTIVE;
+    if (s_requestedRunDurationSec > 0) {
+      s_manualRunDeadlineMs = millis() + (s_requestedRunDurationSec * 1000UL);
+    }
+  } else {
+    s_controlPhase = CONTROL_CMD_IDLE;
+    s_manualRunDeadlineMs = 0;
+  }
+}
+
+static void consumeControlCommandAcks(uint32_t nowMs)
+{
+  TelemetryHeadCommandAck ack{};
+  while (telemetryHeadConsumeCommandAck(&ack)) {
+    s_lastControlAckAtMs = nowMs;
+
+    if (s_pendingControlCmd.active && ack.cmdId == s_pendingControlCmd.cmdId) {
+      if (ack.status == COMMAND_ACK_STATUS_RECEIVED) {
+        s_pendingControlCmd.receivedAck = true;
+        s_pendingControlCmd.softDeadlineMs = nowMs + CONTROL_CMD_SOFT_TIMEOUT_MS;
+      } else if (ack.status == COMMAND_ACK_STATUS_APPLIED) {
+        settleControlPhaseFromIrrigationState(ack.irrigationState);
+        s_pendingControlCmd.active = false;
+      } else if (ack.status == COMMAND_ACK_STATUS_REJECTED) {
+        s_pendingControlCmd.active = false;
+        s_controlPhase = CONTROL_CMD_IDLE;
+        s_controlConfirmedIrrigationActive = false;
+        s_manualRunDeadlineMs = 0;
+      }
+      continue;
+    }
+
+    if (ack.status == COMMAND_ACK_STATUS_APPLIED &&
+        ack.action == REMOTE_BUTTON_IRRIGATION_STATE_REQUEST) {
+      settleControlPhaseFromIrrigationState(ack.irrigationState);
+    }
+  }
+}
+
+static void pendingControlCommandTick(uint32_t nowMs)
+{
+  if (!s_pendingControlCmd.active) {
+    return;
+  }
+
+  if ((int32_t)(nowMs - s_pendingControlCmd.hardDeadlineMs) >= 0) {
+    s_pendingControlCmd.active = false;
+    s_controlPhase = CONTROL_CMD_LOST;
+    s_controlConfirmedIrrigationActive = false;
+    s_manualRunDeadlineMs = 0;
+    return;
+  }
+
+  if (s_pendingControlCmd.retriesUsed < 3 &&
+      (int32_t)(nowMs - s_pendingControlCmd.nextRetryAtMs) >= 0) {
+    const bool sent = sendControlCommandOnce(s_pendingControlCmd.action, s_pendingControlCmd.cmdId);
+    s_pendingControlCmd.retriesUsed++;
+    if (s_pendingControlCmd.retriesUsed < 3) {
+      s_pendingControlCmd.nextRetryAtMs = nowMs + CONTROL_CMD_RETRY_DELAYS_MS[s_pendingControlCmd.retriesUsed];
+    } else {
+      s_pendingControlCmd.nextRetryAtMs = s_pendingControlCmd.hardDeadlineMs + 1;
+    }
+    if (sent && !s_pendingControlCmd.receivedAck) {
+      s_pendingControlCmd.nextStatusProbeAtMs = nowMs + CONTROL_STATUS_PROBE_INTERVAL_MS;
+    }
+  }
+
+  if ((s_pendingControlCmd.receivedAck || s_pendingControlCmd.retriesUsed >= 3) &&
+      (int32_t)(nowMs - s_pendingControlCmd.softDeadlineMs) >= 0 &&
+      (int32_t)(nowMs - s_pendingControlCmd.nextStatusProbeAtMs) >= 0) {
+    (void)telemetryHeadSendRemoteButtonAction(0, REMOTE_BUTTON_IRRIGATION_STATE_REQUEST, 0);
+    s_pendingControlCmd.nextStatusProbeAtMs = nowMs + CONTROL_STATUS_PROBE_INTERVAL_MS;
+  }
+}
+
+static void reconcileControlToDesiredState(uint32_t nowMs)
+{
+  if (s_pendingControlCmd.active) {
+    return;
+  }
+
+  if ((int32_t)(nowMs - s_nextControlDesiredReconcileAtMs) < 0) {
+    return;
+  }
+  s_nextControlDesiredReconcileAtMs = nowMs + CONTROL_DESIRED_RECONCILE_MS;
+
+  if (!hasControlOnlinePresence()) {
+    return;
+  }
+
+  const bool desiredActive = desiredIrrigationActive();
+  if (!desiredActive && s_controlConfirmedIrrigationActive) {
+    s_controlPhase = CONTROL_CMD_PENDING_STOP;
+    beginPendingControlCommand(REMOTE_BUTTON_IRRIGATION_STOP, nowMs);
+    return;
+  }
+
+  if (desiredActive && !s_controlConfirmedIrrigationActive) {
+    s_controlPhase = CONTROL_CMD_PENDING_START;
+    beginPendingControlCommand(REMOTE_BUTTON_IRRIGATION_START, nowMs);
+    return;
+  }
+
+  if (s_controlPhase == CONTROL_CMD_LOST) {
+    (void)telemetryHeadSendRemoteButtonAction(0, REMOTE_BUTTON_IRRIGATION_STATE_REQUEST, 0);
+  }
+}
+
 struct ControlAvailabilitySnapshot {
   const char* status;
   const char* manualBlockedReason;
   bool lowBatteryLockoutActive;
 };
+
+static ControlAvailabilitySnapshot computeControlAvailabilitySnapshot();
+
+static size_t composeIrrigationConfigJson(char* body, size_t bodySize, uint32_t nowMs)
+{
+  if (!body || bodySize == 0) {
+    return 0;
+  }
+
+  const ControlAvailabilitySnapshot controlSnapshot = computeControlAvailabilitySnapshot();
+  uint32_t runRemainingSec = 0;
+  if (s_controlConfirmedIrrigationActive && s_manualRunDeadlineMs != 0 && (int32_t)(s_manualRunDeadlineMs - nowMs) > 0) {
+    runRemainingSec = static_cast<uint32_t>(s_manualRunDeadlineMs - nowMs) / 1000UL;
+  }
+
+  uint32_t timeNextStartSec = 0;
+  if (s_irrigationMode == IRRIGATION_MODE_TIME && s_timeNextStartMs != 0 && (int32_t)(s_timeNextStartMs - nowMs) > 0) {
+    timeNextStartSec = static_cast<uint32_t>(s_timeNextStartMs - nowMs) / 1000UL;
+  }
+
+  const uint32_t pendingElapsedSec = s_pendingControlCmd.active
+      ? static_cast<uint32_t>(nowMs - s_pendingControlCmd.sentAtMs) / 1000UL
+      : 0;
+
+  const int written = snprintf(
+      body,
+      bodySize,
+      "{\"mode\":\"%s\",\"manualActive\":%s,\"manualDurationSec\":%u,\"autoStartPermille\":%u,\"autoStopPermille\":%u,\"timeIntervalMin\":%u,\"timeRunDurationSec\":%u,\"timeNextStartSec\":%lu,\"runRemainingSec\":%lu,\"manualBlockedReason\":\"%s\",\"confirmedState\":\"%s\",\"pendingElapsedSec\":%lu,\"control\":{\"status\":\"%s\",\"nextWakeKnown\":false,\"nextWakeEtaSec\":null}}",
+      irrigationModeToText(s_irrigationMode),
+      s_controlConfirmedIrrigationActive ? "true" : "false",
+      static_cast<unsigned>(s_manualDurationSec),
+      static_cast<unsigned>(s_autoStartPermille),
+      static_cast<unsigned>(s_autoStopPermille),
+      static_cast<unsigned>(s_timeIntervalMin),
+      static_cast<unsigned>(s_timeRunDurationSec),
+      static_cast<unsigned long>(timeNextStartSec),
+      static_cast<unsigned long>(runRemainingSec),
+      controlSnapshot.manualBlockedReason,
+      controlPhaseToText(s_controlPhase),
+      static_cast<unsigned long>(pendingElapsedSec),
+      controlSnapshot.status);
+
+  if (written <= 0) {
+    body[0] = '\0';
+    return 0;
+  }
+  return static_cast<size_t>(written < static_cast<int>(bodySize) ? written : static_cast<int>(bodySize - 1));
+}
+
+static void sseCloseClient()
+{
+  if (s_sseClientActive) {
+    s_sseClient.stop();
+  }
+  s_sseClientActive = false;
+  s_lastSseSnapshotJson[0] = '\0';
+}
+
+static void onEventsSseApi()
+{
+  if (s_sseClientActive) {
+    sseCloseClient();
+  }
+
+  s_sseClient = s_server.client();
+  if (!s_sseClient) {
+    return;
+  }
+
+  s_sseClient.setNoDelay(true);
+  s_sseClient.print("HTTP/1.1 200 OK\r\n");
+  s_sseClient.print("Content-Type: text/event-stream\r\n");
+  s_sseClient.print("Cache-Control: no-cache\r\n");
+  s_sseClient.print("Connection: keep-alive\r\n\r\n");
+  s_sseClient.print("retry: 2000\n\n");
+
+  s_sseClientActive = true;
+  s_lastSseSnapshotJson[0] = '\0';
+  s_nextSseHeartbeatMs = millis() + SSE_HEARTBEAT_MS;
+}
+
+static size_t composeNodesJson(char* body, size_t bodySize, uint32_t nowMs)
+{
+  if (!body || bodySize == 0) {
+    return 0;
+  }
+
+  TelemetryHeadNodePresence nodes[8] = {};
+  const uint8_t count = telemetryHeadGetPresence(nodes, 8);
+  uint16_t pairedNodeIds[8] = {};
+  uint8_t pairedNodeMacs[8][6] = {};
+  const uint8_t pairedCount = pairingHeadGetPairedNodes(pairedNodeIds, pairedNodeMacs, 8);
+
+  size_t offset = 0;
+  offset += static_cast<size_t>(snprintf(body + offset, bodySize - offset, "["));
+
+  for (uint8_t i = 0; i < count; ++i) {
+    const TelemetryHeadNodePresence& node = nodes[i];
+    char mac[18] = {0};
+    char name[SENSOR_NAME_MAX] = {0};
+    macToString(node.mac, mac, sizeof(mac));
+    resolveSensorName(node.nodeId, name);
+    const uint32_t lastSeenSecAgo = static_cast<uint32_t>(nowMs - node.lastSeenMs) / 1000;
+
+    offset += static_cast<size_t>(snprintf(
+        body + offset,
+        bodySize - offset,
+        "%s{\"slot\":%u,\"mac\":\"%s\",\"name\":\"%s\",\"nodeId\":%u,\"role\":\"%s\",\"state\":\"%s\",\"irrigationLockout\":\"%s\",\"moisturePermille\":%u,\"batteryEstMv\":%u,\"batteryState\":\"%s\",\"lastSeenSecAgo\":%lu,\"rxPackets\":%lu,\"rxDuplicates\":%lu,\"rxInvalid\":%lu,\"ackOkSent\":%lu,\"ackNotPairedSent\":%lu}",
+        (i == 0) ? "" : ",",
+        static_cast<unsigned>(i),
+        mac,
+        name,
+        static_cast<unsigned>(node.nodeId),
+        nodeRoleToText(node.isControl),
+        nodeStateToText(node.state),
+        irrigationLockoutToText(node.lowBatteryLockout),
+        static_cast<unsigned>(node.moisturePermille),
+        static_cast<unsigned>(node.batteryEstMv),
+        batteryStateToText(node.batteryState),
+        static_cast<unsigned long>(lastSeenSecAgo),
+        static_cast<unsigned long>(node.rxPackets),
+        static_cast<unsigned long>(node.rxDuplicates),
+        static_cast<unsigned long>(node.rxInvalid),
+        static_cast<unsigned long>(node.ackOkSent),
+        static_cast<unsigned long>(node.ackNotPairedSent)));
+
+    if (offset >= bodySize - 2) {
+      break;
+    }
+  }
+
+  for (uint8_t i = 0; i < pairedCount; ++i) {
+    const uint16_t nodeId = pairedNodeIds[i];
+    bool alreadyPresent = false;
+    for (uint8_t j = 0; j < count; ++j) {
+      if (nodes[j].nodeId == nodeId) {
+        alreadyPresent = true;
+        break;
+      }
+    }
+    if (alreadyPresent) {
+      continue;
+    }
+
+    char mac[18] = {0};
+    char name[SENSOR_NAME_MAX] = {0};
+    macToString(pairedNodeMacs[i], mac, sizeof(mac));
+    resolveSensorName(nodeId, name);
+
+    offset += static_cast<size_t>(snprintf(
+        body + offset,
+        bodySize - offset,
+        "%s{\"slot\":%u,\"mac\":\"%s\",\"name\":\"%s\",\"nodeId\":%u,\"role\":\"UNKNOWN\",\"state\":\"OFFLINE\",\"irrigationLockout\":\"NONE\",\"moisturePermille\":0,\"batteryEstMv\":0,\"batteryState\":\"UNKNOWN\",\"lastSeenSecAgo\":0,\"rxPackets\":0,\"rxDuplicates\":0,\"rxInvalid\":0,\"ackOkSent\":0,\"ackNotPairedSent\":0}",
+        (offset > 1) ? "," : "",
+        static_cast<unsigned>(count + i),
+        mac,
+        name,
+        static_cast<unsigned>(nodeId)));
+
+    if (offset >= bodySize - 2) {
+      break;
+    }
+  }
+
+  (void)snprintf(body + offset, bodySize - offset, "]");
+  return strlen(body);
+}
+
+static size_t composeSystemSummaryJson(char* body, size_t bodySize, uint32_t nowMs)
+{
+  if (!body || bodySize == 0) {
+    return 0;
+  }
+
+  TelemetryHeadNodePresence nodes[8] = {};
+  const uint8_t count = telemetryHeadGetPresence(nodes, 8);
+
+  uint8_t onlineCount = 0;
+  uint8_t suspectCount = 0;
+  uint8_t offlineCount = 0;
+  uint32_t moistureSumPermille = 0;
+
+  for (uint8_t i = 0; i < count; ++i) {
+    const TelemetryHeadNodePresence& node = nodes[i];
+    if (node.state == TELEMETRY_HEAD_NODE_ONLINE) {
+      ++onlineCount;
+      moistureSumPermille += static_cast<uint32_t>(node.moisturePermille);
+      continue;
+    }
+    if (node.state == TELEMETRY_HEAD_NODE_SUSPECT) {
+      ++suspectCount;
+      continue;
+    }
+    if (node.state == TELEMETRY_HEAD_NODE_OFFLINE) {
+      ++offlineCount;
+    }
+  }
+
+  const uint32_t avgMoisturePermille =
+      (onlineCount > 0) ? (moistureSumPermille / static_cast<uint32_t>(onlineCount)) : 0;
+  const bool hasMoistureAvg = (onlineCount > 0);
+  const uint32_t pairingRemainingSec = (pairingHeadRemainingMs(nowMs) + 999UL) / 1000UL;
+  const uint32_t uptimeSec = nowMs / 1000UL;
+  char avgMoisture[16] = "null";
+  if (hasMoistureAvg) {
+    (void)snprintf(avgMoisture, sizeof(avgMoisture), "%lu", static_cast<unsigned long>(avgMoisturePermille));
+  }
+
+  const int written = snprintf(
+      body,
+      bodySize,
+      "{\"onlineSensors\":%u,\"suspectSensors\":%u,\"offlineSensors\":%u,\"totalVisibleSensors\":%u,\"avgMoisturePermille\":%s,\"pairingOpen\":%s,\"pairingRemainingSec\":%lu,\"uptimeSec\":%lu,\"irrigationMode\":\"%s\",\"manualIrrigationActive\":%s}",
+      static_cast<unsigned>(onlineCount),
+      static_cast<unsigned>(suspectCount),
+      static_cast<unsigned>(offlineCount),
+      static_cast<unsigned>(count),
+      avgMoisture,
+      pairingHeadIsOpen() ? "true" : "false",
+      static_cast<unsigned long>(pairingRemainingSec),
+      static_cast<unsigned long>(uptimeSec),
+      irrigationModeToText(s_irrigationMode),
+      s_controlConfirmedIrrigationActive ? "true" : "false");
+
+  if (written <= 0) {
+    body[0] = '\0';
+    return 0;
+  }
+  return static_cast<size_t>(written < static_cast<int>(bodySize) ? written : static_cast<int>(bodySize - 1));
+}
+
+static size_t composeDashboardSnapshotJson(char* body, size_t bodySize, uint32_t nowMs)
+{
+  if (!body || bodySize == 0) {
+    return 0;
+  }
+
+  s_sseWebStatusJson[0] = '\0';
+  s_sseUnitStatusJson[0] = '\0';
+  s_sseIrrigationConfigJson[0] = '\0';
+  s_sseSystemSummaryJson[0] = '\0';
+  s_sseNodesJson[0] = '\0';
+
+  (void)headProvisioningComposeWebStatusJson(s_sseWebStatusJson, sizeof(s_sseWebStatusJson), nowMs);
+  (void)headProvisioningComposeUnitStatusJson(s_sseUnitStatusJson, sizeof(s_sseUnitStatusJson), nowMs);
+  (void)composeIrrigationConfigJson(s_sseIrrigationConfigJson, sizeof(s_sseIrrigationConfigJson), nowMs);
+  (void)composeSystemSummaryJson(s_sseSystemSummaryJson, sizeof(s_sseSystemSummaryJson), nowMs);
+  (void)composeNodesJson(s_sseNodesJson, sizeof(s_sseNodesJson), nowMs);
+
+  if (s_sseWebStatusJson[0] == '\0') {
+    strlcpy(s_sseWebStatusJson, "{}", sizeof(s_sseWebStatusJson));
+  }
+  if (s_sseUnitStatusJson[0] == '\0') {
+    strlcpy(s_sseUnitStatusJson, "{}", sizeof(s_sseUnitStatusJson));
+  }
+  if (s_sseIrrigationConfigJson[0] == '\0') {
+    strlcpy(s_sseIrrigationConfigJson, "{}", sizeof(s_sseIrrigationConfigJson));
+  }
+  if (s_sseSystemSummaryJson[0] == '\0') {
+    strlcpy(s_sseSystemSummaryJson, "{}", sizeof(s_sseSystemSummaryJson));
+  }
+  if (s_sseNodesJson[0] == '\0') {
+    strlcpy(s_sseNodesJson, "[]", sizeof(s_sseNodesJson));
+  }
+
+  const int written = snprintf(
+      body,
+      bodySize,
+      "{\"webStatus\":%s,\"nodes\":%s,\"summary\":%s,\"irrigationConfig\":%s,\"unitStatus\":%s}",
+      s_sseWebStatusJson,
+      s_sseNodesJson,
+      s_sseSystemSummaryJson,
+      s_sseIrrigationConfigJson,
+      s_sseUnitStatusJson);
+
+  if (written <= 0) {
+    body[0] = '\0';
+    return 0;
+  }
+  return static_cast<size_t>(written < static_cast<int>(bodySize) ? written : static_cast<int>(bodySize - 1));
+}
+
+static void ssePushSnapshotIfChanged(uint32_t nowMs)
+{
+  if (!s_sseClientActive) {
+    return;
+  }
+  if (!s_sseClient.connected()) {
+    sseCloseClient();
+    return;
+  }
+
+  s_sseSnapshotJson[0] = '\0';
+  (void)composeDashboardSnapshotJson(s_sseSnapshotJson, sizeof(s_sseSnapshotJson), nowMs);
+  if (strcmp(s_sseSnapshotJson, s_lastSseSnapshotJson) != 0) {
+    s_sseClient.print("event: snapshot\n");
+    s_sseClient.print("data: ");
+    s_sseClient.print(s_sseSnapshotJson);
+    s_sseClient.print("\n\n");
+    strncpy(s_lastSseSnapshotJson, s_sseSnapshotJson, sizeof(s_lastSseSnapshotJson) - 1);
+    s_lastSseSnapshotJson[sizeof(s_lastSseSnapshotJson) - 1] = '\0';
+    s_nextSseHeartbeatMs = nowMs + SSE_HEARTBEAT_MS;
+    return;
+  }
+
+  if ((int32_t)(nowMs - s_nextSseHeartbeatMs) >= 0) {
+    s_sseClient.print(": hb\n\n");
+    s_nextSseHeartbeatMs = nowMs + SSE_HEARTBEAT_MS;
+  }
+}
 
 static ControlAvailabilitySnapshot computeControlAvailabilitySnapshot()
 {
@@ -314,6 +844,7 @@ static void stopIrrigation(const char* reason)
     return;
   }
   s_manualIrrigationActive = false;
+  s_requestedRunDurationSec = 0;
   s_manualRunDeadlineMs = 0;
   markIrrigationSyncDirty();
   Serial.print("OBS: irrigation stopped");
@@ -327,13 +858,13 @@ static void stopIrrigation(const char* reason)
 
 static void startIrrigation(uint32_t nowMs, uint32_t durationSec, const char* reason)
 {
+  (void)nowMs;
   if (s_manualIrrigationActive) {
     return;
   }
   s_manualIrrigationActive = true;
-  s_manualRunDeadlineMs = (durationSec > 0)
-      ? nowMs + (durationSec * 1000UL)
-      : 0;
+  s_requestedRunDurationSec = durationSec;
+  s_manualRunDeadlineMs = 0;
   markIrrigationSyncDirty();
   Serial.print("OBS: irrigation started");
   if (durationSec > 0) {
@@ -350,8 +881,11 @@ static void startIrrigation(uint32_t nowMs, uint32_t durationSec, const char* re
 
 static void irrigationAutomationTick(uint32_t nowMs)
 {
-  if (s_manualIrrigationActive && s_manualRunDeadlineMs != 0 && (int32_t)(nowMs - s_manualRunDeadlineMs) >= 0) {
+  if (s_manualIrrigationActive && s_controlConfirmedIrrigationActive &&
+      s_manualRunDeadlineMs != 0 && (int32_t)(nowMs - s_manualRunDeadlineMs) >= 0) {
     stopIrrigation("duration elapsed");
+    s_controlPhase = CONTROL_CMD_PENDING_STOP;
+    beginPendingControlCommand(REMOTE_BUTTON_IRRIGATION_STOP, nowMs);
   }
 
   if (s_manualIrrigationActive) {
@@ -879,33 +1413,8 @@ static void onSensorCalibrateApi()
 static void onIrrigationConfigGetApi()
 {
   const uint32_t nowMs = millis();
-  const ControlAvailabilitySnapshot controlSnapshot = computeControlAvailabilitySnapshot();
-  uint32_t runRemainingSec = 0;
-  if (s_manualIrrigationActive && s_manualRunDeadlineMs != 0 && (int32_t)(s_manualRunDeadlineMs - nowMs) > 0) {
-    runRemainingSec = static_cast<uint32_t>(s_manualRunDeadlineMs - nowMs) / 1000UL;
-  }
-
-  uint32_t timeNextStartSec = 0;
-  if (s_irrigationMode == IRRIGATION_MODE_TIME && s_timeNextStartMs != 0 && (int32_t)(s_timeNextStartMs - nowMs) > 0) {
-    timeNextStartSec = static_cast<uint32_t>(s_timeNextStartMs - nowMs) / 1000UL;
-  }
-
-  char body[512] = {0};
-  (void)snprintf(
-      body,
-      sizeof(body),
-      "{\"mode\":\"%s\",\"manualActive\":%s,\"manualDurationSec\":%u,\"autoStartPermille\":%u,\"autoStopPermille\":%u,\"timeIntervalMin\":%u,\"timeRunDurationSec\":%u,\"timeNextStartSec\":%lu,\"runRemainingSec\":%lu,\"manualBlockedReason\":\"%s\",\"control\":{\"status\":\"%s\",\"nextWakeKnown\":false,\"nextWakeEtaSec\":null}}",
-      irrigationModeToText(s_irrigationMode),
-      s_manualIrrigationActive ? "true" : "false",
-      static_cast<unsigned>(s_manualDurationSec),
-      static_cast<unsigned>(s_autoStartPermille),
-      static_cast<unsigned>(s_autoStopPermille),
-      static_cast<unsigned>(s_timeIntervalMin),
-      static_cast<unsigned>(s_timeRunDurationSec),
-      static_cast<unsigned long>(timeNextStartSec),
-      static_cast<unsigned long>(runRemainingSec),
-      controlSnapshot.manualBlockedReason,
-      controlSnapshot.status);
+  char body[640] = {0};
+  (void)composeIrrigationConfigJson(body, sizeof(body), nowMs);
   s_server.send(200, "application/json", body);
 }
 
@@ -1035,6 +1544,8 @@ static void onIrrigationManualStartApi()
   }
 
   startIrrigation(millis(), requestedDurationSec, "MANUAL start API");
+  s_controlPhase = CONTROL_CMD_PENDING_START;
+  beginPendingControlCommand(REMOTE_BUTTON_IRRIGATION_START, millis());
   const bool sentNow = sendDesiredIrrigationState();
   if (sentNow) {
     s_lastIrrigationSyncMs = millis();
@@ -1046,8 +1557,8 @@ static void onIrrigationManualStartApi()
       200,
       "application/json",
       sentNow
-          ? "{\"ok\":1,\"manualActive\":true,\"syncPending\":0}"
-          : "{\"ok\":1,\"manualActive\":true,\"syncPending\":1}");
+        ? "{\"ok\":1,\"manualActive\":false,\"syncPending\":0,\"pendingCommand\":1}"
+        : "{\"ok\":1,\"manualActive\":false,\"syncPending\":1,\"pendingCommand\":1}");
 }
 
 static void onIrrigationManualStopApi()
@@ -1059,6 +1570,8 @@ static void onIrrigationManualStopApi()
   }
 
   stopIrrigation("manual stop API");
+  s_controlPhase = CONTROL_CMD_PENDING_STOP;
+  beginPendingControlCommand(REMOTE_BUTTON_IRRIGATION_STOP, millis());
   const bool sentNow = sendDesiredIrrigationState();
   if (sentNow) {
     s_lastIrrigationSyncMs = millis();
@@ -1070,149 +1583,21 @@ static void onIrrigationManualStopApi()
       200,
       "application/json",
       sentNow
-          ? "{\"ok\":1,\"manualActive\":false,\"syncPending\":0}"
-          : "{\"ok\":1,\"manualActive\":false,\"syncPending\":1}");
+        ? "{\"ok\":1,\"manualActive\":false,\"syncPending\":0,\"pendingCommand\":1}"
+        : "{\"ok\":1,\"manualActive\":false,\"syncPending\":1,\"pendingCommand\":1}");
 }
 
 static void onNodesApi()
 {
-  TelemetryHeadNodePresence nodes[8] = {};
-  const uint8_t count = telemetryHeadGetPresence(nodes, 8);
-  uint16_t pairedNodeIds[8] = {};
-  uint8_t pairedNodeMacs[8][6] = {};
-  const uint8_t pairedCount = pairingHeadGetPairedNodes(pairedNodeIds, pairedNodeMacs, 8);
-  const uint32_t nowMs = millis();
-
   char body[4096] = {0};
-  size_t offset = 0;
-
-  offset += static_cast<size_t>(snprintf(body + offset, sizeof(body) - offset, "["));
-
-  for (uint8_t i = 0; i < count; ++i) {
-    const TelemetryHeadNodePresence& node = nodes[i];
-    char mac[18] = {0};
-    char name[SENSOR_NAME_MAX] = {0};
-    macToString(node.mac, mac, sizeof(mac));
-    resolveSensorName(node.nodeId, name);
-    const uint32_t lastSeenSecAgo = static_cast<uint32_t>(nowMs - node.lastSeenMs) / 1000;
-
-    offset += static_cast<size_t>(snprintf(
-        body + offset,
-        sizeof(body) - offset,
-      "%s{\"slot\":%u,\"mac\":\"%s\",\"name\":\"%s\",\"nodeId\":%u,\"role\":\"%s\",\"state\":\"%s\",\"irrigationLockout\":\"%s\",\"moisturePermille\":%u,\"batteryEstMv\":%u,\"batteryState\":\"%s\",\"lastSeenSecAgo\":%lu,\"rxPackets\":%lu,\"rxDuplicates\":%lu,\"rxInvalid\":%lu,\"ackOkSent\":%lu,\"ackNotPairedSent\":%lu}",
-        (i == 0) ? "" : ",",
-        static_cast<unsigned>(i),
-        mac,
-        name,
-        static_cast<unsigned>(node.nodeId),
-        nodeRoleToText(node.isControl),
-        nodeStateToText(node.state),
-        irrigationLockoutToText(node.lowBatteryLockout),
-      static_cast<unsigned>(node.moisturePermille),
-      static_cast<unsigned>(node.batteryEstMv),
-      batteryStateToText(node.batteryState),
-        static_cast<unsigned long>(lastSeenSecAgo),
-        static_cast<unsigned long>(node.rxPackets),
-        static_cast<unsigned long>(node.rxDuplicates),
-        static_cast<unsigned long>(node.rxInvalid),
-        static_cast<unsigned long>(node.ackOkSent),
-        static_cast<unsigned long>(node.ackNotPairedSent)));
-
-    if (offset >= sizeof(body) - 2) {
-      break;
-    }
-  }
-
-  for (uint8_t i = 0; i < pairedCount; ++i) {
-    const uint16_t nodeId = pairedNodeIds[i];
-    bool alreadyPresent = false;
-    for (uint8_t j = 0; j < count; ++j) {
-      if (nodes[j].nodeId == nodeId) {
-        alreadyPresent = true;
-        break;
-      }
-    }
-    if (alreadyPresent) {
-      continue;
-    }
-
-    char mac[18] = {0};
-    char name[SENSOR_NAME_MAX] = {0};
-    macToString(pairedNodeMacs[i], mac, sizeof(mac));
-    resolveSensorName(nodeId, name);
-
-    offset += static_cast<size_t>(snprintf(
-        body + offset,
-        sizeof(body) - offset,
-      "%s{\"slot\":%u,\"mac\":\"%s\",\"name\":\"%s\",\"nodeId\":%u,\"role\":\"UNKNOWN\",\"state\":\"OFFLINE\",\"irrigationLockout\":\"NONE\",\"moisturePermille\":0,\"batteryEstMv\":0,\"batteryState\":\"UNKNOWN\",\"lastSeenSecAgo\":0,\"rxPackets\":0,\"rxDuplicates\":0,\"rxInvalid\":0,\"ackOkSent\":0,\"ackNotPairedSent\":0}",
-        (offset > 1) ? "," : "",
-        static_cast<unsigned>(count + i),
-        mac,
-        name,
-        static_cast<unsigned>(nodeId)));
-
-    if (offset >= sizeof(body) - 2) {
-      break;
-    }
-  }
-
-  (void)snprintf(body + offset, sizeof(body) - offset, "]");
+  (void)composeNodesJson(body, sizeof(body), millis());
   s_server.send(200, "application/json", body);
 }
 
 static void onSystemSummaryApi()
 {
-  TelemetryHeadNodePresence nodes[8] = {};
-  const uint8_t count = telemetryHeadGetPresence(nodes, 8);
-
-  uint8_t onlineCount = 0;
-  uint8_t suspectCount = 0;
-  uint8_t offlineCount = 0;
-  uint32_t moistureSumPermille = 0;
-
-  for (uint8_t i = 0; i < count; ++i) {
-    const TelemetryHeadNodePresence& node = nodes[i];
-    if (node.state == TELEMETRY_HEAD_NODE_ONLINE) {
-      ++onlineCount;
-      moistureSumPermille += static_cast<uint32_t>(node.moisturePermille);
-      continue;
-    }
-    if (node.state == TELEMETRY_HEAD_NODE_SUSPECT) {
-      ++suspectCount;
-      continue;
-    }
-    if (node.state == TELEMETRY_HEAD_NODE_OFFLINE) {
-      ++offlineCount;
-    }
-  }
-
-  const uint32_t avgMoisturePermille =
-      (onlineCount > 0) ? (moistureSumPermille / static_cast<uint32_t>(onlineCount)) : 0;
-  const bool hasMoistureAvg = (onlineCount > 0);
-
-  const uint32_t nowMs = millis();
-  const uint32_t pairingRemainingSec = (pairingHeadRemainingMs(nowMs) + 999UL) / 1000UL;
-  const uint32_t uptimeSec = nowMs / 1000UL;
-  char avgMoisture[16] = "null";
-  if (hasMoistureAvg) {
-    (void)snprintf(avgMoisture, sizeof(avgMoisture), "%lu", static_cast<unsigned long>(avgMoisturePermille));
-  }
-
   char body[384] = {0};
-  (void)snprintf(
-      body,
-      sizeof(body),
-      "{\"onlineSensors\":%u,\"suspectSensors\":%u,\"offlineSensors\":%u,\"totalVisibleSensors\":%u,\"avgMoisturePermille\":%s,\"pairingOpen\":%s,\"pairingRemainingSec\":%lu,\"uptimeSec\":%lu,\"irrigationMode\":\"%s\",\"manualIrrigationActive\":%s}",
-      static_cast<unsigned>(onlineCount),
-      static_cast<unsigned>(suspectCount),
-      static_cast<unsigned>(offlineCount),
-      static_cast<unsigned>(count),
-      avgMoisture,
-      pairingHeadIsOpen() ? "true" : "false",
-      static_cast<unsigned long>(pairingRemainingSec),
-      static_cast<unsigned long>(uptimeSec),
-      irrigationModeToText(s_irrigationMode),
-      s_manualIrrigationActive ? "true" : "false");
+  (void)composeSystemSummaryJson(body, sizeof(body), millis());
 
   s_server.send(200, "application/json", body);
 }
@@ -1233,6 +1618,7 @@ void headObservabilityInit()
   s_server.on("/api/irrigation/config", HTTP_POST, onIrrigationConfigPostApi);
   s_server.on("/api/irrigation/manual/start", HTTP_POST, onIrrigationManualStartApi);
   s_server.on("/api/irrigation/manual/stop", HTTP_POST, onIrrigationManualStopApi);
+  s_server.on("/api/events", HTTP_GET, onEventsSseApi);
   s_server.on("/api/track/export.csv", HTTP_GET, onTrackExportCsvApi);
   s_server.on("/api/sensors/rename", HTTP_POST, onSensorRenameApi);
   s_server.on("/api/sensors/unpair", HTTP_POST, onSensorUnpairApi);
@@ -1245,10 +1631,39 @@ void headObservabilityInit()
 void headObservabilityTick()
 {
   const uint32_t nowMs = millis();
+  consumeControlCommandAcks(nowMs);
+  pendingControlCommandTick(nowMs);
+
+  const bool presenceOverrideAllowed =
+      s_lastControlAckAtMs == 0 ||
+      static_cast<uint32_t>(nowMs - s_lastControlAckAtMs) >= CONTROL_ACK_PRESENCE_GRACE_MS;
+
+  if (!s_pendingControlCmd.active && presenceOverrideAllowed && hasControlOnlinePresence()) {
+    TelemetryHeadNodePresence nodes[8] = {};
+    const uint8_t count = telemetryHeadGetPresence(nodes, 8);
+    for (uint8_t i = 0; i < count; ++i) {
+      if (!nodes[i].isControl) {
+        continue;
+      }
+      if (nodes[i].irrigationActive) {
+        s_controlConfirmedIrrigationActive = true;
+        s_controlPhase = CONTROL_CMD_ACTIVE;
+      } else if (s_controlPhase != CONTROL_CMD_PENDING_START && s_controlPhase != CONTROL_CMD_PENDING_STOP) {
+        s_controlConfirmedIrrigationActive = false;
+        if (s_controlPhase != CONTROL_CMD_LOST) {
+          s_controlPhase = CONTROL_CMD_IDLE;
+        }
+      }
+      break;
+    }
+  }
+
   s_server.handleClient();
   irrigationAutomationTick(nowMs);
+  reconcileControlToDesiredState(nowMs);
   irrigationSyncTick(nowMs);
   headProvisioningTick(nowMs);
+  ssePushSnapshotIfChanged(nowMs);
 }
 
 bool headObservabilityRequestIrrigationSync()

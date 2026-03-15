@@ -8,7 +8,26 @@
 </head>
 <body>
   <main class="wrap">
-    <h1>Irrigation Console</h1>
+    <div class="topbar">
+      <h1>Irrigation Console</h1>
+      <div class="transport-indicator-wrap">
+        <button
+          type="button"
+          id="transportIndicatorBtn"
+          class="transport-indicator"
+          aria-label="Open transport status"
+          aria-expanded="false"
+          aria-controls="transportPopover"
+        ></button>
+        <div id="transportPopover" class="transport-popover" role="status" hidden>
+          <p><span>Transport</span><strong id="transportPopoverTransport">-</strong></p>
+          <p><span>Status</span><strong id="transportPopoverStatus">-</strong></p>
+          <p><span>Last update</span><strong id="transportPopoverLastUpdate">-</strong></p>
+          <p><span>Poll interval</span><strong id="transportPopoverPollInterval">-</strong></p>
+          <p><span>Reconnects</span><strong id="transportPopoverReconnects">0</strong></p>
+        </div>
+      </div>
+    </div>
     <p class="sub">AP-only local web access for status and control.</p>
 
     <nav class="tabs" aria-label="Main sections">
