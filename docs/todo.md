@@ -38,8 +38,10 @@
 - [x] Power management for sensor: deep sleep cycle, wake -> measure -> transmit -> sleep
   - [ ] Make node presence thresholds configurable for field mode (SUSPECT/OFFLINE), not debug-fixed seconds
   - [ ] Tie presence thresholds to real telemetry period after sleep/power management is implemented
-- [ ] Battery-driven behavior: low battery thresholds, "critical" mode, messaging to head
+- [x] Battery-driven behavior: low battery thresholds, "critical" mode, messaging to head
+  - [x] SENSOR critical battery intent/ack flow and final protective deep sleep fallback
   - [x] CONTROL battery telemetry and low-battery lockout flags reach HEAD via shared telemetry path
+  - [x] USB/near-zero battery ADC fallback handling prevents false low-battery decisions
 - [ ] Control unit: duty-cycle listen vs active mode, heartbeat, command execution state machine
 - [x] Head logic: command state machine and remaining runtime semantics
   - [x] Command decisions use sensor data
@@ -255,9 +257,9 @@ Head networking mode = SoftAP always (local UI), STA hotspot only for upload (ma
 - [x] Thresholds:
   - [x] LOW/NEEDS_REPLACEMENT threshold implemented
   - [x] CRITICAL threshold implemented
-- [ ] Sensor:
-  - [ ] Sends low battery warning
-  - [ ] Reduces activity
+- [x] Sensor:
+  - [x] Sends critical battery intent to head (`MSG_CRITICAL_SLEEP_INTENT`)
+  - [x] Enters protective deep sleep fallback on persistent critical battery
 - [x] Control:
   - [x] Pump/Sensor disabled on critical battery
   - [x] Alert sent to head

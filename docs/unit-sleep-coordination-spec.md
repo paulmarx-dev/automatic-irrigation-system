@@ -97,6 +97,22 @@ These constants are mandatory implementation values for v1 and map directly to t
 8. HEAD must publish explicit service reason/status that irrigation is unavailable due to CONTROL loss.
 9. Manual irrigation requested while CONTROL sleeps is represented as `scheduled` and starts at nearest CONTROL wake, unless canceled by rule 7.
 
+## Current Deployed Profile (2026-03-30)
+
+This block documents currently deployed behavior in firmware and has precedence for field validation.
+
+- HEAD sleep plan handshake is active: `SLEEP_PLAN` -> `SLEEP_ACK` -> `SLEEP_ACK_ACK`.
+- Base head-issued sleep duration is currently `SLEEP_BASE_DURATION_MS = 60000`.
+- CONTROL battery tiers are active:
+  - Tier 0: 60s base sleep
+  - Tier 1: 15min base sleep
+  - Tier 2: 45min base sleep
+- Sleep phase alignment is active and anchored to the first observed node report after head start.
+- Alignment computes nearest future wake slot and preserves full sleep cadence (no forced rapid reconnect loop).
+- Slotting still uses deterministic per-node slot with bounded micro-jitter.
+
+Future cadence changes (for field hourly strategy, etc.) should update this section and corresponding constants in one commit.
+
 ## Timebase and Identity Constraints (resolved ambiguity)
 
 - `valid_until_ms` is measured in HEAD monotonic uptime milliseconds.

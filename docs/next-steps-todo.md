@@ -32,10 +32,14 @@
 - [x] Define UI-facing CONTROL availability model.
   - Source wake schedule from CONTROL policy.
   - Define missed-wake threshold before declaring irrigation unavailable.
-- [ ] Low-battery shutdown policy for SENSOR/CONTROL:
-  - define thresholds and behavior for CRITICAL/REPLACE states,
-  - avoid false battery-low decisions while powered by USB (near-zero/invalid battery ADC profile),
-  - implement USB-power detection fallback logic and diagnostics.
+- [x] Low-battery shutdown policy for SENSOR/CONTROL:
+  - [x] thresholds and behavior for CRITICAL/REPLACE states are implemented,
+  - [x] false battery-low decisions while powered by USB are handled (near-zero ADC fallback),
+  - [x] USB-power detection fallback logic and diagnostics are implemented.
+
+- [ ] Sleep profile tuning for field cadence:
+  - align practical sensor cadence and head-issued sleep policy for field operation windows,
+  - keep phase synchronization active while preserving battery-first behavior.
 
 ## Notes
 
