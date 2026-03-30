@@ -77,6 +77,32 @@ static constexpr uint16_t CONTROL_BATT_RESUME_OK_MV = 3650;
 static constexpr uint32_t CONTROL_BATT_LOCKOUT_CONFIRM_MS = 2500;
 
 /*
+  Battery policy helpers.
+  <= EXTERNAL_POWER_MAX: battery probe is considered invalid/externally powered
+  (e.g. USB without battery), so power-saving lockouts/special battery modes must
+  not trigger from this reading.
+*/
+static constexpr uint16_t BATTERY_EXTERNAL_POWER_MAX_MV = 2000;
+static constexpr uint16_t BATTERY_HYSTERESIS_MV = 150;
+
+/*
+  Sensor critical-battery fail-safe.
+  SENSOR can enter eternal deep sleep after N consecutive telemetry sends below
+  threshold (unless external-power reading is detected).
+*/
+static constexpr uint16_t SENSOR_CRITICAL_SLEEP_MV = 3250;
+static constexpr uint8_t SENSOR_CRITICAL_SLEEP_TELEMETRY_COUNT = 3;
+
+/*
+  Control sleep tiers decided by HEAD.
+*/
+static constexpr uint8_t CONTROL_SLEEP_TRANSITION_COUNT = 3;
+static constexpr uint16_t CONTROL_SLEEP_TIER1_THRESHOLD_MV = 3500;
+static constexpr uint16_t CONTROL_SLEEP_TIER2_THRESHOLD_MV = 3300;
+static constexpr uint32_t CONTROL_SLEEP_TIER1_DURATION_MS = 15UL * 60UL * 1000UL;
+static constexpr uint32_t CONTROL_SLEEP_TIER2_DURATION_MS = 45UL * 60UL * 1000UL;
+
+/*
   Protocol version (will be used later in all messages).
 */
 static constexpr uint8_t PROTOCOL_VERSION = 1;

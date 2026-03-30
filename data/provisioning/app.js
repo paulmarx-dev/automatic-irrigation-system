@@ -563,12 +563,20 @@ function setHomeManualStatus(text, isError = false, resetAfterMs = 0) {
   }
 }
 
+function manualPendingStartLabel() {
+  const wakeEtaSec = getControlWakeEtaSec();
+  if (wakeEtaSec > 0) {
+    return `Starting in ${Math.max(0, Math.floor(wakeEtaSec))}s`;
+  }
+  return `Starting... ${Math.max(0, Math.floor(controlPendingElapsedSec))}s`;
+}
+
 function manualStatusFromControlState() {
   if (controlConfirmedState === 'pending_start') {
-    return `Starting... ${Math.max(0, Math.floor(controlPendingElapsedSec))}s`;
+    return getControlWakeEtaSec() > 0 ? 'Manual start queued.' : 'Start command sent.';
   }
   if (controlConfirmedState === 'pending_stop') {
-    return `Stopping... ${Math.max(0, Math.floor(controlPendingElapsedSec))}s`;
+    return 'Stop command sent.';
   }
   if (controlConfirmedState === 'lost') {
     return 'Control lost. Watering forced OFF in UI.';
@@ -780,7 +788,7 @@ function renderHomeModeControls() {
 
     manualStartBtnEl.disabled = !showManualActions || isManualIrrigationActive || isStartBlocked || isPendingStart || isPendingStop;
     manualStartBtnEl.textContent = isPendingStart
-      ? `Starting... ${Math.max(0, Math.floor(controlPendingElapsedSec))}s`
+      ? manualPendingStartLabel()
       : (isManualIrrigationActive
         ? `Watering ${formatClockMmSs(secondsLeft)}`
         : 'Start watering');
@@ -1643,12 +1651,12 @@ function renderNodes(nodes) {
           ${stateNoteLine}
           <p>Battery: ${formatBatteryVolts(node.batteryEstMv)} <span class="${batteryClass}">[${batteryState}]</span></p>
           <p>Last seen: ${node.lastSeenSecAgo ?? '-'} sec ago</p>
+          ${stateView.sleepActive ? `<p class="sensor-next-contact">${stateView.note}</p>` : ''}
           <div class="sensor-actions">
             <button type="button" class="sensor-btn rename" data-action="rename" data-node-id="${node.nodeId ?? ''}">Rename</button>
             ${calibrateButton}
             <button type="button" class="sensor-btn unpair" data-action="unpair" data-node-id="${node.nodeId ?? ''}">Unpair</button>
           </div>
-          ${stateView.sleepActive ? `<p class="sensor-next-contact">${stateView.note}</p>` : ''}
           <p class="sensor-mac">MAC: ${node.mac ?? 'N/A'}</p>
         </article>
       `;
@@ -1678,7 +1686,26 @@ function applyDashboardSnapshot(snapshot, allowOverridePending = true) {
   // that might have been shown while the head was rebooting.
   clearStaleFetchErrorsFromFreshSnapshot();
 
-  latestNodes = nodes;
+  // Merge incoming nodes with the locally-decremented nextContactSec to avoid
+  // visible jumps: if the node is already sleeping and the locally-tracked
+  // countdown is within 5 seconds of the server value, keep the local value so
+  // the per-second setInterval tick stays smooth.
+  latestNodes = nodes.map((incoming) => {
+    const existing = Array.isArray(latestNodes)
+      ? latestNodes.find((n) => n.nodeId === incoming.nodeId)
+      : null;
+    if (
+      existing &&
+      incoming.sleepActive &&
+      existing.sleepActive &&
+      typeof existing.nextContactSec === 'number' &&
+      typeof incoming.nextContactSec === 'number' &&
+      Math.abs(existing.nextContactSec - incoming.nextContactSec) <= 5
+    ) {
+      return { ...incoming, nextContactSec: existing.nextContactSec };
+    }
+    return incoming;
+  });
 
   if (webStatus) {
     render(webStatusEl, webStatus);
@@ -2072,6 +2099,8 @@ setInterval(() => {
       };
     });
     if (hasCountdown) {
+      updateControlAvailabilityStatus();
+      renderHomeModeControls();
       renderNodes(latestNodes);
     }
   }

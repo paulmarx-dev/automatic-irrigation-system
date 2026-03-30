@@ -97,6 +97,16 @@ static void batteryLockoutTick(uint32_t nowMs)
 
   const uint16_t battMv = s_latestMeasurement.batteryEstMv;
 
+  if (battMv <= BATTERY_EXTERNAL_POWER_MAX_MV) {
+    // USB/external-power signature: do not enforce battery lockouts.
+    s_battStopBelowSinceMs = 0;
+    s_battResumeAboveSinceMs = 0;
+    if (s_lowBatteryLockout) {
+      setLowBatteryLockout(false);
+    }
+    return;
+  }
+
   if (s_manualIrrigationActive) {
     if (battMv < CONTROL_BATT_STOP_NOW_MV) {
       if (s_battStopBelowSinceMs == 0) {

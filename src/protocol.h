@@ -12,6 +12,8 @@ static constexpr uint8_t MSG_COMMAND_ACK = 22;
 static constexpr uint8_t MSG_SLEEP_PLAN = 30;
 static constexpr uint8_t MSG_SLEEP_ACK = 31;
 static constexpr uint8_t MSG_SLEEP_ACK_ACK = 32;
+static constexpr uint8_t MSG_CRITICAL_SLEEP_INTENT = 33;
+static constexpr uint8_t MSG_CRITICAL_SLEEP_ACK = 34;
 
 static constexpr uint8_t TELEMETRY_ACK_STATUS_OK = 0;
 static constexpr uint8_t TELEMETRY_ACK_STATUS_NOT_PAIRED = 1;
@@ -30,6 +32,10 @@ static constexpr uint8_t SLEEP_ACK_REJECT_NONE = 0;
 static constexpr uint8_t SLEEP_ACK_REJECT_BUSY = 1;
 static constexpr uint8_t SLEEP_ACK_REJECT_EXPIRED = 2;
 static constexpr uint8_t SLEEP_ACK_REJECT_WRONG_NODE = 3;
+
+static constexpr uint8_t CRITICAL_SLEEP_REASON_LOW_BATTERY = 1;
+static constexpr uint8_t CRITICAL_SLEEP_ACK_STATUS_OK = 0;
+static constexpr uint8_t CRITICAL_SLEEP_ACK_STATUS_REJECTED = 1;
 
 static constexpr uint8_t FLAG_DIAG_RAW_PRESENT = 0x01;
 static constexpr uint8_t FLAG_CAL_VALID = 0x02;
@@ -117,6 +123,22 @@ struct MsgSleepAckAck {
   uint32_t headBootId;
   uint8_t commit;
   uint8_t reserved[3];
+};
+
+struct MsgCriticalSleepIntent {
+  MsgHdr hdr;
+  uint8_t reason;
+  uint8_t flags;
+  uint16_t thresholdMv;
+  uint16_t batteryEstMv;
+  uint16_t reserved;
+};
+
+struct MsgCriticalSleepAck {
+  MsgHdr hdr;
+  uint16_t ackSeq;
+  uint8_t status;
+  uint8_t reserved;
 };
 
 #pragma pack(pop)

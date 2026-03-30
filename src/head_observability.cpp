@@ -351,6 +351,26 @@ static bool hasControlOnlinePresence()
   return false;
 }
 
+static bool hasControlReachablePresence(uint32_t nowMs)
+{
+  TelemetryHeadNodePresence nodes[8] = {};
+  const uint8_t count = telemetryHeadGetPresence(nodes, 8);
+  for (uint8_t i = 0; i < count; ++i) {
+    const TelemetryHeadNodePresence& node = nodes[i];
+    if (!node.isControl || node.state != TELEMETRY_HEAD_NODE_ONLINE) {
+      continue;
+    }
+
+    const bool sleepActive = node.sleepAcked &&
+                             node.sleepExpectedReportDeadlineMs != 0 &&
+                             (int32_t)(node.sleepExpectedReportDeadlineMs - nowMs) > 0;
+    if (!sleepActive) {
+      return true;
+    }
+  }
+  return false;
+}
+
 static bool sendControlCommandOnce(uint8_t action, uint16_t cmdId)
 {
   const bool sent = telemetryHeadSendRemoteButtonAction(0, action, cmdId);
@@ -506,7 +526,7 @@ static void reconcileControlToDesiredState(uint32_t nowMs)
   }
   s_nextControlDesiredReconcileAtMs = nowMs + CONTROL_DESIRED_RECONCILE_MS;
 
-  if (!hasControlOnlinePresence()) {
+  if (!hasControlReachablePresence(nowMs)) {
     return;
   }
 
@@ -1602,10 +1622,10 @@ static void onIrrigationManualStartApi()
 
   const ControlAvailabilitySnapshot controlSnapshot = computeControlAvailabilitySnapshot();
   const bool controlOffline = strcmp(controlSnapshot.manualBlockedReason, "control_offline") == 0;
+  const bool controlReachableNow = hasControlReachablePresence(millis());
   if (!controlOffline && strcmp(controlSnapshot.manualBlockedReason, "none") != 0) {
     Serial.print("OBS: manual irrigation start rejected: ");
     Serial.println(controlSnapshot.manualBlockedReason);
-
     char body[160] = {0};
     (void)snprintf(
         body,
@@ -1630,10 +1650,10 @@ static void onIrrigationManualStartApi()
 
   startIrrigation(millis(), requestedDurationSec, "MANUAL start API");
   bool sentNow = false;
-  if (controlOffline) {
+  if (controlOffline || !controlReachableNow) {
     s_controlPhase = CONTROL_CMD_PENDING_START;
     s_pendingControlCmd.active = false;
-    Serial.println("OBS: manual irrigation start scheduled (control offline)");
+    Serial.println("OBS: manual irrigation start scheduled (control unreachable/sleeping)");
   } else {
     s_controlPhase = CONTROL_CMD_PENDING_START;
     beginPendingControlCommand(REMOTE_BUTTON_IRRIGATION_START, millis());

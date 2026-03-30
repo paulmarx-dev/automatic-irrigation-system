@@ -16,6 +16,7 @@
 #include "pairing_nvs.h"
 #include "sleep_logic.h"
 #if defined(DEVICE_ROLE_SENSOR)
+#include <esp_sleep.h>
 #include "sensor_remote_control.h"
 #endif
 
@@ -41,6 +42,16 @@ static uint8_t s_nodeStatusFlags = 0;
 
 static MsgTelemetry s_pendingTelemetry{};
 static uint8_t s_pendingHeadMac[6] = {0};
+
+#if defined(DEVICE_ROLE_SENSOR)
+static uint16_t s_sensorCriticalSeq = 0;
+static uint8_t s_sensorCriticalBelowCount = 0;
+static bool s_sensorCriticalIntentActive = false;
+static bool s_sensorCriticalSleepNow = false;
+static uint8_t s_sensorCriticalRetries = 0;
+static uint32_t s_sensorCriticalAckDeadlineMs = 0;
+static MsgCriticalSleepIntent s_pendingCriticalIntent{};
+#endif
 
 static SleepNodeMode defaultSleepModeForRole()
 {
@@ -110,6 +121,58 @@ static uint32_t retryBackoffMs(uint8_t retryIndex)
   return 800 + jitter;
 }
 
+#if defined(DEVICE_ROLE_SENSOR)
+static bool isExternalPowerReading(uint16_t batteryEstMv)
+{
+  return batteryEstMv <= BATTERY_EXTERNAL_POWER_MAX_MV;
+}
+
+static bool sendPendingCriticalIntent()
+{
+  (void)espnowEnsurePeer(s_pendingHeadMac, ESPNOW_CHANNEL, false);
+  return espnowSend(s_pendingHeadMac, reinterpret_cast<const uint8_t*>(&s_pendingCriticalIntent), sizeof(s_pendingCriticalIntent));
+}
+
+static void beginSensorCriticalSleepIntent(uint16_t batteryEstMv, uint32_t nowMs)
+{
+  s_sensorCriticalIntentActive = true;
+  s_sensorCriticalSleepNow = false;
+  s_sensorCriticalRetries = 0;
+
+  s_pendingCriticalIntent = {};
+  s_pendingCriticalIntent.hdr.ver = PROTO_VER;
+  s_pendingCriticalIntent.hdr.type = MSG_CRITICAL_SLEEP_INTENT;
+  s_pendingCriticalIntent.hdr.seq = ++s_sensorCriticalSeq;
+  if (s_sensorCriticalSeq == 0) {
+    s_sensorCriticalSeq = 1;
+    s_pendingCriticalIntent.hdr.seq = s_sensorCriticalSeq;
+  }
+  s_pendingCriticalIntent.hdr.nodeId = pairingNodeId();
+  s_pendingCriticalIntent.reason = CRITICAL_SLEEP_REASON_LOW_BATTERY;
+  s_pendingCriticalIntent.flags = 0;
+  s_pendingCriticalIntent.thresholdMv = SENSOR_CRITICAL_SLEEP_MV;
+  s_pendingCriticalIntent.batteryEstMv = batteryEstMv;
+  s_pendingCriticalIntent.reserved = 0;
+
+  const bool sent = sendPendingCriticalIntent();
+  s_sensorCriticalAckDeadlineMs = nowMs + ACK_TIMEOUT_MS;
+
+  Serial.print("CRITICAL_SLEEP intent sent=");
+  Serial.print(sent ? 1 : 0);
+  Serial.print(" seq=");
+  Serial.print((unsigned long)s_pendingCriticalIntent.hdr.seq);
+  Serial.print(" battMv=");
+  Serial.println((unsigned long)batteryEstMv);
+}
+
+static void enterSensorEternalSleepNow()
+{
+  Serial.println("CRITICAL_SLEEP: entering eternal deep sleep");
+  esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
+  esp_deep_sleep_start();
+}
+#endif
+
 void telemetryInit()
 {
   s_telemetrySeq = 0;
@@ -123,6 +186,15 @@ void telemetryInit()
   s_nodeStatusFlags = 0;
   memset(&s_pendingTelemetry, 0, sizeof(s_pendingTelemetry));
   memset(s_pendingHeadMac, 0, sizeof(s_pendingHeadMac));
+#if defined(DEVICE_ROLE_SENSOR)
+  s_sensorCriticalSeq = 0;
+  s_sensorCriticalBelowCount = 0;
+  s_sensorCriticalIntentActive = false;
+  s_sensorCriticalSleepNow = false;
+  s_sensorCriticalRetries = 0;
+  s_sensorCriticalAckDeadlineMs = 0;
+  memset(&s_pendingCriticalIntent, 0, sizeof(s_pendingCriticalIntent));
+#endif
     sleepLogicInit(
   #if defined(DEVICE_ROLE_CONTROL)
     true,
@@ -216,6 +288,37 @@ void telemetryOnRecv(const uint8_t* src_mac, const uint8_t* data, int len)
     return;
   }
 
+#if defined(DEVICE_ROLE_SENSOR)
+  if (hdr->type == MSG_CRITICAL_SLEEP_ACK && len == (int)sizeof(MsgCriticalSleepAck)) {
+    if (!pairingNodeIsPaired()) {
+      return;
+    }
+
+    if (!s_sensorCriticalIntentActive) {
+      return;
+    }
+
+    if (memcmp(src_mac, s_pendingHeadMac, 6) != 0) {
+      return;
+    }
+
+    const MsgCriticalSleepAck* ack = reinterpret_cast<const MsgCriticalSleepAck*>(data);
+    if (ack->hdr.nodeId != pairingNodeId()) {
+      return;
+    }
+    if (ack->ackSeq != s_pendingCriticalIntent.hdr.seq) {
+      return;
+    }
+
+    Serial.print("CRITICAL_SLEEP ack status=");
+    Serial.println((unsigned long)ack->status);
+
+    s_sensorCriticalIntentActive = false;
+    s_sensorCriticalSleepNow = true;
+    return;
+  }
+#endif
+
   if (hdr->type != MSG_TELEMETRY_ACK || len != (int)sizeof(MsgTelemetryAck)) {
     return;
   }
@@ -278,13 +381,47 @@ void telemetryOnRecv(const uint8_t* src_mac, const uint8_t* data, int len)
 
 void telemetryTickSensor(const SensorMeasurement* measurement, bool hasMeasurement, uint32_t nowMs)
 {
+#if defined(DEVICE_ROLE_SENSOR)
+  if (s_sensorCriticalSleepNow) {
+    enterSensorEternalSleepNow();
+    return;
+  }
+#endif
+
   if (!pairingNodeIsPaired()) {
     s_waitingAck = false;
     s_noAckCycles = 0;
     s_nextTelemetryDueMs = 0;
     sleepLogicReset();
+#if defined(DEVICE_ROLE_SENSOR)
+    s_sensorCriticalBelowCount = 0;
+    s_sensorCriticalIntentActive = false;
+    s_sensorCriticalSleepNow = false;
+    s_sensorCriticalRetries = 0;
+#endif
     return;
   }
+
+#if defined(DEVICE_ROLE_SENSOR)
+  if (s_sensorCriticalIntentActive) {
+    if ((int32_t)(nowMs - s_sensorCriticalAckDeadlineMs) >= 0) {
+      if (s_sensorCriticalRetries < MAX_RETRIES) {
+        const bool sent = sendPendingCriticalIntent();
+        s_sensorCriticalRetries++;
+        s_sensorCriticalAckDeadlineMs = nowMs + retryBackoffMs(s_sensorCriticalRetries - 1);
+        Serial.print("CRITICAL_SLEEP retry sent=");
+        Serial.print(sent ? 1 : 0);
+        Serial.print(" retry=");
+        Serial.println((unsigned long)s_sensorCriticalRetries);
+      } else {
+        Serial.println("CRITICAL_SLEEP ack timeout -> forcing eternal sleep");
+        s_sensorCriticalIntentActive = false;
+        s_sensorCriticalSleepNow = true;
+      }
+    }
+    return;
+  }
+#endif
 
   MsgSleepAck retryAck{};
   if (sleepLogicBuildRetryAck(nowMs, &retryAck)) {
@@ -373,6 +510,10 @@ void telemetryTickSensor(const SensorMeasurement* measurement, bool hasMeasureme
 
   memcpy(s_pendingHeadMac, headMac, 6);
 
+#if defined(DEVICE_ROLE_SENSOR)
+  const bool externalPowerReading = isExternalPowerReading(measurement->batteryEstMv);
+#endif
+
   const bool sent = sendPendingTelemetry();
   if (buttonIsDebugEnabled()) {
     ledsPulseOnce(20);
@@ -388,6 +529,23 @@ void telemetryTickSensor(const SensorMeasurement* measurement, bool hasMeasureme
     sleepLogicReset();
   } else {
     sleepLogicOnTelemetrySent(s_lastSentSeq, nowMs);
+#if defined(DEVICE_ROLE_SENSOR)
+    bool shouldStartCriticalIntent = false;
+    if (externalPowerReading) {
+      s_sensorCriticalBelowCount = 0;
+    } else if (measurement->batteryEstMv < SENSOR_CRITICAL_SLEEP_MV) {
+      if (s_sensorCriticalBelowCount < 255) {
+        s_sensorCriticalBelowCount++;
+      }
+      shouldStartCriticalIntent = (s_sensorCriticalBelowCount >= SENSOR_CRITICAL_SLEEP_TELEMETRY_COUNT);
+    } else {
+      s_sensorCriticalBelowCount = 0;
+    }
+
+    if (shouldStartCriticalIntent) {
+      beginSensorCriticalSleepIntent(measurement->batteryEstMv, nowMs);
+    }
+#endif
   }
 
   Serial.print("TELEMETRY sent=");
@@ -465,6 +623,10 @@ struct NodeTelemetryState {
   uint32_t sleepValidUntilMs;
   uint32_t sleepNextRetryAtMs;
   uint32_t sleepExpectedReportDeadlineMs;
+  uint8_t controlSleepTier;
+  uint8_t controlBelow3500Count;
+  uint8_t controlBelow3300Count;
+  int32_t lastArrivalOffsetMs;
 };
 
 static NodeTelemetryState s_nodes[MAX_NODE_REGISTRY] = {};
@@ -472,6 +634,7 @@ static uint16_t s_ackSeq = 0;
 static TelemetryHeadCommandAck s_latestCommandAck = {};
 static uint32_t s_sleepPlanIdSeq = 1;
 static uint32_t s_headBootId = 1;
+static uint32_t s_waveReferenceTimeMs = 0;
 
 static uint8_t commandAckPriority(uint8_t status)
 {
@@ -615,6 +778,10 @@ static NodeTelemetryState* getOrCreateNodeState(uint16_t nodeId, const uint8_t s
   target->sleepValidUntilMs = 0;
   target->sleepNextRetryAtMs = 0;
   target->sleepExpectedReportDeadlineMs = 0;
+  target->controlSleepTier = 0;
+  target->controlBelow3500Count = 0;
+  target->controlBelow3300Count = 0;
+  target->lastArrivalOffsetMs = 0;
   return target;
 }
 
@@ -651,6 +818,111 @@ static uint32_t computeNodeSlotDelayMs(uint16_t nodeId)
   return deterministic + microJitter;
 }
 
+static uint32_t computeAlignedSleepMs(uint32_t nowMs,
+                                      uint32_t referenceTimeMs,
+                                      uint32_t baseSleepMs,
+                                      uint32_t slotDelayMs)
+{
+  if (baseSleepMs == 0) {
+    return slotDelayMs;
+  }
+
+  const int64_t phaseAnchorMs = static_cast<int64_t>(referenceTimeMs) + static_cast<int64_t>(slotDelayMs);
+  int64_t targetWakeMs = phaseAnchorMs;
+  if (targetWakeMs <= static_cast<int64_t>(nowMs)) {
+    const int64_t elapsedMs = static_cast<int64_t>(nowMs) - phaseAnchorMs;
+    const int64_t cyclesToAdvance = (elapsedMs / static_cast<int64_t>(baseSleepMs)) + 1;
+    targetWakeMs += cyclesToAdvance * static_cast<int64_t>(baseSleepMs);
+  }
+
+  const int64_t sleepMs = targetWakeMs - static_cast<int64_t>(nowMs);
+  if (sleepMs <= 0) {
+    return baseSleepMs;
+  }
+  return static_cast<uint32_t>(sleepMs);
+}
+
+static uint32_t controlSleepBaseMs(const NodeTelemetryState* node)
+{
+  if (!node || !node->isControl) {
+    return SLEEP_BASE_DURATION_MS;
+  }
+
+  if (node->batteryEstMv <= BATTERY_EXTERNAL_POWER_MAX_MV) {
+    return SLEEP_BASE_DURATION_MS;
+  }
+
+  if (node->controlSleepTier >= 2) {
+    return CONTROL_SLEEP_TIER2_DURATION_MS;
+  }
+  if (node->controlSleepTier == 1) {
+    return CONTROL_SLEEP_TIER1_DURATION_MS;
+  }
+  return SLEEP_BASE_DURATION_MS;
+}
+
+static void updateControlSleepTier(NodeTelemetryState* node)
+{
+  if (!node || !node->isControl) {
+    return;
+  }
+
+  const uint16_t battMv = node->batteryEstMv;
+  if (battMv <= BATTERY_EXTERNAL_POWER_MAX_MV) {
+    node->controlSleepTier = 0;
+    node->controlBelow3500Count = 0;
+    node->controlBelow3300Count = 0;
+    return;
+  }
+
+  if (battMv <= CONTROL_SLEEP_TIER1_THRESHOLD_MV) {
+    if (node->controlBelow3500Count < 255) {
+      node->controlBelow3500Count++;
+    }
+  } else {
+    node->controlBelow3500Count = 0;
+  }
+
+  if (battMv <= CONTROL_SLEEP_TIER2_THRESHOLD_MV) {
+    if (node->controlBelow3300Count < 255) {
+      node->controlBelow3300Count++;
+    }
+  } else {
+    node->controlBelow3300Count = 0;
+  }
+
+  if (node->controlSleepTier >= 2) {
+    if (battMv >= static_cast<uint16_t>(CONTROL_SLEEP_TIER2_THRESHOLD_MV + BATTERY_HYSTERESIS_MV)) {
+      node->controlSleepTier = 1;
+    }
+  } else if (node->controlSleepTier == 1) {
+    if (battMv >= static_cast<uint16_t>(CONTROL_SLEEP_TIER1_THRESHOLD_MV + BATTERY_HYSTERESIS_MV)) {
+      node->controlSleepTier = 0;
+    } else if (node->controlBelow3300Count >= CONTROL_SLEEP_TRANSITION_COUNT) {
+      node->controlSleepTier = 2;
+    }
+  } else {
+    if (node->controlBelow3500Count >= CONTROL_SLEEP_TRANSITION_COUNT) {
+      node->controlSleepTier = 1;
+    }
+  }
+}
+
+static bool sendCriticalSleepAckToNode(uint16_t nodeId, const uint8_t src_mac[6], uint16_t ackSeq, uint8_t status)
+{
+  MsgCriticalSleepAck ack{};
+  ack.hdr.ver = PROTO_VER;
+  ack.hdr.type = MSG_CRITICAL_SLEEP_ACK;
+  ack.hdr.seq = ++s_ackSeq;
+  ack.hdr.nodeId = nodeId;
+  ack.ackSeq = ackSeq;
+  ack.status = status;
+  ack.reserved = 0;
+
+  (void)espnowEnsurePeer(src_mac, ESPNOW_CHANNEL, false);
+  return espnowSend(src_mac, reinterpret_cast<const uint8_t*>(&ack), sizeof(ack));
+}
+
 static bool sendSleepPlanToNode(NodeTelemetryState* node, uint32_t nowMs, bool isRetry)
 {
   if (!node || !node->used || node->state != TELEMETRY_HEAD_NODE_ONLINE) {
@@ -664,7 +936,23 @@ static bool sendSleepPlanToNode(NodeTelemetryState* node, uint32_t nowMs, bool i
     }
     node->sleepHeadBootId = s_headBootId;
     const uint32_t slotDelayMs = computeNodeSlotDelayMs(node->nodeId);
-    node->sleepPlannedMs = SLEEP_BASE_DURATION_MS + slotDelayMs;
+    const uint32_t baseSleepMs = controlSleepBaseMs(node);
+
+    uint32_t plannedMs = baseSleepMs + slotDelayMs;
+    if (s_waveReferenceTimeMs > 0) {
+      plannedMs = computeAlignedSleepMs(nowMs, s_waveReferenceTimeMs, baseSleepMs, slotDelayMs);
+    }
+
+    const uint32_t minSleepClampMs = 3000;
+    const uint32_t maxSleepClampMs = baseSleepMs + TELEMETRY_PHASE_SPREAD_MS + SLEEP_SLOT_WIDTH_MS + SLEEP_SLOT_MICRO_JITTER_MS;
+    if (plannedMs < minSleepClampMs) {
+      plannedMs = minSleepClampMs;
+    }
+    if (plannedMs > maxSleepClampMs) {
+      plannedMs = maxSleepClampMs;
+    }
+
+    node->sleepPlannedMs = plannedMs;
     node->sleepValidUntilMs = nowMs + SLEEP_PLAN_VALID_WINDOW_MS;
     node->sleepAwaitAck = true;
     node->sleepAcked = false;
@@ -681,11 +969,27 @@ static bool sendSleepPlanToNode(NodeTelemetryState* node, uint32_t nowMs, bool i
   plan.headBootId = node->sleepHeadBootId;
   plan.sleepMs = node->sleepPlannedMs;
   plan.validUntilMs = node->sleepValidUntilMs;
-  plan.baseSleepSec = static_cast<uint16_t>(SLEEP_BASE_DURATION_MS / 1000UL);
-  plan.slotDelayMs = static_cast<uint16_t>(node->sleepPlannedMs - SLEEP_BASE_DURATION_MS);
+  const uint32_t baseSleepMs = controlSleepBaseMs(node);
+  plan.baseSleepSec = static_cast<uint16_t>(baseSleepMs / 1000UL);
+  plan.slotDelayMs = static_cast<uint16_t>(node->sleepPlannedMs - baseSleepMs);
 
   node->sleepPlanSeq = plan.hdr.seq;
   node->sleepNextRetryAtMs = nowMs + SLEEP_ACK_RETRY_MIN_MS + headRandomBoundedMs(SLEEP_ACK_RETRY_JITTER_MS + 1);
+
+  // Log sleep plan with phase sync info
+  Serial.print("[nodeId=");
+  Serial.print((unsigned long)node->nodeId);
+  Serial.print("] sleep_plan sleepMs=");
+  Serial.print((unsigned long)plan.sleepMs);
+  Serial.print(" baseMs=");
+  Serial.print((unsigned long)baseSleepMs);
+  Serial.print(" slotDelayMs=");
+  Serial.print((unsigned long)plan.slotDelayMs);
+  Serial.print(" refMs=");
+  Serial.print((unsigned long)s_waveReferenceTimeMs);
+  Serial.print(" arrivalOffsetMs=");
+  Serial.print((long)node->lastArrivalOffsetMs);
+  Serial.println("");
 
   (void)espnowEnsurePeer(node->mac, ESPNOW_CHANNEL, false);
   const bool sent = espnowSend(node->mac, reinterpret_cast<const uint8_t*>(&plan), sizeof(plan));
@@ -811,6 +1115,24 @@ void telemetryOnRecv(const uint8_t* src_mac, const uint8_t* data, int len)
 
   if (len >= (int)sizeof(MsgHdr)) {
     const MsgHdr* hdr = reinterpret_cast<const MsgHdr*>(data);
+    if (hdr->ver == PROTO_VER && hdr->type == MSG_CRITICAL_SLEEP_INTENT && len == (int)sizeof(MsgCriticalSleepIntent)) {
+      const MsgCriticalSleepIntent* intent = reinterpret_cast<const MsgCriticalSleepIntent*>(data);
+      if (pairingHeadIsKnownNode(intent->hdr.nodeId, src_mac)) {
+        const bool ackSent = sendCriticalSleepAckToNode(intent->hdr.nodeId, src_mac, intent->hdr.seq, CRITICAL_SLEEP_ACK_STATUS_OK);
+        Serial.print("[nodeId=");
+        Serial.print((unsigned long)intent->hdr.nodeId);
+        Serial.print("] critical_sleep intent reason=");
+        Serial.print((unsigned long)intent->reason);
+        Serial.print(" battMv=");
+        Serial.print((unsigned long)intent->batteryEstMv);
+        Serial.print(" thresholdMv=");
+        Serial.print((unsigned long)intent->thresholdMv);
+        Serial.print(" ackSent=");
+        Serial.println(ackSent ? 1 : 0);
+      }
+      return;
+    }
+
     if (hdr->ver == PROTO_VER && hdr->type == MSG_SLEEP_ACK && len == (int)sizeof(MsgSleepAck)) {
       const MsgSleepAck* ack = reinterpret_cast<const MsgSleepAck*>(data);
       NodeTelemetryState* node = findNodeState(ack->hdr.nodeId, src_mac);
@@ -954,8 +1276,25 @@ void telemetryOnRecv(const uint8_t* src_mac, const uint8_t* data, int len)
     nodeState->moisturePermille = telemetry->moisturePermille;
     nodeState->batteryEstMv = telemetry->batteryEstMv;
     nodeState->batteryState = classifyBatteryState(telemetry->batteryEstMv);
+    updateControlSleepTier(nodeState);
     nodeState->rxPackets++;
     logTelemetry(telemetry, src_mac);
+    
+    // Phase synchronization: establish wave reference on first telemetry
+    if (s_waveReferenceTimeMs == 0) {
+      s_waveReferenceTimeMs = nowMs;
+      nodeState->lastArrivalOffsetMs = 0;
+      Serial.print("[nodeId=");
+      Serial.print((unsigned long)nodeState->nodeId);
+      Serial.println("] phase_sync: REFERENCE SET (offset=0)");
+    } else {
+      nodeState->lastArrivalOffsetMs = static_cast<int32_t>(nowMs - s_waveReferenceTimeMs);
+      Serial.print("[nodeId=");
+      Serial.print((unsigned long)nodeState->nodeId);
+      Serial.print("] phase_sync: offset=");
+      Serial.print((long)nodeState->lastArrivalOffsetMs);
+      Serial.println(" ms from reference");
+    }
   }
 
   if (buttonIsDebugEnabled()) {

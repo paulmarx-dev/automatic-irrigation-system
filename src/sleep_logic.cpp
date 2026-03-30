@@ -156,7 +156,12 @@ bool sleepLogicOnSleepPlan(const MsgSleepPlan& plan,
     return true;
   }
 
-  if ((int32_t)(plan.validUntilMs - nowMs) <= 0) {
+  // validUntilMs is stamped in HEAD uptime milliseconds, while the node only
+  // has its own local millis() domain. Comparing them directly rejects fresh
+  // plans whenever HEAD rebooted more recently than the node stayed awake.
+  // Treat receipt as the freshness anchor until the protocol carries a
+  // comparable head-side issue timestamp or synchronized timebase.
+  if (plan.validUntilMs == 0) {
     outAck->accepted = 0;
     outAck->rejectReason = SLEEP_ACK_REJECT_EXPIRED;
     return true;
