@@ -640,6 +640,19 @@ async function exportTrackCsv() {
   }
 }
 
+function getControlWakeEtaSec() {
+  if (controlAvailabilityStatus !== 'offline') {
+    return 0;
+  }
+  const controlNode = Array.isArray(latestNodes)
+    ? latestNodes.find(n => String(n.role || '').toUpperCase() === 'CONTROL')
+    : null;
+  if (!controlNode || !controlNode.sleepActive) {
+    return 0;
+  }
+  return Math.max(0, Math.floor(Number(controlNode.nextContactSec) || 0));
+}
+
 function updateControlAvailabilityStatus() {
   isControlLowBatteryLockoutActive = controlAvailabilityStatus === 'battery_lockout';
 
@@ -652,7 +665,15 @@ function updateControlAvailabilityStatus() {
     return;
   }
   if (controlAvailabilityStatus === 'offline') {
-    setHomeControlLockoutStatus('Control status: sleeping/offline. Manual start will be scheduled for next contact.', false);
+    const wakeSec = getControlWakeEtaSec();
+    if (wakeSec > 0) {
+      setHomeControlLockoutStatus(
+        `Control status: sleeping, wakes in ${formatHoursMinutesSeconds(wakeSec)}. Manual start will be scheduled on wake.`,
+        false,
+      );
+    } else {
+      setHomeControlLockoutStatus('Control status: sleeping/offline. Manual start will be scheduled for next contact.', false);
+    }
     return;
   }
   setHomeControlLockoutStatus('Control status: not paired. Watering blocked.', true);
@@ -797,6 +818,8 @@ function renderHomeModeControls() {
       const startPct = permilleToPercent(pendingAutoStartPermille);
       const stopPct = permilleToPercent(pendingAutoStopPermille);
       const moisturePct = latestAvgMoisturePermille !== null ? Math.round(latestAvgMoisturePermille / 10) : null;
+      const autoWakeEtaSec = getControlWakeEtaSec();
+      const autoWakeHint = autoWakeEtaSec > 0 ? ` Control wakes in ${formatHoursMinutesSeconds(autoWakeEtaSec)}.` : '';
       if (!isModeDirty && !isSettingsDirty && isPersistedAutoMode) {
         if (isManualIrrigationActive) {
           const stopStr = moisturePct !== null ? `stops above ${stopPct}%.` : `stops above ${stopPct}%.`;
@@ -805,12 +828,12 @@ function renderHomeModeControls() {
             : `Watering now, ${stopStr}`;
         } else if (moisturePct !== null) {
           if (moisturePct <= startPct) {
-            autoStatusHintEl.textContent = `Moisture: ${moisturePct}% — starting irrigation.`;
+            autoStatusHintEl.textContent = `Moisture: ${moisturePct}% — starting irrigation.${autoWakeHint}`;
           } else {
-            autoStatusHintEl.textContent = `Moisture: ${moisturePct}% — watering starts below ${startPct}%.`;
+            autoStatusHintEl.textContent = `Moisture: ${moisturePct}% — watering starts below ${startPct}%.${autoWakeHint}`;
           }
         } else {
-          autoStatusHintEl.textContent = `Watering starts below ${startPct}%, stops above ${stopPct}%.`;
+          autoStatusHintEl.textContent = `Watering starts below ${startPct}%, stops above ${stopPct}%.${autoWakeHint}`;
         }
       } else {
         autoStatusHintEl.textContent = `Start below ${startPct}%, stop above ${stopPct}%.`;
@@ -848,13 +871,15 @@ function renderHomeModeControls() {
     timeScheduleHintEl.hidden = !showTimeConfig;
     if (showTimeConfig) {
       let statusText = '';
+      const timeWakeEtaSec = getControlWakeEtaSec();
+      const timeWakeHint = timeWakeEtaSec > 0 ? ` Control wakes in ${formatHoursMinutesSeconds(timeWakeEtaSec)}.` : '';
       if (!isModeDirty && !isSettingsDirty && isPersistedTimeMode) {
         if (timeRunRemainingSec > 0) {
           statusText = `Watering now, ${formatHoursMinutesSeconds(timeRunRemainingSec)} left. Next cycle in ${formatHoursMinutesSeconds(timeNextStartRemainingSec)}.`;
         } else if (timeNextStartRemainingSec > 0) {
-          statusText = `Next watering in ${formatHoursMinutesSeconds(timeNextStartRemainingSec)}.`;
+          statusText = `Next watering in ${formatHoursMinutesSeconds(timeNextStartRemainingSec)}.${timeWakeHint}`;
         } else {
-          statusText = 'Schedule active.';
+          statusText = `Schedule active.${timeWakeHint}`;
         }
       } else if (!isModeDirty && !isSettingsDirty) {
         statusText = 'Schedule not active.';
@@ -1582,11 +1607,20 @@ function renderNodes(nodes) {
       const moistureLine = isControl
         ? ''
         : `<p>Moisture: ${formatMoisture(node.moisturePermille)}</p>`;
-      const irrigationLine = isControl
-        ? (irrigationLockout === 'LOW_BATTERY'
-          ? '<p>Irrigation: <span class="battery-state critical">Blocked (low battery)</span></p>'
-          : '<p>Irrigation: Allowed</p>')
-        : '';
+      let irrigationLine = '';
+      if (isControl) {
+        if (irrigationLockout === 'LOW_BATTERY') {
+          irrigationLine = '<p>Irrigation: <span class="battery-state critical">Blocked (low battery)</span></p>';
+        } else if (controlConfirmedState === 'active' || isManualIrrigationActive) {
+          irrigationLine = '<p>Irrigation: <span class="state-badge state-online">Running</span></p>';
+        } else if (controlConfirmedState === 'pending_start') {
+          irrigationLine = '<p>Irrigation: <span class="state-badge state-suspect">Starting\u2026</span></p>';
+        } else if (controlConfirmedState === 'pending_stop') {
+          irrigationLine = '<p>Irrigation: <span class="state-badge state-suspect">Stopping\u2026</span></p>';
+        } else {
+          irrigationLine = '<p>Irrigation: Idle</p>';
+        }
+      }
       const calibrateButton = isControl
         ? ''
         : `<button type="button" class="sensor-btn calibrate" data-action="calibrate" data-node-id="${node.nodeId ?? ''}" ${calibrateDisabled}>${calibrateLabel}</button>`;

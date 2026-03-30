@@ -13,8 +13,11 @@
 
 - [x] CONTROL battery telemetry: send battery metrics from control node (same HW path as sensor) using shared node-side code.
 - [x] HEAD battery observability: ingest/display CONTROL battery status and alerts.
-- [ ] Web UI: show CONTROL card with role-specific fields (different from SENSOR card).
-- [ ] Web/UI naming: rename "Sensors" concept to "Units" where appropriate.
+- [x] Web UI: show CONTROL card with role-specific fields (different from SENSOR card).
+  - Shows irrigation execution state: Running / Starting… / Stopping… / Idle.
+  - Calibrate button absent; lockout shown in-card.
+- [x] Web/UI naming: rename "Sensors" concept to "Units" where appropriate.
+  - Tab button and section heading already say "Units"; internal IDs unchanged.
 - [x] Web UI: add manual irrigation duration input field.
 - [x] Manual irrigation lease/timer model:
   - [x] HEAD remains source of truth for desired irrigation state.
@@ -22,8 +25,10 @@
   - [x] Add max run cap enforcement.
 - [x] Irrigation UI: show that watering is unavailable when CONTROL is absent.
   - [x] Distinguish between not paired and missing several expected wake windows.
-- [ ] Irrigation UI: show time until next scheduled CONTROL wake.
-- [ ] Irrigation UI: adapt AUTO/TIME/MANUAL status text using CONTROL wake ETA.
+- [x] Irrigation UI: show time until next scheduled CONTROL wake.
+  - Home control status line shows "sleeping, wakes in Xh Ym" when sleepActive + nextContactSec > 0.
+- [x] Irrigation UI: adapt AUTO/TIME/MANUAL status text using CONTROL wake ETA.
+  - AUTO and TIME schedule hints append "Control wakes in X" when control is sleeping.
 - [x] Define UI-facing CONTROL availability model.
   - Source wake schedule from CONTROL policy.
   - Define missed-wake threshold before declaring irrigation unavailable.
