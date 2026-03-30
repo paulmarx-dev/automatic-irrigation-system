@@ -641,9 +641,6 @@ async function exportTrackCsv() {
 }
 
 function getControlWakeEtaSec() {
-  if (controlAvailabilityStatus !== 'offline') {
-    return 0;
-  }
   const controlNode = Array.isArray(latestNodes)
     ? latestNodes.find(n => String(n.role || '').toUpperCase() === 'CONTROL')
     : null;
@@ -657,7 +654,15 @@ function updateControlAvailabilityStatus() {
   isControlLowBatteryLockoutActive = controlAvailabilityStatus === 'battery_lockout';
 
   if (controlAvailabilityStatus === 'online') {
-    setHomeControlLockoutStatus('Control status: online.', false);
+    const wakeSec = getControlWakeEtaSec();
+    if (wakeSec > 0) {
+      setHomeControlLockoutStatus(
+        `Control status: sleeping, wakes in ${formatHoursMinutesSeconds(wakeSec)}. Manual start will be scheduled on wake.`,
+        false,
+      );
+    } else {
+      setHomeControlLockoutStatus('Control status: online.', false);
+    }
     return;
   }
   if (controlAvailabilityStatus === 'battery_lockout') {
