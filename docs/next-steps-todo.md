@@ -12,7 +12,7 @@
 ## Priority backlog
 
 - [x] CONTROL battery telemetry: send battery metrics from control node (same HW path as sensor) using shared node-side code.
-- [ ] HEAD battery observability: ingest/display CONTROL battery status and alerts.
+- [x] HEAD battery observability: ingest/display CONTROL battery status and alerts.
 - [ ] Web UI: show CONTROL card with role-specific fields (different from SENSOR card).
 - [ ] Web/UI naming: rename "Sensors" concept to "Units" where appropriate.
 - [x] Web UI: add manual irrigation duration input field.
@@ -21,10 +21,10 @@
   - [x] CONTROL executes with lease/deadline.
   - [x] Add max run cap enforcement.
 - [x] Irrigation UI: show that watering is unavailable when CONTROL is absent.
-  - [ ] Distinguish between not paired and missing several expected wake windows.
+  - [x] Distinguish between not paired and missing several expected wake windows.
 - [ ] Irrigation UI: show time until next scheduled CONTROL wake.
 - [ ] Irrigation UI: adapt AUTO/TIME/MANUAL status text using CONTROL wake ETA.
-- [ ] Define UI-facing CONTROL availability model.
+- [x] Define UI-facing CONTROL availability model.
   - Source wake schedule from CONTROL policy.
   - Define missed-wake threshold before declaring irrigation unavailable.
 - [ ] Low-battery shutdown policy for SENSOR/CONTROL:
@@ -36,3 +36,10 @@
 
 - Keep shared node logic unified across SENSOR/CONTROL where possible (pairing, battery/telemetry transport, safety policy).
 - Prefer fail-safe OFF defaults when state is ambiguous after reboot/power events.
+
+## Proposed next step (2026-03-30)
+
+- [ ] Stats view MVP (phase-2 starter):
+  - Add `GET /api/stats/moisture` JSON endpoint backed by existing track ring buffer.
+  - Include per-node series + average series + irrigation on/off markers.
+  - Build minimal Stats tab with period selector (`10m`, `1h`, `6h`, `24h`) and node visibility toggles.

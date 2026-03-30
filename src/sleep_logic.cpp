@@ -150,7 +150,7 @@ bool sleepLogicOnSleepPlan(const MsgSleepPlan& plan,
     return true;
   }
 
-  if (!s_state.telemetryAcked || sleepSuppressed()) {
+  if (sleepSuppressed()) {
     outAck->accepted = 0;
     outAck->rejectReason = SLEEP_ACK_REJECT_BUSY;
     return true;

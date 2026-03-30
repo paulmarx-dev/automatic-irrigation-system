@@ -363,6 +363,26 @@ static bool sendControlCommandOnce(uint8_t action, uint16_t cmdId)
   return sent;
 }
 
+static uint32_t currentIrrigationLeaseRemainingMs(uint32_t nowMs)
+{
+  if (!desiredIrrigationActive()) {
+    return 0;
+  }
+
+  if (s_requestedRunDurationSec == 0) {
+    return IRRIGATION_LEASE_HORIZON_MS;
+  }
+
+  if (s_manualRunDeadlineMs != 0) {
+    if ((int32_t)(s_manualRunDeadlineMs - nowMs) > 0) {
+      return static_cast<uint32_t>(s_manualRunDeadlineMs - nowMs);
+    }
+    return 0;
+  }
+
+  return s_requestedRunDurationSec * 1000UL;
+}
+
 static void beginPendingControlCommand(uint8_t action, uint32_t nowMs)
 {
   s_pendingControlCmd.active = true;
@@ -420,6 +440,17 @@ static void consumeControlCommandAcks(uint32_t nowMs)
     if (ack.status == COMMAND_ACK_STATUS_APPLIED &&
         ack.action == REMOTE_BUTTON_IRRIGATION_STATE_REQUEST) {
       settleControlPhaseFromIrrigationState(ack.irrigationState);
+      if (s_pendingControlCmd.active) {
+        const bool startSatisfied =
+            s_pendingControlCmd.action == REMOTE_BUTTON_IRRIGATION_START &&
+            ack.irrigationState == IRRIGATION_STATE_RUN;
+        const bool stopSatisfied =
+            s_pendingControlCmd.action == REMOTE_BUTTON_IRRIGATION_STOP &&
+            ack.irrigationState == IRRIGATION_STATE_OFF;
+        if (startSatisfied || stopSatisfied) {
+          s_pendingControlCmd.active = false;
+        }
+      }
     }
   }
 }
@@ -1099,6 +1130,7 @@ static void onTrackExportCsvApi()
 
 static bool sendDesiredIrrigationState()
 {
+  const uint32_t nowMs = millis();
   const bool desiredActive = desiredIrrigationActive();
   if (!s_lastLeaseDesiredActiveInitialized) {
     s_lastLeaseDesiredActive = desiredActive;
@@ -1112,7 +1144,7 @@ static bool sendDesiredIrrigationState()
   }
 
   const uint8_t desiredState = desiredActive ? IRRIGATION_STATE_RUN : IRRIGATION_STATE_OFF;
-  const uint32_t remainingLeaseMs = desiredActive ? IRRIGATION_LEASE_HORIZON_MS : 0;
+  const uint32_t remainingLeaseMs = currentIrrigationLeaseRemainingMs(nowMs);
   return telemetryHeadSendIrrigationState(desiredState, s_irrigationLeaseId, remainingLeaseMs);
 }
 

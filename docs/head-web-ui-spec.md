@@ -9,6 +9,10 @@ Implementation update (2026-03-15):
 - Home TIME countdown/status uses backend-authoritative snapshot values (no local ticker drift).
 - Home transient fetch errors auto-clear when fresh snapshots return after reboot/reflash.
 
+Implementation update (2026-03-30):
+- Control battery values in cards now refresh correctly across deep-sleep wake cycles (`seq` restart handling fixed on HEAD).
+- Irrigation lease sync and command probe handling were stabilized for control wake/sleep operation.
+
 ## 1) Product concept
 
 Head provides a **local web console** over its own AP for:
@@ -201,7 +205,7 @@ Note:
 - [ ] Validate no ESP-NOW regressions under active web usage
 
 ## Phase D — stats (phase 2)
-- [ ] Design moisture history ring buffer
+- [x] Design moisture history ring buffer
 - [ ] Add irrigation event markers ON/OFF
 - [ ] Add `GET /api/stats/moisture` endpoint
 - [ ] Implement Stats tab graph with filters per sensor + avg

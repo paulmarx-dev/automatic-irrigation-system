@@ -70,3 +70,4 @@ bool espnowEnsurePeer(const uint8_t peer_mac[6], uint8_t channel, bool encrypt =
   Returns true if the peer does not exist or was removed successfully.
 */
 bool espnowRemovePeer(const uint8_t peer_mac[6]);
+

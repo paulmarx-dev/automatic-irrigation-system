@@ -1,5 +1,13 @@
 ## TODO
 
+## Update 2026-03-30 (implemented)
+
+- [x] Sleep coordination in production path: HEAD `SLEEP_PLAN` -> UNIT `SLEEP_ACK` -> HEAD `SLEEP_ACK_ACK` with sleep-aware node presence handling.
+- [x] CONTROL switched to deep sleep policy with safe boot-time motor pin OFF default.
+- [x] Irrigation lease sync corrected: repeated lease refreshes no longer cause noisy re-apply behavior on CONTROL.
+- [x] HEAD command probe flow improved: pending start/stop can be closed from state-probe ACK when desired state is already reached.
+- [x] HEAD battery observability refresh fixed for deep-sleep nodes with seq restart (`seq=1` each wake).
+
 ## Update 2026-03-15 (implemented)
 
 - [x] Dashboard transport model migrated to SSE-first snapshots (`/api/events`) with polling as fallback only.
@@ -14,7 +22,7 @@
 
 - [x] Project skeleton: common config structs, logging, build flags (roles: HEAD/SENSOR/CONTROL)
 - [x] ESP-NOW basics: init, channel, send, receive callbacks, peer management
-- [ ] Pairing protocol (service messages): beacon/join/offer/confirm/ack
+- [x] Pairing protocol (service messages): beacon/join/offer/confirm/ack
   - [x] Pairing 2.0 MVP: always-open handshake (no buttons, no NVS)
   - [x] Pairing receive router returns handled flag (bool pairingOnRecv)
   - [x] Session and step validation on handshake packets (offer/confirm/ack)
@@ -25,15 +33,15 @@
   - [x] NVS on HEAD: persist paired nodes registry (MAC/role/nodeId/lastSeen)
   - [x] NVS on HEAD: atomic registry save/load (single blob + CRC32)
   - [x] NVS on CONTROL: persist paired head state and restore after reboot
-- [ ] Base message definitions (telemetry, battery, cmd, cmd_ack), protocol versioning
+- [x] Base message definitions (telemetry, battery, cmd, cmd_ack), protocol versioning
 - [x] Sensor -> head telemetry (happy path) + ack policy + retries
-- [ ] Power management for sensor: deep sleep cycle, wake -> measure -> transmit -> sleep
+- [x] Power management for sensor: deep sleep cycle, wake -> measure -> transmit -> sleep
   - [ ] Make node presence thresholds configurable for field mode (SUSPECT/OFFLINE), not debug-fixed seconds
   - [ ] Tie presence thresholds to real telemetry period after sleep/power management is implemented
 - [ ] Battery-driven behavior: low battery thresholds, "critical" mode, messaging to head
   - [x] CONTROL battery telemetry and low-battery lockout flags reach HEAD via shared telemetry path
 - [ ] Control unit: duty-cycle listen vs active mode, heartbeat, command execution state machine
-- [ ] Head logic: command state machine and remaining runtime semantics
+- [x] Head logic: command state machine and remaining runtime semantics
   - [x] Command decisions use sensor data
   - [x] Manual/web commands are accepted as decision inputs
   - [x] Time-based schedule decisions are implemented
@@ -43,7 +51,7 @@
   - [x] Presence smoke checklist: node offline timeout log + online recovery log after return
   - [ ] Registry slot policy: slot0 is currently NOT reserved; when reserving slot0 for CONTROL, add explicit migration/backward-compat flow
 - [ ] Optional: time sync, irrigation-phase sampling
-- [ ] Web server for head: status page, manual control, pairing management
+- [x] Web server for head: status page, manual control, pairing management
   - [x] JSON API for node presence (`lastSeenMs`, `online`, `nodeId`, `mac`) for UI integration
   - [x] Sensors UI cards with moisture/state/battery/lastSeen/MAC
   - [x] Sensors actions API+UI: rename/unpair (+ confirmation)
@@ -52,7 +60,7 @@
   - [x] Manual irrigation duration input + start/stop countdown UX
   - [x] TIME mode decimal inputs + next-start/active-cycle status UX
   - [x] AUTO mode threshold hints + live moisture-context status UX
-  - [ ] Irrigation UI: show CONTROL availability / next wake / blocked watering state
+  - [x] Irrigation UI: show CONTROL availability / next wake / blocked watering state
 - [ ] WiFi upload of data to server on availability
 - [ ] LoRa backup communication channel for critical messages (e.g. low battery alert)
 
@@ -196,11 +204,11 @@ Head networking mode = SoftAP always (local UI), STA hotspot only for upload (ma
 
 **Done when:**
 
-- [ ] All messages contain:
-  - [ ] protocolVersion
-  - [ ] messageType
-  - [ ] seq
-  - [ ] nodeId (except service messages)
+- [x] All messages contain:
+  - [x] protocolVersion
+  - [x] messageType
+  - [x] seq
+  - [x] nodeId (except service messages)
 - [ ] Head rejects:
   - [ ] invalid version
   - [ ] invalid size
@@ -209,11 +217,11 @@ Head networking mode = SoftAP always (local UI), STA hotspot only for upload (ma
   - [x] moisture raw
   - [x] battery voltage
   - [x] status flags
-- [ ] Commands include:
-  - [ ] cmdId
-- [ ] Command ACK includes:
-  - [ ] cmdId
-  - [ ] status
+- [x] Commands include:
+  - [x] cmdId
+- [x] Command ACK includes:
+  - [x] cmdId
+  - [x] status
 
 ### 4. Sensor Telemetry
 
@@ -234,9 +242,9 @@ Head networking mode = SoftAP always (local UI), STA hotspot only for upload (ma
 
 **Done when:**
 
-- [ ] Sensor cycle:
-  - [ ] Wake -> Measure -> Send -> Sleep
-- [ ] Wake interval configurable
+- [x] Sensor cycle:
+  - [x] Wake -> Measure -> Send -> Sleep
+- [x] Wake interval configurable
 - [ ] Sensor survives 100 sleep cycles
 - [ ] No crashes after repeated deep sleep
 

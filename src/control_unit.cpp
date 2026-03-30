@@ -302,6 +302,7 @@ static bool handleRemoteCommand(const uint8_t* src_mac, const uint8_t* data, int
       return false;
     }
 
+    const bool sameLease = (state->leaseId == s_currentLeaseId);
     if (state->leaseId < s_currentLeaseId) {
       Serial.print("CONTROL: irrigation lease ignored stale leaseId=");
       Serial.print((unsigned long long)state->leaseId);
@@ -353,11 +354,13 @@ static bool handleRemoteCommand(const uint8_t* src_mac, const uint8_t* data, int
 
     setManualIrrigationActive(true, nowMs);
     s_motorSafetyDeadlineMs = nowMs + effectiveRemainingMs;
-    Serial.print("CONTROL: irrigation RUN lease applied leaseId=");
-    Serial.print((unsigned long long)state->leaseId);
-    Serial.print(" remainingMs=");
-    Serial.println((unsigned long)effectiveRemainingMs);
-    triggerIrrigationLedIfDebug(LED_MODE_SUCCESS_ONCE);
+    if (!sameLease) {
+      Serial.print("CONTROL: irrigation RUN lease applied leaseId=");
+      Serial.print((unsigned long long)state->leaseId);
+      Serial.print(" remainingMs=");
+      Serial.println((unsigned long)effectiveRemainingMs);
+      triggerIrrigationLedIfDebug(LED_MODE_SUCCESS_ONCE);
+    }
     return true;
   }
 
@@ -429,6 +432,10 @@ static void onSend(const uint8_t* dst_mac, bool success)
 }
 
 void setup() {
+  // Immediately drive motor pin LOW to prevent spurious activation on boot/wake.
+  pinMode(CONTROL_MOTOR_PIN, OUTPUT);
+  digitalWrite(CONTROL_MOTOR_PIN, CONTROL_MOTOR_ACTIVE_HIGH ? LOW : HIGH);
+
   Serial.begin(115200);
   delay(200);
 

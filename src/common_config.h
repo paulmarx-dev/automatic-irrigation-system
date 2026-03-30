@@ -105,4 +105,4 @@ static constexpr uint32_t SLEEP_ACK_RETRY_JITTER_MS = 200;
   0=off, 1=light sleep, 5=deep sleep.
 */
 static constexpr uint8_t SENSOR_SLEEP_MODE_DEFAULT = 5;
-static constexpr uint8_t CONTROL_SLEEP_MODE_DEFAULT = 1;
+static constexpr uint8_t CONTROL_SLEEP_MODE_DEFAULT = 5;

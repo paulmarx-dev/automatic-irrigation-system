@@ -930,8 +930,15 @@ void telemetryOnRecv(const uint8_t* src_mac, const uint8_t* data, int len)
   }
 
   nodeState->lastSeenMs = nowMs;
+  // If the node was in confirmed sleep (deep sleep = full reboot), the seq counter
+  // resets on the node side.  Clear hasLastSeq so the first packet after wake is
+  // never misclassified as a duplicate.
+  const bool wasDeepSleepWake = nodeState->sleepAcked;
   nodeState->sleepAwaitAck = false;
   nodeState->sleepAcked = false;
+  if (wasDeepSleepWake) {
+    nodeState->hasLastSeq = false;
+  }
 
   const bool isDuplicate = nodeState->hasLastSeq && (nodeState->lastSeq == telemetry->hdr.seq);
   pushTrackRecord(telemetry, src_mac, nowMs, isDuplicate);
@@ -986,18 +993,23 @@ void telemetryTickHead(uint32_t nowMs)
     const uint32_t sinceLastMs = static_cast<uint32_t>(nowMs - entry->lastSeenMs);
 
     TelemetryHeadNodeState nextState = TELEMETRY_HEAD_NODE_ONLINE;
-    if (sinceLastMs >= NODE_OFFLINE_TIMEOUT_MS) {
-      nextState = TELEMETRY_HEAD_NODE_OFFLINE;
-    } else if (sinceLastMs >= NODE_SUSPECT_TIMEOUT_MS) {
-      nextState = TELEMETRY_HEAD_NODE_SUSPECT;
-    }
-
-    if (entry->sleepExpectedReportDeadlineMs != 0 &&
-        (int32_t)(nowMs - entry->sleepExpectedReportDeadlineMs) >= 0) {
-      if (nextState == TELEMETRY_HEAD_NODE_ONLINE) {
-        nextState = TELEMETRY_HEAD_NODE_SUSPECT;
-      } else if (nextState == TELEMETRY_HEAD_NODE_SUSPECT) {
+    if (entry->sleepAcked && entry->sleepExpectedReportDeadlineMs != 0) {
+      const int32_t untilExpectedWakeMs = static_cast<int32_t>(entry->sleepExpectedReportDeadlineMs - nowMs);
+      if (untilExpectedWakeMs > 0) {
+        nextState = TELEMETRY_HEAD_NODE_ONLINE;
+      } else {
+        const uint32_t overdueMs = static_cast<uint32_t>(nowMs - entry->sleepExpectedReportDeadlineMs);
+        if (overdueMs >= NODE_SUSPECT_TIMEOUT_MS) {
+          nextState = TELEMETRY_HEAD_NODE_OFFLINE;
+        } else {
+          nextState = TELEMETRY_HEAD_NODE_SUSPECT;
+        }
+      }
+    } else {
+      if (sinceLastMs >= NODE_OFFLINE_TIMEOUT_MS) {
         nextState = TELEMETRY_HEAD_NODE_OFFLINE;
+      } else if (sinceLastMs >= NODE_SUSPECT_TIMEOUT_MS) {
+        nextState = TELEMETRY_HEAD_NODE_SUSPECT;
       }
     }
 
