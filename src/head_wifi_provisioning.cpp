@@ -321,6 +321,7 @@ static void registerRoutes()
   s_server->on("/provisioning", HTTP_GET, []() { serveFile("/provisioning/index.html", "text/html"); });
   s_server->on("/provisioning/index.html", HTTP_GET, []() { serveFile("/provisioning/index.html", "text/html"); });
   s_server->on("/provisioning/app.js", HTTP_GET, []() { serveFile("/provisioning/app.js", "application/javascript"); });
+  s_server->on("/provisioning/chart.js", HTTP_GET, []() { serveFile("/provisioning/chart.js", "application/javascript"); });
   s_server->on("/provisioning/style.css", HTTP_GET, []() { serveFile("/provisioning/style.css", "text/css"); });
   s_server->on("/api/web/status", HTTP_GET, onWebStatusApi);
   s_server->on("/api/pairing/open", HTTP_POST, onPairingOpenApi);

@@ -1148,6 +1148,131 @@ static void onTrackExportCsvApi()
   s_server.sendContent("");
 }
 
+static void onStatsChartApi()
+{
+  static constexpr uint8_t MAX_CHART_NODES = 8;
+  static constexpr size_t CHART_CHUNK = 64;
+
+  struct ChartNodeInfo {
+    uint16_t nodeId;
+    uint8_t mac[6];
+    bool isControl;
+  };
+
+  static ChartNodeInfo nodes[MAX_CHART_NODES];
+  static TrackRecord chunkBuf[CHART_CHUNK];
+
+  const String periodArg = s_server.arg("period");
+  uint32_t periodMs = 86400000UL;
+  const char* periodOut = "24h";
+
+  if (periodArg == "1h") {
+    periodMs = 3600000UL;
+    periodOut = "1h";
+  } else if (periodArg == "7d") {
+    periodMs = 604800000UL;
+    periodOut = "7d";
+  } else if (periodArg == "30d") {
+    periodMs = 2592000000UL;
+    periodOut = "30d";
+  }
+
+  memset(nodes, 0, sizeof(nodes));
+  uint8_t nodeCount = 0;
+
+  const uint32_t nowMs = millis();
+  const uint32_t windowStartMs = (periodMs <= nowMs) ? (nowMs - periodMs) : 0;
+  const size_t total = trackStorageSize();
+
+  // Pass 1: collect unique nodes in window
+  for (size_t off = 0; off < total; off += CHART_CHUNK) {
+    const size_t n = trackStorageCopyWindow(chunkBuf, CHART_CHUNK, off);
+    if (n == 0) break;
+    for (size_t i = 0; i < n; i++) {
+      const TrackRecord& rec = chunkBuf[i];
+      if ((rec.flags & TRACK_FL_DUPLICATE) != 0) continue;
+      if (rec.tsMs < windowStartMs) continue;
+      bool found = false;
+      for (uint8_t k = 0; k < nodeCount; k++) {
+        if (nodes[k].nodeId == rec.nodeId) { found = true; break; }
+      }
+      if (!found && nodeCount < MAX_CHART_NODES) {
+        nodes[nodeCount].nodeId = rec.nodeId;
+        nodes[nodeCount].isControl = (rec.flags & TRACK_FL_CONTROL) != 0;
+        memcpy(nodes[nodeCount].mac, rec.mac, 6);
+        nodeCount++;
+      }
+    }
+  }
+
+  s_server.sendHeader("Cache-Control", "no-store");
+  s_server.setContentLength(CONTENT_LENGTH_UNKNOWN);
+  s_server.send(200, "application/json", "");
+
+  char out[128];
+  (void)snprintf(out, sizeof(out),
+                 "{\"ok\":1,\"period\":\"%s\",\"uptimeMs\":%lu,\"nodes\":[",
+                 periodOut, static_cast<unsigned long>(nowMs));
+  s_server.sendContent(out);
+
+  // Pass 2: per node, stream raw records
+  for (uint8_t ni = 0; ni < nodeCount; ni++) {
+    if (ni > 0) s_server.sendContent(",");
+
+    char nameStr[32] = {};
+    resolveSensorName(nodes[ni].nodeId, nameStr);
+
+    (void)snprintf(out, sizeof(out),
+                   "{\"id\":%u,\"ctrl\":%d,\"mac\":\"%02X:%02X:%02X:%02X:%02X:%02X\",\"name\":\"%s\",\"records\":[",
+                   static_cast<unsigned>(nodes[ni].nodeId),
+                   nodes[ni].isControl ? 1 : 0,
+                   nodes[ni].mac[0], nodes[ni].mac[1], nodes[ni].mac[2],
+                   nodes[ni].mac[3], nodes[ni].mac[4], nodes[ni].mac[5],
+                   nameStr);
+    s_server.sendContent(out);
+
+    bool firstRec = true;
+    for (size_t off = 0; off < total; off += CHART_CHUNK) {
+      const size_t n = trackStorageCopyWindow(chunkBuf, CHART_CHUNK, off);
+      if (n == 0) break;
+      for (size_t i = 0; i < n; i++) {
+        const TrackRecord& rec = chunkBuf[i];
+        if (rec.nodeId != nodes[ni].nodeId) continue;
+        if ((rec.flags & TRACK_FL_DUPLICATE) != 0) continue;
+        if (rec.tsMs < windowStartMs) continue;
+
+        const bool hasBattEst = (rec.flags & TRACK_FL_BATT_EST_VALID) != 0;
+        const bool hasBattRaw = (rec.flags & TRACK_FL_RAW_PRESENT) != 0;
+        const uint16_t battMv = hasBattEst ? rec.batteryEstMv : (hasBattRaw ? rec.batteryRawMv : 0);
+
+        if (!firstRec) s_server.sendContent(",");
+        firstRec = false;
+
+        if (battMv > 0) {
+          (void)snprintf(out, sizeof(out),
+                         "{\"t\":%lu,\"m\":%u,\"b\":%u,\"i\":%d}",
+                         static_cast<unsigned long>(rec.tsMs),
+                         static_cast<unsigned>(rec.moisturePermille),
+                         static_cast<unsigned>(battMv),
+                         (rec.flags & TRACK_FL_IRRIGATION_ACTIVE) ? 1 : 0);
+        } else {
+          (void)snprintf(out, sizeof(out),
+                         "{\"t\":%lu,\"m\":%u,\"b\":null,\"i\":%d}",
+                         static_cast<unsigned long>(rec.tsMs),
+                         static_cast<unsigned>(rec.moisturePermille),
+                         (rec.flags & TRACK_FL_IRRIGATION_ACTIVE) ? 1 : 0);
+        }
+        s_server.sendContent(out);
+      }
+    }
+
+    s_server.sendContent("]}");
+  }
+
+  s_server.sendContent("]}");
+  s_server.sendContent("");
+}
+
 static bool sendDesiredIrrigationState()
 {
   const uint32_t nowMs = millis();
@@ -1739,6 +1864,7 @@ void headObservabilityInit()
   s_server.on("/api/irrigation/manual/stop", HTTP_POST, onIrrigationManualStopApi);
   s_server.on("/api/events", HTTP_GET, onEventsSseApi);
   s_server.on("/api/track/export.csv", HTTP_GET, onTrackExportCsvApi);
+  s_server.on("/api/stats/chart", HTTP_GET, onStatsChartApi);
   s_server.on("/api/sensors/rename", HTTP_POST, onSensorRenameApi);
   s_server.on("/api/sensors/unpair", HTTP_POST, onSensorUnpairApi);
   s_server.on("/api/sensors/calibrate", HTTP_POST, onSensorCalibrateApi);

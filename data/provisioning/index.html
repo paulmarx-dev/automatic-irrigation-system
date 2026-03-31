@@ -51,7 +51,7 @@
           <label><input type="radio" name="irrigationMode" value="AUTO" /> Auto</label>
           <label><input type="radio" name="irrigationMode" value="TIME" /> Time</label>
           <label><input type="radio" name="irrigationMode" value="OFF" /> OFF</label>
-           <label><input type="radio" name="irrigationMode" value="MANUAL" /> Manual</label>
+          <label><input type="radio" name="irrigationMode" value="MANUAL" /> Manual</label>
         </div>
         <div id="homeAutoConfig" hidden>
           <label>
@@ -99,7 +99,36 @@
 
     <section class="card tab-panel" id="tabStats" data-panel="stats">
       <h2>Stats</h2>
-      <p class="sub">Track exports for external analysis. Graphs will be added here later.</p>
+      <div class="stats-period-bar" role="group" aria-label="Period">
+        <button type="button" class="stats-period-btn" data-period="1h">1h</button>
+        <button type="button" class="stats-period-btn active" data-period="24h">24h</button>
+        <button type="button" class="stats-period-btn" data-period="7d">7d</button>
+        <button type="button" class="stats-period-btn" data-period="30d">30d</button>
+        <button type="button" id="statsRefreshBtn" class="stats-refresh-btn" title="Refresh" aria-label="Refresh stats">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M17.65 6.35A7.95 7.95 0 0 0 12 4a8 8 0 1 0 7.75 10h-2.1A6 6 0 1 1 12 6c1.3 0 2.5.42 3.46 1.14L13 10h7V3l-2.35 3.35z" />
+          </svg>
+        </button>
+      </div>
+      <div class="stats-chart-card">
+        <div class="stats-chart-header">
+          <span class="stats-chart-title">Moisture</span>
+          <span id="statsLoadingIndicator" class="stats-loading" hidden>Loading…</span>
+        </div>
+        <div class="stats-chart-wrap">
+          <canvas id="statsMoistureChart"></canvas>
+          <div id="statsMoistureOverlay" class="stats-chart-overlay" hidden></div>
+        </div>
+      </div>
+      <div class="stats-chart-card">
+        <div class="stats-chart-header">
+          <span class="stats-chart-title">Battery</span>
+        </div>
+        <div class="stats-chart-wrap">
+          <canvas id="statsBatteryChart"></canvas>
+          <div id="statsBatteryOverlay" class="stats-chart-overlay" hidden></div>
+        </div>
+      </div>
       <div class="home-export-actions">
         <button type="button" id="trackExportCsvBtn" class="ghost">Export track CSV</button>
       </div>
@@ -158,6 +187,7 @@
     </section>
   </main>
 
+  <script src="/provisioning/chart.js"></script>
   <script src="/provisioning/app.js"></script>
 </body>
 </html>

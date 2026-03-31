@@ -730,6 +730,7 @@ function renderHomeModeControls() {
     radio.checked = radio.value === selectedMode;
     const wrapper = radio.closest('label');
     if (wrapper) {
+      wrapper.classList.toggle('selected', radio.value === selectedMode);
       wrapper.classList.toggle('persisted', radio.value === normalizeIrrigationMode(persistedIrrigationMode));
     }
   });
@@ -2127,3 +2128,286 @@ if (trackExportCsvBtnEl) {
     await exportTrackCsv();
   });
 }
+
+// ---------------------------------------------------------------------------
+// Stats charts
+// ---------------------------------------------------------------------------
+
+const STATS_NODE_COLORS = [
+  { line: 'rgba(10, 132, 255, 1)',   fill: 'rgba(10, 132, 255, 0.08)' },
+  { line: 'rgba(48, 209, 88, 1)',    fill: 'rgba(48, 209, 88, 0.08)' },
+  { line: 'rgba(255, 55, 95, 1)',    fill: 'rgba(255, 55, 95, 0.08)' },
+  { line: 'rgba(255, 159, 10, 1)',   fill: 'rgba(255, 159, 10, 0.08)' },
+  { line: 'rgba(191, 90, 242, 1)',   fill: 'rgba(191, 90, 242, 0.08)' },
+  { line: 'rgba(50, 173, 230, 1)',   fill: 'rgba(50, 173, 230, 0.08)' },
+  { line: 'rgba(255, 214, 10, 1)',   fill: 'rgba(255, 214, 10, 0.08)' },
+  { line: 'rgba(172, 142, 104, 1)',  fill: 'rgba(172, 142, 104, 0.08)' },
+];
+
+let statsMoistureChart = null;
+let statsBatteryChart = null;
+let statsCurrentPeriod = '24h';
+let statsChartLoading = false;
+const statsRefreshBtnEl = document.getElementById('statsRefreshBtn');
+const statsLoadingEl = document.getElementById('statsLoadingIndicator');
+const statsMoistureOverlayEl = document.getElementById('statsMoistureOverlay');
+const statsBatteryOverlayEl = document.getElementById('statsBatteryOverlay');
+
+const irrigationPlugin = {
+  id: 'irrigationBg',
+  beforeDraw(chart, _args, opts) {
+    if (!opts || !opts.windows || !opts.windows.length) return;
+    const { ctx, chartArea: { top, bottom }, scales: { x } } = chart;
+    ctx.save();
+    for (const [x1, x2] of opts.windows) {
+      const px1 = x.getPixelForValue(x1);
+      const px2 = x.getPixelForValue(x2);
+      const left = Math.min(px1, px2);
+      const w = Math.abs(px2 - px1);
+      ctx.fillStyle = 'rgba(10, 132, 255, 0.15)';
+      ctx.fillRect(left, top, w, bottom - top);
+      ctx.strokeStyle = 'rgba(10, 132, 255, 0.5)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(left, top, w, bottom - top);
+      ctx.fillStyle = 'rgba(10, 132, 255, 0.75)';
+      ctx.font = 'bold 11px sans-serif';
+      ctx.save();
+      ctx.translate(left - 10, top + 56);
+      ctx.rotate(-Math.PI / 2);
+      ctx.fillText('Watering', 0, 0);
+      ctx.restore();
+    }
+    ctx.restore();
+  },
+};
+if (typeof Chart !== 'undefined') {
+  Chart.register(irrigationPlugin);
+}
+
+function statsFormatTick(epochMs, bucketMs) {
+  const d = new Date(epochMs);
+  const pad = (v) => String(v).padStart(2, '0');
+  if (bucketMs >= 43200000) {
+    return `${d.getDate()}.${d.getMonth() + 1} ${pad(d.getHours())}:00`;
+  }
+  if (bucketMs >= 3600000) {
+    return `${d.getDate()}.${d.getMonth() + 1} ${pad(d.getHours())}:00`;
+  }
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function statsNodeLabel(chartNode) {
+  if (chartNode.name && chartNode.name.trim()) return chartNode.name;
+  const found = latestNodes.find((n) => n.nodeId === chartNode.id);
+  if (found && found.name) return found.name;
+  return chartNode.ctrl ? 'Control' : `Node ${chartNode.id}`;
+}
+
+async function loadStatsChart() {
+  if (statsChartLoading) return;
+  statsChartLoading = true;
+  if (statsLoadingEl) statsLoadingEl.hidden = false;
+  if (statsRefreshBtnEl) statsRefreshBtnEl.disabled = true;
+  setStatsOverlay(statsMoistureOverlayEl, 'Loading data...', false);
+  setStatsOverlay(statsBatteryOverlayEl, 'Loading data...', false);
+  try {
+    const res = await fetch(`/api/stats/chart?period=${statsCurrentPeriod}`, { cache: 'no-store' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if (!data.ok) throw new Error('backend error');
+    const hasRecords = Array.isArray(data.nodes) && data.nodes.some((node) => Array.isArray(node.records) && node.records.length > 0);
+    if (!hasRecords) {
+      if (statsMoistureChart) { statsMoistureChart.destroy(); statsMoistureChart = null; }
+      if (statsBatteryChart) { statsBatteryChart.destroy(); statsBatteryChart = null; }
+      setStatsOverlay(statsMoistureOverlayEl, 'No data for selected period.', false);
+      setStatsOverlay(statsBatteryOverlayEl, 'No data for selected period.', false);
+      return;
+    }
+    const renderState = renderStatsCharts(data);
+    setStatsOverlay(
+      statsMoistureOverlayEl,
+      renderState.moistureHasData ? '' : 'No moisture points for selected period.',
+      false,
+    );
+    setStatsOverlay(
+      statsBatteryOverlayEl,
+      renderState.batteryHasData ? '' : 'No battery points for selected period.',
+      false,
+    );
+  } catch (err) {
+    console.error('Stats chart load failed:', err);
+    setStatsOverlay(statsMoistureOverlayEl, `Failed to load: ${err.message}`, true);
+    setStatsOverlay(statsBatteryOverlayEl, `Failed to load: ${err.message}`, true);
+  } finally {
+    statsChartLoading = false;
+    if (statsLoadingEl) statsLoadingEl.hidden = true;
+    if (statsRefreshBtnEl) statsRefreshBtnEl.disabled = false;
+  }
+}
+
+function setStatsOverlay(el, message, isError) {
+  if (!el) return;
+  const text = String(message || '');
+  el.hidden = text.length === 0;
+  el.textContent = text;
+  el.classList.toggle('error', Boolean(isError));
+}
+
+function renderStatsCharts(data) {
+  const { uptimeMs, nodes } = data;
+  const now = Date.now();
+
+  function approxEpochMs(tsMs) {
+    return now - (uptimeMs - tsMs);
+  }
+
+  // Collect irrigation windows across all nodes, merge gaps < 2 min
+  const rawWindows = [];
+  nodes.forEach((node) => {
+    let inW = false, ws = 0;
+    node.records.forEach((rec) => {
+      const t = approxEpochMs(rec.t);
+      if (rec.i && !inW) { inW = true; ws = t; }
+      else if (!rec.i && inW) { rawWindows.push([ws, t]); inW = false; }
+    });
+    if (inW) rawWindows.push([ws, now]);
+  });
+  rawWindows.sort((a, b) => a[0] - b[0]);
+  const irrigationWindows = [];
+  for (const w of rawWindows) {
+    const last = irrigationWindows[irrigationWindows.length - 1];
+    if (last && w[0] <= last[1] + 120000) {
+      last[1] = Math.max(last[1], w[1]);
+    } else {
+      irrigationWindows.push([...w]);
+    }
+  }
+
+  // X-axis range and tick format
+  let xMin = Infinity, xMax = -Infinity;
+  nodes.forEach((node) => {
+    node.records.forEach((rec) => {
+      const t = approxEpochMs(rec.t);
+      if (t < xMin) xMin = t;
+      if (t > xMax) xMax = t;
+    });
+  });
+  if (!isFinite(xMin)) { xMin = now - 3600000; xMax = now; }
+  const spanMs = xMax - xMin;
+  const tickBucketMs = spanMs < 7200000 ? 300000
+    : spanMs < 172800000 ? 1800000
+    : spanMs < 1209600000 ? 10800000 : 43200000;
+
+  const commonScaleX = {
+    type: 'linear',
+    min: xMin,
+    max: xMax,
+    ticks: { maxTicksLimit: 8, callback: (value) => statsFormatTick(value, tickBucketMs) },
+  };
+  const commonOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: { mode: 'index', intersect: false },
+    scales: { x: commonScaleX },
+    plugins: {
+      legend: { display: true, position: 'top' },
+      tooltip: { callbacks: { title: (items) => statsFormatTick(items[0].parsed.x, tickBucketMs) } },
+      irrigationBg: { windows: irrigationWindows },
+    },
+  };
+
+  const moistureDatasets = [];
+  const batteryDatasets = [];
+
+  nodes.forEach((node, colorIdx) => {
+    const color = STATS_NODE_COLORS[colorIdx % STATS_NODE_COLORS.length];
+    const label = statsNodeLabel(node);
+    const baseDs = {
+      label,
+      borderColor: color.line,
+      backgroundColor: color.fill,
+      borderWidth: 2,
+      tension: 0.3,
+      pointRadius: 1, // point radius (3)
+      pointHoverRadius: 6,
+      spanGaps: false,
+    };
+
+    if (!node.ctrl) {
+      moistureDatasets.push({
+        ...baseDs,
+        data: node.records.map((rec) => ({ x: approxEpochMs(rec.t), y: +(rec.m / 10).toFixed(1) })),
+      });
+    }
+
+    batteryDatasets.push({
+      ...baseDs,
+      data: node.records
+        .filter((rec) => rec.b !== null)
+        .map((rec) => ({ x: approxEpochMs(rec.t), y: +(rec.b / 1000).toFixed(3) })),
+    });
+  });
+
+  if (typeof Chart !== 'undefined') {
+    const moistureCtx = document.getElementById('statsMoistureChart')?.getContext('2d');
+    if (moistureCtx) {
+      if (statsMoistureChart) statsMoistureChart.destroy();
+      statsMoistureChart = new Chart(moistureCtx, {
+        type: 'line',
+        data: { datasets: moistureDatasets },
+        options: {
+          ...commonOptions,
+          scales: {
+            x: commonScaleX,
+            y: { min: 0, max: 100, title: { display: true, text: 'Moisture (%)' } },
+          },
+        },
+      });
+    }
+
+    const batteryCtx = document.getElementById('statsBatteryChart')?.getContext('2d');
+    if (batteryCtx) {
+      if (statsBatteryChart) statsBatteryChart.destroy();
+      statsBatteryChart = new Chart(batteryCtx, {
+        type: 'line',
+        data: { datasets: batteryDatasets },
+        options: {
+          ...commonOptions,
+          scales: {
+            x: commonScaleX,
+            y: { suggestedMin: 3.0, suggestedMax: 4.5, title: { display: true, text: 'Battery (V)' } },
+          },
+        },
+      });
+    }
+  }
+
+  return {
+    moistureHasData: moistureDatasets.some((ds) => Array.isArray(ds.data) && ds.data.length > 0),
+    batteryHasData: batteryDatasets.some((ds) => Array.isArray(ds.data) && ds.data.length > 0),
+  };
+}
+
+// Period selector buttons
+document.querySelectorAll('.stats-period-btn').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.stats-period-btn').forEach((b) => b.classList.remove('active'));
+    btn.classList.add('active');
+    statsCurrentPeriod = btn.dataset.period;
+    loadStatsChart();
+  });
+});
+
+if (statsRefreshBtnEl) {
+  statsRefreshBtnEl.addEventListener('click', () => {
+    loadStatsChart();
+  });
+}
+
+// Load charts on tab switch to Stats
+tabsEl.addEventListener('click', (e) => {
+  const btn = e.target.closest('.tab-btn');
+  if (btn && btn.dataset.tab === 'stats') {
+    loadStatsChart();
+  }
+});

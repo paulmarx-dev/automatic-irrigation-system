@@ -708,6 +708,9 @@ static uint8_t mapTrackFlags(const MsgTelemetry* telemetry, bool isDuplicate)
   if ((telemetry->flags & FLAG_DIAG_RAW_PRESENT) != 0) {
     trackFlags |= TRACK_FL_RAW_PRESENT;
   }
+  if ((telemetry->flags & FLAG_IRRIGATION_ACTIVE) != 0) {
+    trackFlags |= TRACK_FL_IRRIGATION_ACTIVE;
+  }
   if (isDuplicate) {
     trackFlags |= TRACK_FL_DUPLICATE;
   }

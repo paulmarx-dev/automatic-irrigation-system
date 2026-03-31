@@ -9,6 +9,7 @@ static constexpr uint8_t TRACK_FL_BATT_EST_VALID = 1u << 2;
 static constexpr uint8_t TRACK_FL_CAL_VALID = 1u << 3;
 static constexpr uint8_t TRACK_FL_RAW_PRESENT = 1u << 4;
 static constexpr uint8_t TRACK_FL_DUPLICATE = 1u << 5;
+static constexpr uint8_t TRACK_FL_IRRIGATION_ACTIVE = 1u << 6;
 
 struct TrackRecord {
   uint32_t seq;
