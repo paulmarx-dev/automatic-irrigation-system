@@ -1,6 +1,27 @@
 # Auto Watering By Moisture - Spec (v1)
 
-Status: Draft, agreed baseline for implementation.
+Status: In progress. Phase 1 (UI + config persistence) and Phase 2 (pulse/soak state machine on head) completed and test-passed on Apr 1, 2026.
+
+## Implementation Progress
+
+- Phase 1: Done, test passed.
+  - AUTO tab has Advanced settings accordion (collapsed by default).
+  - `Dry avg` / `Wet avg` are always visible placeholders.
+  - Advanced fields are saved with Activate flow.
+  - Backend persists advanced fields in irrigation config (NVS blob) and returns them in config snapshot/API.
+- Phase 2: Done, test passed.
+  - Pulse/soak state machine execution on head side implemented and validated in monitor runs.
+  - Fresh-first decision path with online-snapshot fallback implemented to prevent false abort during sensor sleep windows.
+  - Runtime logs de-spammed (one-shot fallback log, throttled idle no-start logs).
+  - CompletedByLimit restart guard validated (no immediate same-loop restart on stale snapshot).
+- Phase 3: Next.
+  - Keep-awake orchestration contract and scheduling.
+
+Phase 2 validation summary (hardware monitor):
+- Verified state transitions in multiple runs: `Idle -> PulseActive -> SoakWait -> PulseActive`.
+- Verified terminal paths: `CompletedByLimit` and return to `Idle` with restart guard behavior.
+- Verified no log flooding from fallback/no-start checkpoints.
+- Verified builds remained green after each firmware change.
 
 ## 1) Goal
 
@@ -19,6 +40,10 @@ When sensors wake up (planned near-synchronously), the head opens a short collec
 
 During collection and decision calculation, head should keep sensors awake (defer sleep ack / lease behavior), so they do not immediately go back to long sleep before irrigation decision is sent.
 
+Status:
+- [x] `T_collect = 1s` locked.
+- [ ] Exact keep-awake API contract still open.
+
 ## 4) Candidate Sensor Set
 
 A sensor reading is considered valid for this cycle if all conditions are true:
@@ -36,6 +61,11 @@ If valid count is below minimum:
 - Do not start/continue auto watering.
 - If watering is already active, stop and wait for next telemetry cycle.
 
+Status:
+- [x] Valid sample rules locked.
+- [x] `N_min = 1` locked.
+- [x] Stop on `< N_min` during active watering locked.
+
 ## 5) Zone Calculation
 
 Let `N` be valid sensor count and `k = ceil(N/2)`.
@@ -44,12 +74,18 @@ From valid moisture values sorted ascending:
 - `dryZone` = average of `k` lowest values.
 - `wetZone` = average of `k` highest values.
 
+Status:
+- [x] Zone split formula locked (`k = ceil(N/2)`).
+
 ## 6) Start Condition (AUTO mode)
 
 Start watering when all are true:
 - `dryZone < startThreshold`
 - `wetZone <= stopThreshold`
 - No blocking conditions (e.g. control unavailable / battery lockout / mode conflict)
+
+Status:
+- [x] Start condition logic locked.
 
 ## 7) Stop Condition (AUTO mode)
 
@@ -59,6 +95,10 @@ Stop watering when any is true:
 
 Where:
 - `X` = `wetTolerance` — configurable margin in percentage points. Default: `5`.
+
+Status:
+- [x] Stop condition logic locked.
+- [x] `wetTolerance` default locked (`5`).
 
 ## 8) Data Loss During Active Watering
 
@@ -76,6 +116,11 @@ All four parameters are stored in NVS alongside `startThreshold` and `stopThresh
 | `pulseIntervalSec` | tbd | seconds | 120 | Duration of a single irrigation pulse |
 | `soakDelaySec` | tbd | seconds | 120 | Soak wait time between pulses |
 | `maxPulses` | tbd | count | 3 | Maximum irrigation pulses per auto cycle |
+
+Status:
+- [x] Defaults locked: `5 / 120 / 120 / 3`.
+- [x] Values are persisted together with irrigation config.
+- [ ] Human-readable NVS key naming convention remains open (currently stored in irrigation config blob fields).
 
 ## 10) Debug/Bring-up Notes
 
@@ -151,6 +196,12 @@ Safety/priority behavior:
 - If valid sensors drop below `N_min`, stop immediately and end as `Aborted`.
 - If AUTO mode is left (switch to `OFF`, `TIME`, or `MANUAL`) at any moment, abort immediately and end as `Aborted`.
 - Safety stop means conservative immediate stop on uncertainty/conflict to avoid overwatering.
+
+Status:
+- [x] State set and terminal states locked.
+- [x] Intra-pulse checkpoint timing locked (`pulseEnd - 10s`).
+- [x] `CompletedByLimit` behavior locked (restart only on next regular wake).
+- [x] Mode-change abort priority locked.
 
 ## 13) Transition Table (Deterministic)
 
@@ -238,6 +289,10 @@ Example lines:
 - `AUTO_SM ts_ms=128004 run_id=17 state=PrePulseDecision event=checkpoint next=PulseActive mode=AUTO pulse_idx=1 max_pulses=3 dry=32 wet=41 start_th=35 stop_th=45 wet_tol=5 n_valid=4 n_min=1 decision=start reason=START_OK cp=pre_pulse`
 - `AUTO_SM ts_ms=188119 run_id=17 state=PulseActive event=checkpoint next=Completed mode=AUTO pulse_idx=1 max_pulses=3 dry=46 wet=51 start_th=35 stop_th=45 wet_tol=5 n_valid=4 n_min=1 decision=stop reason=STOP_DRY_GE_STOP cp=intra_pulse pulse_remain_s=9`
 
+Status:
+- [x] Logging contract locked in spec.
+- [ ] Firmware emission of full `AUTO_SM` event set pending implementation phase.
+
 ## 15) UI Diagnostics Contract (Auto Tab)
 
 Purpose:
@@ -277,24 +332,28 @@ Tone and behavior requirements:
 - If telemetry is stale, append: `Data stale, waiting next checkpoint.`
 - If values are unavailable, show `--` and avoid speculative wording.
 
+Status:
+- [x] Diagnostics wording and mapping contract locked.
+- [ ] Full runtime binding to state-machine reasons pending backend phase.
+
 ## 16) UI Acceptance Checklist (Auto Tab)
 
 Use this checklist before merging UI work:
 
-- Advanced settings section is collapsed by default on page load.
-- Chevron row toggles expand/collapse both ways with no layout jumps.
-- Four advanced inputs are shown as 2x2 grid on desktop and remain readable on mobile.
-- Field defaults are present on first render: wet tolerance `5`, pulse interval `120`, soak delay `120`, max pulses `3`.
-- Main status hint remains visible above Advanced settings.
-- `Dry avg` and `Wet avg` row is always visible and shows `--` placeholder when zone data is absent.
-- Changing any advanced field marks AUTO config as dirty and enables Activate flow.
-- Clicking Activate persists start/stop plus all advanced fields in one save operation.
-- After successful save and snapshot refresh, UI reflects persisted values and dirty indicator clears.
-- If save fails, user sees clear error status and previous persisted values are not silently overwritten.
+- [x] Advanced settings section is collapsed by default on page load.
+- [x] Chevron row toggles expand/collapse both ways with no layout jumps.
+- [x] Four advanced inputs are shown as 2x2 grid on desktop and remain readable on mobile.
+- [x] Field defaults are present on first render: wet tolerance `5`, pulse interval `120`, soak delay `120`, max pulses `3`.
+- [x] Main status hint remains visible above Advanced settings.
+- [x] `Dry avg` and `Wet avg` row is always visible and shows `--` placeholder when zone data is absent.
+- [x] Changing any advanced field marks AUTO config as dirty and enables Activate flow.
+- [x] Clicking Activate persists start/stop plus all advanced fields in one save operation.
+- [x] After successful save and snapshot refresh, UI reflects persisted values and dirty indicator clears.
+- [x] If save fails, user sees clear error status and previous persisted values are not silently overwritten.
 
 ## 17) Open Items (to discuss and lock)
 
-- Default values for `startThreshold` and `stopThreshold`.
-- NVS key names for the 4 advanced parameters.
-- Exact mechanism/API contract for "keep sensors awake" while decision is pending.
-- Optional anti-noise guards (if needed later).
+- [x] Default values for `startThreshold` and `stopThreshold` (`35%` / `45%`, i.e. `350`/`450` permille).
+- [x] Persistence model for advanced parameters (saved with irrigation config blob).
+- [ ] Exact mechanism/API contract for "keep sensors awake" while decision is pending.
+- [ ] Optional anti-noise guards (if needed later).

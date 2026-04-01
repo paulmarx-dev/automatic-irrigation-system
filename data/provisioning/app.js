@@ -32,6 +32,15 @@ const manualDurationHintEl = document.getElementById('manualDurationHint');
 const autoStartMoisturePctInputEl = document.getElementById('autoStartMoisturePctInput');
 const autoStopMoisturePctInputEl = document.getElementById('autoStopMoisturePctInput');
 const autoStatusHintEl = document.getElementById('autoStatusHint');
+const autoZoneStatsEl = document.getElementById('autoZoneStats');
+const autoDryAvgPctEl = document.getElementById('autoDryAvgPct');
+const autoWetAvgPctEl = document.getElementById('autoWetAvgPct');
+const autoAdvancedToggleBtnEl = document.getElementById('autoAdvancedToggleBtn');
+const autoAdvancedPanelEl = document.getElementById('autoAdvancedPanel');
+const autoWetTolerancePctInputEl = document.getElementById('autoWetTolerancePctInput');
+const autoPulseIntervalSecInputEl = document.getElementById('autoPulseIntervalSecInput');
+const autoSoakDelaySecInputEl = document.getElementById('autoSoakDelaySecInput');
+const autoMaxPulsesInputEl = document.getElementById('autoMaxPulsesInput');
 const timeIntervalMinInputEl = document.getElementById('timeIntervalMinInput');
 const timeRunDurationMinInputEl = document.getElementById('timeRunDurationMinInput');
 const timeRunDurationHintEl = document.getElementById('timeRunDurationHint');
@@ -66,6 +75,15 @@ let persistedAutoStartPermille = 350;
 let pendingAutoStartPermille = 350;
 let persistedAutoStopPermille = 450;
 let pendingAutoStopPermille = 450;
+let persistedAutoWetTolerancePct = 5;
+let pendingAutoWetTolerancePct = 5;
+let persistedAutoPulseIntervalSec = 120;
+let pendingAutoPulseIntervalSec = 120;
+let persistedAutoSoakDelaySec = 120;
+let pendingAutoSoakDelaySec = 120;
+let persistedAutoMaxPulses = 3;
+let pendingAutoMaxPulses = 3;
+let isAutoAdvancedExpanded = false;
 let latestAvgMoisturePermille = null;
 let persistedTimeIntervalMin = 360;
 let pendingTimeIntervalMin = 360;
@@ -100,6 +118,14 @@ const TIME_INTERVAL_MIN = 5;
 const TIME_INTERVAL_MAX = 1440;
 const TIME_RUN_MIN_SEC = 0;
 const TIME_RUN_MAX_SEC = 600;
+const AUTO_WET_TOLERANCE_MIN_PCT = 0;
+const AUTO_WET_TOLERANCE_MAX_PCT = 100;
+const AUTO_PULSE_INTERVAL_MIN_SEC = 1;
+const AUTO_PULSE_INTERVAL_MAX_SEC = 3600;
+const AUTO_SOAK_DELAY_MIN_SEC = 1;
+const AUTO_SOAK_DELAY_MAX_SEC = 3600;
+const AUTO_MAX_PULSES_MIN = 1;
+const AUTO_MAX_PULSES_MAX = 20;
 const NODE_SUSPECT_AFTER_SEC = 20;
 const NODE_OFFLINE_AFTER_SEC = 52;
 const CAL_PROMPT_TIMEOUT_MS = 20000;
@@ -468,7 +494,11 @@ function isModeSettingsDirty(mode) {
   const normalizedMode = normalizeIrrigationMode(mode);
   if (normalizedMode === 'AUTO') {
     return pendingAutoStartPermille !== persistedAutoStartPermille
-      || pendingAutoStopPermille !== persistedAutoStopPermille;
+      || pendingAutoStopPermille !== persistedAutoStopPermille
+      || pendingAutoWetTolerancePct !== persistedAutoWetTolerancePct
+      || pendingAutoPulseIntervalSec !== persistedAutoPulseIntervalSec
+      || pendingAutoSoakDelaySec !== persistedAutoSoakDelaySec
+      || pendingAutoMaxPulses !== persistedAutoMaxPulses;
   }
   if (normalizedMode === 'TIME') {
     return pendingTimeIntervalMin !== persistedTimeIntervalMin
@@ -716,6 +746,10 @@ function renderHomeModeControls() {
   pendingManualDurationSec = clampNumber(pendingManualDurationSec, MANUAL_DURATION_MIN_SEC, MANUAL_DURATION_MAX_SEC);
   pendingAutoStartPermille = clampNumber(pendingAutoStartPermille, 0, 1000);
   pendingAutoStopPermille = clampNumber(pendingAutoStopPermille, 0, 1000);
+  pendingAutoWetTolerancePct = clampNumber(pendingAutoWetTolerancePct, AUTO_WET_TOLERANCE_MIN_PCT, AUTO_WET_TOLERANCE_MAX_PCT);
+  pendingAutoPulseIntervalSec = clampNumber(pendingAutoPulseIntervalSec, AUTO_PULSE_INTERVAL_MIN_SEC, AUTO_PULSE_INTERVAL_MAX_SEC);
+  pendingAutoSoakDelaySec = clampNumber(pendingAutoSoakDelaySec, AUTO_SOAK_DELAY_MIN_SEC, AUTO_SOAK_DELAY_MAX_SEC);
+  pendingAutoMaxPulses = clampNumber(pendingAutoMaxPulses, AUTO_MAX_PULSES_MIN, AUTO_MAX_PULSES_MAX);
   if (pendingAutoStopPermille <= pendingAutoStartPermille) {
     pendingAutoStopPermille = Math.min(1000, pendingAutoStartPermille + 50);
   }
@@ -854,6 +888,34 @@ function renderHomeModeControls() {
       }
     }
   }
+  if (autoZoneStatsEl) {
+    autoZoneStatsEl.hidden = !showAutoConfig;
+  }
+  if (autoDryAvgPctEl) {
+    autoDryAvgPctEl.textContent = '--';
+  }
+  if (autoWetAvgPctEl) {
+    autoWetAvgPctEl.textContent = '--';
+  }
+  if (autoAdvancedToggleBtnEl) {
+    autoAdvancedToggleBtnEl.hidden = !showAutoConfig;
+    autoAdvancedToggleBtnEl.setAttribute('aria-expanded', showAutoConfig && isAutoAdvancedExpanded ? 'true' : 'false');
+  }
+  if (autoAdvancedPanelEl) {
+    autoAdvancedPanelEl.hidden = !showAutoConfig || !isAutoAdvancedExpanded;
+  }
+  if (autoWetTolerancePctInputEl && document.activeElement !== autoWetTolerancePctInputEl) {
+    autoWetTolerancePctInputEl.value = String(Math.round(pendingAutoWetTolerancePct));
+  }
+  if (autoPulseIntervalSecInputEl && document.activeElement !== autoPulseIntervalSecInputEl) {
+    autoPulseIntervalSecInputEl.value = String(Math.round(pendingAutoPulseIntervalSec));
+  }
+  if (autoSoakDelaySecInputEl && document.activeElement !== autoSoakDelaySecInputEl) {
+    autoSoakDelaySecInputEl.value = String(Math.round(pendingAutoSoakDelaySec));
+  }
+  if (autoMaxPulsesInputEl && document.activeElement !== autoMaxPulsesInputEl) {
+    autoMaxPulsesInputEl.value = String(Math.round(pendingAutoMaxPulses));
+  }
   if (timeIntervalMinInputEl && document.activeElement !== timeIntervalMinInputEl) {
     timeIntervalMinInputEl.value = formatHoursValueFromMinutes(pendingTimeIntervalMin);
     timeIntervalMinInputEl.classList.remove('input-warning');
@@ -912,6 +974,30 @@ function applyIrrigationConfig(config, allowOverridePending = true) {
   persistedManualDurationSec = readConfigNumber(config && config.manualDurationSec, persistedManualDurationSec, MANUAL_DURATION_MIN_SEC, MANUAL_DURATION_MAX_SEC);
   persistedAutoStartPermille = readConfigNumber(config && config.autoStartPermille, persistedAutoStartPermille, 0, 1000);
   persistedAutoStopPermille = readConfigNumber(config && config.autoStopPermille, persistedAutoStopPermille, 0, 1000);
+  persistedAutoWetTolerancePct = readConfigNumber(
+    config && config.autoWetTolerancePct,
+    persistedAutoWetTolerancePct,
+    AUTO_WET_TOLERANCE_MIN_PCT,
+    AUTO_WET_TOLERANCE_MAX_PCT,
+  );
+  persistedAutoPulseIntervalSec = readConfigNumber(
+    config && config.autoPulseIntervalSec,
+    persistedAutoPulseIntervalSec,
+    AUTO_PULSE_INTERVAL_MIN_SEC,
+    AUTO_PULSE_INTERVAL_MAX_SEC,
+  );
+  persistedAutoSoakDelaySec = readConfigNumber(
+    config && config.autoSoakDelaySec,
+    persistedAutoSoakDelaySec,
+    AUTO_SOAK_DELAY_MIN_SEC,
+    AUTO_SOAK_DELAY_MAX_SEC,
+  );
+  persistedAutoMaxPulses = readConfigNumber(
+    config && config.autoMaxPulses,
+    persistedAutoMaxPulses,
+    AUTO_MAX_PULSES_MIN,
+    AUTO_MAX_PULSES_MAX,
+  );
   if (persistedAutoStopPermille <= persistedAutoStartPermille) {
     persistedAutoStopPermille = Math.min(1000, persistedAutoStartPermille + 50);
   }
@@ -990,6 +1076,10 @@ function applyIrrigationConfig(config, allowOverridePending = true) {
     }
     pendingAutoStartPermille = persistedAutoStartPermille;
     pendingAutoStopPermille = persistedAutoStopPermille;
+    pendingAutoWetTolerancePct = persistedAutoWetTolerancePct;
+    pendingAutoPulseIntervalSec = persistedAutoPulseIntervalSec;
+    pendingAutoSoakDelaySec = persistedAutoSoakDelaySec;
+    pendingAutoMaxPulses = persistedAutoMaxPulses;
     pendingTimeIntervalMin = persistedTimeIntervalMin;
     pendingTimeRunDurationSec = persistedTimeRunDurationSec;
   }
@@ -1075,6 +1165,10 @@ async function saveIrrigationConfig() {
       manualDurationSec: pendingManualDurationSec,
       autoStartPermille: pendingAutoStartPermille,
       autoStopPermille: pendingAutoStopPermille,
+      autoWetTolerancePct: pendingAutoWetTolerancePct,
+      autoPulseIntervalSec: pendingAutoPulseIntervalSec,
+      autoSoakDelaySec: pendingAutoSoakDelaySec,
+      autoMaxPulses: pendingAutoMaxPulses,
       timeIntervalMin: pendingTimeIntervalMin,
       timeRunDurationSec: pendingTimeRunDurationSec,
     });
@@ -1082,6 +1176,10 @@ async function saveIrrigationConfig() {
     persistedManualDurationSec = pendingManualDurationSec;
     persistedAutoStartPermille = pendingAutoStartPermille;
     persistedAutoStopPermille = pendingAutoStopPermille;
+    persistedAutoWetTolerancePct = pendingAutoWetTolerancePct;
+    persistedAutoPulseIntervalSec = pendingAutoPulseIntervalSec;
+    persistedAutoSoakDelaySec = pendingAutoSoakDelaySec;
+    persistedAutoMaxPulses = pendingAutoMaxPulses;
     persistedTimeIntervalMin = pendingTimeIntervalMin;
     persistedTimeRunDurationSec = pendingTimeRunDurationSec;
     renderHomeModeControls();
@@ -1913,6 +2011,65 @@ if (autoStartMoisturePctInputEl) {
 if (autoStopMoisturePctInputEl) {
   autoStopMoisturePctInputEl.addEventListener('input', () => {
     pendingAutoStopPermille = percentToPermille(autoStopMoisturePctInputEl.value);
+    renderHomeModeControls();
+    setHomeModeStatus(homeModeStatusText(), false);
+  });
+}
+
+if (autoAdvancedToggleBtnEl) {
+  autoAdvancedToggleBtnEl.addEventListener('click', () => {
+    isAutoAdvancedExpanded = !isAutoAdvancedExpanded;
+    renderHomeModeControls();
+  });
+}
+
+if (autoWetTolerancePctInputEl) {
+  autoWetTolerancePctInputEl.addEventListener('input', () => {
+    pendingAutoWetTolerancePct = readConfigNumber(
+      autoWetTolerancePctInputEl.value,
+      pendingAutoWetTolerancePct,
+      AUTO_WET_TOLERANCE_MIN_PCT,
+      AUTO_WET_TOLERANCE_MAX_PCT,
+    );
+    renderHomeModeControls();
+    setHomeModeStatus(homeModeStatusText(), false);
+  });
+}
+
+if (autoPulseIntervalSecInputEl) {
+  autoPulseIntervalSecInputEl.addEventListener('input', () => {
+    pendingAutoPulseIntervalSec = readConfigNumber(
+      autoPulseIntervalSecInputEl.value,
+      pendingAutoPulseIntervalSec,
+      AUTO_PULSE_INTERVAL_MIN_SEC,
+      AUTO_PULSE_INTERVAL_MAX_SEC,
+    );
+    renderHomeModeControls();
+    setHomeModeStatus(homeModeStatusText(), false);
+  });
+}
+
+if (autoSoakDelaySecInputEl) {
+  autoSoakDelaySecInputEl.addEventListener('input', () => {
+    pendingAutoSoakDelaySec = readConfigNumber(
+      autoSoakDelaySecInputEl.value,
+      pendingAutoSoakDelaySec,
+      AUTO_SOAK_DELAY_MIN_SEC,
+      AUTO_SOAK_DELAY_MAX_SEC,
+    );
+    renderHomeModeControls();
+    setHomeModeStatus(homeModeStatusText(), false);
+  });
+}
+
+if (autoMaxPulsesInputEl) {
+  autoMaxPulsesInputEl.addEventListener('input', () => {
+    pendingAutoMaxPulses = readConfigNumber(
+      autoMaxPulsesInputEl.value,
+      pendingAutoMaxPulses,
+      AUTO_MAX_PULSES_MIN,
+      AUTO_MAX_PULSES_MAX,
+    );
     renderHomeModeControls();
     setHomeModeStatus(homeModeStatusText(), false);
   });

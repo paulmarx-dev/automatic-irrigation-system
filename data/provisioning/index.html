@@ -63,6 +63,40 @@
             <input id="autoStopMoisturePctInput" type="number" min="0" max="100" step="1" />
           </label>
           <p id="autoStatusHint" class="home-mode-status" hidden></p>
+          <p class="home-mode-status auto-zone-stats" id="autoZoneStats" hidden>
+            <span>Dry avg: <strong id="autoDryAvgPct">--</strong></span>
+            <span>Wet avg: <strong id="autoWetAvgPct">--</strong></span>
+          </p>
+          <div class="auto-advanced-group">
+            <button
+              type="button"
+              id="autoAdvancedToggleBtn"
+              class="auto-advanced-toggle"
+              aria-expanded="false"
+              aria-controls="autoAdvancedPanel"
+            >
+              <span>Advanced settings</span>
+              <span class="auto-advanced-chevron" aria-hidden="true">▾</span>
+            </button>
+            <div id="autoAdvancedPanel" class="auto-advanced-panel" hidden>
+              <label>
+                Pulse interval sec
+                <input id="autoPulseIntervalSecInput" type="number" min="1" max="3600" step="1" />
+              </label>
+              <label>
+                Wet tolerance %
+                <input id="autoWetTolerancePctInput" type="number" min="0" max="100" step="1" />
+              </label>
+              <label>
+                Soak delay sec
+                <input id="autoSoakDelaySecInput" type="number" min="1" max="3600" step="1" />
+              </label>
+              <label>
+                Max pulses
+                <input id="autoMaxPulsesInput" type="number" min="1" max="20" step="1" />
+              </label>
+            </div>
+          </div>
         </div>
         <div id="homeManualConfig" hidden>
           <label>
