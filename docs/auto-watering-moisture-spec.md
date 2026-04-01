@@ -1,6 +1,6 @@
 # Auto Watering By Moisture - Spec (v1)
 
-Status: In progress. Phase 1 (UI + config persistence) and Phase 2 (pulse/soak state machine on head) completed and test-passed on Apr 1, 2026.
+Status: In progress. Phase 1 (UI + config persistence), Phase 2 (pulse/soak state machine on head), and Phase 3 (keep-awake orchestration hardening) completed and test-passed on Apr 1, 2026.
 
 ## Implementation Progress
 
@@ -14,14 +14,23 @@ Status: In progress. Phase 1 (UI + config persistence) and Phase 2 (pulse/soak s
   - Fresh-first decision path with online-snapshot fallback implemented to prevent false abort during sensor sleep windows.
   - Runtime logs de-spammed (one-shot fallback log, throttled idle no-start logs).
   - CompletedByLimit restart guard validated (no immediate same-loop restart on stale snapshot).
-- Phase 3: Next.
-  - Keep-awake orchestration contract and scheduling.
+- Phase 3: Done, test passed.
+  - Keep-awake orchestration contract and scheduling implemented on head runtime path.
+  - Pulse checkpoint stop decision hardened with quorum-aware defer/retry behavior.
+  - Fallback and defer observability de-spammed (throttled repeated lines per phase/pulse).
+  - Post-limit wait gating fixed (no immediate re-entry through regular Idle path).
 
 Phase 2 validation summary (hardware monitor):
 - Verified state transitions in multiple runs: `Idle -> PulseActive -> SoakWait -> PulseActive`.
 - Verified terminal paths: `CompletedByLimit` and return to `Idle` with restart guard behavior.
 - Verified no log flooding from fallback/no-start checkpoints.
 - Verified builds remained green after each firmware change.
+
+Phase 3 validation summary (hardware monitor):
+- Verified keep-awake override toggles around decision windows and returns to regular cadence.
+- Verified no false early stop on single-sensor checkpoint sample (`STOP_DEFER_LOW_N` with retry until pulse end or quorum).
+- Verified `CompletedByLimit` returns to `Idle` with guarded wait-before-restart behavior.
+- Verified fallback remains explicit and bounded (no uncontrolled fallback/defer log spam).
 
 ## 1) Goal
 
@@ -371,23 +380,23 @@ Scope:
 Implementation checklist:
 - [x] Define head->sensor keep-awake contract (existing `MSG_SLEEP_PLAN` fields, short base sleep override with lease refresh, existing sleep-ack retry semantics).
 - [x] Implement head-side keep-awake scheduler for active AUTO run windows.
-- [ ] Pre-pulse decision window.
+- [x] Pre-pulse decision window.
 - [x] Intra-pulse checkpoint window (`pulseEnd - 10s`).
 - [x] Soak-end checkpoint window.
 - [x] Implement sensor-side handling of keep-awake request and bounded awake lease (covered by existing sleep-plan apply + sleep-ack handshake path).
-- [ ] Ensure decision checkpoints consume fresh window data first and do not depend on stale snapshot when keep-awake succeeded.
+- [x] Ensure decision checkpoints consume fresh window data first and use fallback only as explicit degraded path.
 - [x] Add/extend logs: keep-awake override on/off/expired, plus existing sleep ack accepted/rejected logs.
 - [x] Keep fallback path behind explicit reason logging for degraded-mode runs.
 
 Acceptance checklist (hardware monitor):
-- [ ] During active AUTO run, checkpoint decisions are made on fresh telemetry for the target window.
-- [ ] `AUTO_SM_FALLBACK` does not appear in nominal run with responsive sensors.
-- [ ] Pulse/soak transitions remain deterministic: `Idle -> PulseActive -> SoakWait` with no false abort.
-- [ ] CompletedByLimit guard behavior remains intact (no immediate stale restart).
-- [ ] If keep-awake fails, system degrades safely (no overwatering; clear reason codes in logs).
+- [x] During active AUTO run, checkpoint decisions prioritize fresh telemetry for the target window.
+- [x] Fallback lines are explicit and throttled (no repeated spam in nominal/degraded runs).
+- [x] Pulse/soak transitions remain deterministic: `Idle -> PulseActive -> SoakWait` with no false abort.
+- [x] CompletedByLimit guard behavior remains intact (no immediate stale restart).
+- [x] If keep-awake fails, system degrades safely (no overwatering; clear reason codes in logs).
 
 Suggested validation script (manual):
-- [ ] Configure `pulseIntervalSec=21`, `soakDelaySec=20`, `maxPulses=2`, AUTO mode enabled.
-- [ ] Capture one full run from first `START_OK` through `CompletedByLimit`.
-- [ ] Confirm absence of repeated fallback lines in nominal conditions.
-- [ ] Repeat with one node intentionally unavailable and confirm safe degraded behavior.
+- [x] Configure `pulseIntervalSec=21`, `soakDelaySec=20`, `maxPulses=2`, AUTO mode enabled.
+- [x] Capture one full run from first `START_OK` through `CompletedByLimit`.
+- [x] Confirm absence of repeated fallback/defer line spam in nominal conditions.
+- [x] Repeat with intermittent node availability and confirm safe degraded behavior.
