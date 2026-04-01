@@ -1333,11 +1333,6 @@ static void irrigationAutomationTick(uint32_t nowMs)
 
   if (s_irrigationMode == IRRIGATION_MODE_AUTO) {
     if (s_autoRunState == AUTO_RUN_IDLE) {
-      const AutoZoneSnapshot zones = computeAutoZonesForDecision(nowMs, "Idle");
-      if (!zones.hasValid) {
-        return;
-      }
-
       if (s_autoWaitNextWakeAfterLimit) {
         const uint32_t latestSeenMs = latestAutoEligibleSeenMs();
         if (latestSeenMs <= s_autoWaitNextWakeSeenMs) {
@@ -1354,14 +1349,15 @@ static void irrigationAutomationTick(uint32_t nowMs)
         }
 
         const AutoZoneSnapshot waitZones = computeAutoZonesSinceSeenMs(s_autoWaitNextWakeSeenMs);
+        if (!waitZones.hasValid) {
+          s_autoWaitNextWakeCollectUntilMs = nowMs + AUTO_WAIT_NEXT_WAKE_COLLECTION_MS;
+          autoSmLog("Idle", "checkpoint", "Idle", "continue", "WAIT_NEXT_WAKE_AFTER_LIMIT");
+          return;
+        }
+
         s_autoWaitNextWakeAfterLimit = false;
         s_autoWaitNextWakeSeenMs = 0;
         s_autoWaitNextWakeCollectUntilMs = 0;
-        autoSmLog("Idle", "checkpoint", "Idle", "continue", "WAIT_NEXT_WAKE_AFTER_LIMIT", waitZones.hasValid ? &waitZones : &zones);
-
-        if (!waitZones.hasValid) {
-          return;
-        }
 
         if (autoStartConditionMet(waitZones)) {
           s_autoRunId++;
@@ -1376,6 +1372,11 @@ static void irrigationAutomationTick(uint32_t nowMs)
           s_autoIdleLastLogMs = nowMs;
           autoSmLog("Idle", "checkpoint", "Idle", "continue", "NO_START_CONDITION", &waitZones);
         }
+        return;
+      }
+
+      const AutoZoneSnapshot zones = computeAutoZonesForDecision(nowMs, "Idle");
+      if (!zones.hasValid) {
         return;
       }
 
