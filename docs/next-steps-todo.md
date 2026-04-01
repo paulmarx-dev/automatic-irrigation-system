@@ -9,6 +9,14 @@
 - [x] Basic UI-facing CONTROL availability model is active (`online` / `offline` / `battery_lockout` / `not_paired`).
 - [x] TIME mode stale delayed-start behavior removed (missed cycle is skipped).
 
+## Completed in this cycle (2026-04-01)
+
+- [x] AUTO watering Phase 3 keep-awake stabilization on head runtime path.
+- [x] Pulse checkpoint stop hardening: quorum-aware defer/retry and guarded fallback behavior.
+- [x] CompletedByLimit post-limit wait gating fixed (no immediate stale-path restart).
+- [x] AUTO observability de-spammed for fallback/defer lines while preserving reason visibility.
+- [x] Auto-watering spec and acceptance checklists updated to reflect field validation.
+
 ## Priority backlog
 
 - [x] CONTROL battery telemetry: send battery metrics from control node (same HW path as sensor) using shared node-side code.
@@ -48,7 +56,7 @@
 
 ## Proposed next step (2026-03-30)
 
-- [ ] Stats view MVP (phase-2 starter):
+- [ ] Stats view MVP (next active focus):
   - Add `GET /api/stats/moisture` JSON endpoint backed by existing track ring buffer.
   - Include per-node series + average series + irrigation on/off markers.
   - Build minimal Stats tab with period selector (`10m`, `1h`, `6h`, `24h`) and node visibility toggles.

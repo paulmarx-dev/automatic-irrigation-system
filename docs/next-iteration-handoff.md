@@ -1,5 +1,35 @@
 # Next Iteration Handoff (after context reset)
 
+## Archive update (2026-04-01)
+
+Auto-watering Phase 3 stabilization is complete on branch `feature/auto-watering-ui-first`.
+
+Closed outcomes:
+- Keep-awake orchestration is active around AUTO decision windows.
+- Pulse checkpoint stop logic is quorum-aware and uses defer/retry under low sample count.
+- Fallback path remains explicit degraded behavior with throttled logs.
+- CompletedByLimit post-limit wait gating prevents immediate stale-path restart.
+
+Validation status:
+- Full hardware monitor runs confirm deterministic flow: `Idle -> PulseActive -> SoakWait -> CompletedByLimit`.
+- No false early stop from single-sensor checkpoint samples.
+- Build smoke test passed for both environments via `PIO Build All`.
+
+Key stabilization commits:
+- `39057d2` Implement Phase 3 keep-awake sleep-plan override (head-side).
+- `f0c97a2` Window keep-awake near checkpoints and preserve sleep slot staggering.
+- `2d0fee0` Prime keep-awake immediately after pulse start.
+- `260f061` Tune keep-awake windows for continuous pulse checkpoint coverage.
+- `3451f55` Harden pulse checkpoint fallback and throttle fallback logs.
+- `72db90c` Stabilize pulse checkpoint retries and stop quorum.
+- `413d569` Fix post-limit wait gating in auto idle.
+- `4db9227` Throttle repeated pulse checkpoint defer logs.
+- `9421b0c` Finalize Phase 3 keep-awake validation in spec.
+
+Next recommended focus (post-closeout):
+- Stats view MVP endpoint + minimal tab wiring.
+- Optional anti-noise guards only if needed after longer field soak tests.
+
 ## Archive update (2026-03-15)
 
 This handoff is largely completed in implementation:
