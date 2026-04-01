@@ -2172,9 +2172,9 @@ const irrigationPlugin = {
       ctx.fillStyle = 'rgba(10, 132, 255, 0.75)';
       ctx.font = 'bold 11px sans-serif';
       ctx.save();
-      ctx.translate(left - 10, top + 56);
-      ctx.rotate(-Math.PI / 2);
-      ctx.fillText('Watering', 0, 0);
+      // ctx.translate(left - 10, top + 56);
+      // ctx.rotate(-Math.PI / 2);
+      // ctx.fillText('Watering', 0, 0);
       ctx.restore();
     }
     ctx.restore();
