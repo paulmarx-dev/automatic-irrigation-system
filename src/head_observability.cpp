@@ -110,6 +110,7 @@ static constexpr uint32_t AUTO_INTRA_PULSE_LEAD_MS = 10000;
 static constexpr uint32_t AUTO_KEEP_AWAKE_BASE_SLEEP_MS = 1200;
 static constexpr uint32_t AUTO_KEEP_AWAKE_LEASE_MS = 4500;
 static constexpr uint32_t AUTO_KEEP_AWAKE_WINDOW_LEAD_MS = 6000;
+static constexpr uint32_t AUTO_KEEP_AWAKE_PRIME_MS = 5000;
 static constexpr uint16_t MANUAL_DURATION_DEFAULT_SEC = 120;
 static constexpr uint16_t MANUAL_DURATION_MIN_SEC = 0;
 static constexpr uint16_t MANUAL_DURATION_MAX_SEC = 600;
@@ -151,6 +152,7 @@ static AutoRunState s_autoRunState = AUTO_RUN_IDLE;
 static uint16_t s_autoUsedPulses = 0;
 static uint32_t s_autoSoakDeadlineMs = 0;
 static uint32_t s_autoCheckpointAtMs = 0;
+static uint32_t s_autoPulseStartedAtMs = 0;
 static bool s_autoWaitNextWakeAfterLimit = false;
 static uint32_t s_autoRunId = 0;
 static bool s_autoFallbackLogged = false;
@@ -601,6 +603,7 @@ static void autoResetRun(const char* reason)
   s_autoUsedPulses = 0;
   s_autoSoakDeadlineMs = 0;
   s_autoCheckpointAtMs = 0;
+  s_autoPulseStartedAtMs = 0;
   s_autoFallbackLogged = false;
   s_autoIdleLastLogMs = 0;
   s_autoWaitNextWakeSeenMs = 0;
@@ -1222,7 +1225,15 @@ static void irrigationAutomationTick(uint32_t nowMs)
 {
   bool autoKeepAwakeActive = false;
   if (s_irrigationMode == IRRIGATION_MODE_AUTO) {
-    if ((s_autoRunState == AUTO_RUN_PULSE_ACTIVE || s_autoRunState == AUTO_RUN_SOAK_WAIT) &&
+    if (s_autoRunState == AUTO_RUN_PULSE_ACTIVE && s_autoPulseStartedAtMs != 0) {
+      const uint32_t sincePulseStartMs = static_cast<uint32_t>(nowMs - s_autoPulseStartedAtMs);
+      if (sincePulseStartMs <= AUTO_KEEP_AWAKE_PRIME_MS) {
+        autoKeepAwakeActive = true;
+      }
+    }
+
+    if (!autoKeepAwakeActive &&
+        (s_autoRunState == AUTO_RUN_PULSE_ACTIVE || s_autoRunState == AUTO_RUN_SOAK_WAIT) &&
         s_autoCheckpointAtMs != 0) {
       const int32_t untilCheckpointMs = static_cast<int32_t>(s_autoCheckpointAtMs - nowMs);
       autoKeepAwakeActive =
@@ -1322,6 +1333,7 @@ static void irrigationAutomationTick(uint32_t nowMs)
           s_autoUsedPulses = 1;
           s_autoRunState = AUTO_RUN_PULSE_ACTIVE;
           s_autoCheckpointAtMs = 0;
+          s_autoPulseStartedAtMs = nowMs;
           startIrrigation(nowMs, s_autoPulseIntervalSec, "AUTO pulse start");
           autoSmLog("Idle", "checkpoint", "PulseActive", "start", "START_OK", &waitZones);
         } else {
@@ -1336,6 +1348,7 @@ static void irrigationAutomationTick(uint32_t nowMs)
         s_autoUsedPulses = 1;
         s_autoRunState = AUTO_RUN_PULSE_ACTIVE;
         s_autoCheckpointAtMs = 0;
+        s_autoPulseStartedAtMs = nowMs;
         startIrrigation(nowMs, s_autoPulseIntervalSec, "AUTO pulse start");
         autoSmLog("Idle", "checkpoint", "PulseActive", "start", "START_OK", &zones);
       } else {
@@ -1379,6 +1392,7 @@ static void irrigationAutomationTick(uint32_t nowMs)
           s_autoRunState = AUTO_RUN_IDLE;
           s_autoUsedPulses = 0;
           s_autoSoakDeadlineMs = 0;
+          s_autoPulseStartedAtMs = 0;
           s_autoIdleLastLogMs = 0;
           autoSmLog("PulseActive", "checkpoint", "Completed", "stop", "STOP_CONDITION_MET", &zones);
           return;
@@ -1392,6 +1406,7 @@ static void irrigationAutomationTick(uint32_t nowMs)
         s_autoRunState = AUTO_RUN_SOAK_WAIT;
         s_autoSoakDeadlineMs = nowMs + (static_cast<uint32_t>(s_autoSoakDelaySec) * 1000UL);
         s_autoCheckpointAtMs = s_autoSoakDeadlineMs;
+        s_autoPulseStartedAtMs = 0;
         autoSmLog("PulseActive", "pulse_elapsed", "SoakWait", "continue", "PULSE_END");
       }
       return;
@@ -1440,6 +1455,7 @@ static void irrigationAutomationTick(uint32_t nowMs)
       s_autoRunState = AUTO_RUN_PULSE_ACTIVE;
       s_autoSoakDeadlineMs = 0;
       s_autoCheckpointAtMs = 0;
+      s_autoPulseStartedAtMs = nowMs;
       startIrrigation(nowMs, s_autoPulseIntervalSec, "AUTO next pulse");
       autoSmLog("SoakWait", "checkpoint", "PulseActive", "start", "START_OK", &zones);
       return;
