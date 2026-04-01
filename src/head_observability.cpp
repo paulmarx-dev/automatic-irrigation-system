@@ -107,6 +107,8 @@ static constexpr uint16_t AUTO_MIN_VALID_SENSORS = 1;
 static constexpr uint32_t AUTO_CHECKPOINT_WINDOW_MS = 1000;
 static constexpr uint32_t AUTO_WAIT_NEXT_WAKE_COLLECTION_MS = 3000;
 static constexpr uint32_t AUTO_INTRA_PULSE_LEAD_MS = 10000;
+static constexpr uint8_t AUTO_PULSE_STOP_MIN_VALID_ON_FALLBACK = 2;
+static constexpr uint32_t AUTO_FALLBACK_LOG_THROTTLE_MS = 15000;
 static constexpr uint32_t AUTO_KEEP_AWAKE_BASE_SLEEP_MS = 1200;
 static constexpr uint32_t AUTO_KEEP_AWAKE_LEASE_MS = 4500;
 static constexpr uint32_t AUTO_KEEP_AWAKE_WINDOW_LEAD_MS = 7000;
@@ -156,6 +158,7 @@ static uint32_t s_autoPulseStartedAtMs = 0;
 static bool s_autoWaitNextWakeAfterLimit = false;
 static uint32_t s_autoRunId = 0;
 static bool s_autoFallbackLogged = false;
+static uint32_t s_autoFallbackLastLogMs = 0;
 static uint32_t s_autoIdleLastLogMs = 0;
 static uint32_t s_autoWaitNextWakeSeenMs = 0;
 static uint32_t s_autoWaitNextWakeCollectUntilMs = 0;
@@ -406,11 +409,12 @@ struct AutoZoneSnapshot {
   uint8_t validCount;
   uint16_t dryPermille;
   uint16_t wetPermille;
+  bool fromFreshWindow;
 };
 
 static AutoZoneSnapshot computeAutoZones(uint32_t nowMs, bool requireFresh)
 {
-  AutoZoneSnapshot result = {false, 0, 0, 0};
+  AutoZoneSnapshot result = {false, 0, 0, 0, false};
   TelemetryHeadNodePresence nodes[8] = {};
   const uint8_t count = telemetryHeadGetPresence(nodes, 8);
   uint16_t values[8] = {};
@@ -459,12 +463,13 @@ static AutoZoneSnapshot computeAutoZones(uint32_t nowMs, bool requireFresh)
   result.validCount = n;
   result.dryPermille = static_cast<uint16_t>(drySum / k);
   result.wetPermille = static_cast<uint16_t>(wetSum / k);
+  result.fromFreshWindow = requireFresh;
   return result;
 }
 
 static AutoZoneSnapshot computeAutoZonesSinceSeenMs(uint32_t minSeenMsExclusive)
 {
-  AutoZoneSnapshot result = {false, 0, 0, 0};
+  AutoZoneSnapshot result = {false, 0, 0, 0, false};
   TelemetryHeadNodePresence nodes[8] = {};
   const uint8_t count = telemetryHeadGetPresence(nodes, 8);
   uint16_t values[8] = {};
@@ -510,6 +515,7 @@ static AutoZoneSnapshot computeAutoZonesSinceSeenMs(uint32_t minSeenMsExclusive)
   result.validCount = n;
   result.dryPermille = static_cast<uint16_t>(drySum / k);
   result.wetPermille = static_cast<uint16_t>(wetSum / k);
+  result.fromFreshWindow = false;
   return result;
 }
 
@@ -544,8 +550,11 @@ static AutoZoneSnapshot computeAutoZonesForDecision(uint32_t nowMs, const char* 
   }
 
   zones = computeAutoZones(nowMs, false);
-  if (zones.hasValid && !s_autoFallbackLogged) {
+  if (zones.hasValid &&
+      (!s_autoFallbackLogged ||
+       static_cast<uint32_t>(nowMs - s_autoFallbackLastLogMs) >= AUTO_FALLBACK_LOG_THROTTLE_MS)) {
     s_autoFallbackLogged = true;
+    s_autoFallbackLastLogMs = nowMs;
     Serial.print("AUTO_SM_FALLBACK state=");
     Serial.print(stateTag ? stateTag : "unknown");
     Serial.println(" reason=NO_FRESH_WINDOW using=online_snapshot");
@@ -605,6 +614,7 @@ static void autoResetRun(const char* reason)
   s_autoCheckpointAtMs = 0;
   s_autoPulseStartedAtMs = 0;
   s_autoFallbackLogged = false;
+  s_autoFallbackLastLogMs = 0;
   s_autoIdleLastLogMs = 0;
   s_autoWaitNextWakeSeenMs = 0;
   s_autoWaitNextWakeCollectUntilMs = 0;
@@ -1383,6 +1393,10 @@ static void irrigationAutomationTick(uint32_t nowMs)
           s_controlPhase = CONTROL_CMD_PENDING_STOP;
           beginPendingControlCommand(REMOTE_BUTTON_IRRIGATION_STOP, nowMs);
           autoResetRun("ABORT_N_LT_MIN");
+          return;
+        }
+        if (!zones.fromFreshWindow && zones.validCount < AUTO_PULSE_STOP_MIN_VALID_ON_FALLBACK) {
+          autoSmLog("PulseActive", "checkpoint", "PulseActive", "continue", "STOP_DEFER_FALLBACK_LOW_N", &zones);
           return;
         }
         if (autoStopConditionMet(zones)) {
