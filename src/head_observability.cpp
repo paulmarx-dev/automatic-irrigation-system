@@ -107,8 +107,9 @@ static constexpr uint16_t AUTO_MIN_VALID_SENSORS = 1;
 static constexpr uint32_t AUTO_CHECKPOINT_WINDOW_MS = 1000;
 static constexpr uint32_t AUTO_WAIT_NEXT_WAKE_COLLECTION_MS = 3000;
 static constexpr uint32_t AUTO_INTRA_PULSE_LEAD_MS = 10000;
-static constexpr uint32_t AUTO_KEEP_AWAKE_BASE_SLEEP_MS = 1000;
-static constexpr uint32_t AUTO_KEEP_AWAKE_LEASE_MS = 4000;
+static constexpr uint32_t AUTO_KEEP_AWAKE_BASE_SLEEP_MS = 1200;
+static constexpr uint32_t AUTO_KEEP_AWAKE_LEASE_MS = 4500;
+static constexpr uint32_t AUTO_KEEP_AWAKE_WINDOW_LEAD_MS = 6000;
 static constexpr uint16_t MANUAL_DURATION_DEFAULT_SEC = 120;
 static constexpr uint16_t MANUAL_DURATION_MIN_SEC = 0;
 static constexpr uint16_t MANUAL_DURATION_MAX_SEC = 600;
@@ -1219,9 +1220,16 @@ static void startIrrigation(uint32_t nowMs, uint32_t durationSec, const char* re
 
 static void irrigationAutomationTick(uint32_t nowMs)
 {
-  const bool autoKeepAwakeActive =
-      (s_irrigationMode == IRRIGATION_MODE_AUTO) &&
-      (s_autoRunState == AUTO_RUN_PULSE_ACTIVE || s_autoRunState == AUTO_RUN_SOAK_WAIT);
+  bool autoKeepAwakeActive = false;
+  if (s_irrigationMode == IRRIGATION_MODE_AUTO) {
+    if ((s_autoRunState == AUTO_RUN_PULSE_ACTIVE || s_autoRunState == AUTO_RUN_SOAK_WAIT) &&
+        s_autoCheckpointAtMs != 0) {
+      const int32_t untilCheckpointMs = static_cast<int32_t>(s_autoCheckpointAtMs - nowMs);
+      autoKeepAwakeActive =
+          (untilCheckpointMs <= static_cast<int32_t>(AUTO_KEEP_AWAKE_WINDOW_LEAD_MS)) &&
+          (untilCheckpointMs >= -static_cast<int32_t>(AUTO_CHECKPOINT_WINDOW_MS));
+    }
+  }
   if (autoKeepAwakeActive) {
     telemetryHeadSetSleepBaseOverrideMs(AUTO_KEEP_AWAKE_BASE_SLEEP_MS, AUTO_KEEP_AWAKE_LEASE_MS);
   } else {

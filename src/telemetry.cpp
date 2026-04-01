@@ -638,6 +638,13 @@ static uint32_t s_waveReferenceTimeMs = 0;
 static uint32_t s_sleepBaseOverrideMs = 0;
 static uint32_t s_sleepBaseOverrideUntilMs = 0;
 
+static bool isSleepBaseOverrideActive(uint32_t nowMs)
+{
+  return s_sleepBaseOverrideMs != 0 &&
+         s_sleepBaseOverrideUntilMs != 0 &&
+         (int32_t)(nowMs - s_sleepBaseOverrideUntilMs) < 0;
+}
+
 static uint8_t commandAckPriority(uint8_t status)
 {
   if (status == COMMAND_ACK_STATUS_APPLIED) {
@@ -885,8 +892,7 @@ static uint32_t computeAlignedSleepMs(uint32_t nowMs,
 
 static uint32_t controlSleepBaseMs(const NodeTelemetryState* node, uint32_t nowMs)
 {
-  if (s_sleepBaseOverrideMs != 0 && s_sleepBaseOverrideUntilMs != 0 &&
-      (int32_t)(nowMs - s_sleepBaseOverrideUntilMs) < 0) {
+  if (isSleepBaseOverrideActive(nowMs)) {
     return s_sleepBaseOverrideMs;
   }
 
@@ -983,9 +989,10 @@ static bool sendSleepPlanToNode(NodeTelemetryState* node, uint32_t nowMs, bool i
     node->sleepHeadBootId = s_headBootId;
     const uint32_t slotDelayMs = computeNodeSlotDelayMs(node->nodeId);
     const uint32_t baseSleepMs = controlSleepBaseMs(node, nowMs);
+    const bool keepAwakeOverrideActive = isSleepBaseOverrideActive(nowMs);
 
     uint32_t plannedMs = baseSleepMs + slotDelayMs;
-    if (s_waveReferenceTimeMs > 0) {
+    if (s_waveReferenceTimeMs > 0 && !keepAwakeOverrideActive) {
       plannedMs = computeAlignedSleepMs(nowMs, s_waveReferenceTimeMs, baseSleepMs, slotDelayMs);
     }
 
