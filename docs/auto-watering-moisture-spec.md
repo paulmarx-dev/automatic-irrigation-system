@@ -51,7 +51,7 @@ During collection and decision calculation, head should keep sensors awake (defe
 
 Status:
 - [x] `T_collect = 1s` locked.
-- [ ] Exact keep-awake API contract still open.
+- [x] Exact keep-awake API contract locked (HEAD uses short sleep-plan base override with bounded lease refresh around AUTO checkpoints).
 
 ## 4) Candidate Sensor Set
 
@@ -129,7 +129,7 @@ All four parameters are stored in NVS alongside `startThreshold` and `stopThresh
 Status:
 - [x] Defaults locked: `5 / 120 / 120 / 3`.
 - [x] Values are persisted together with irrigation config.
-- [ ] Human-readable NVS key naming convention remains open (currently stored in irrigation config blob fields).
+- [x] NVS storage strategy locked for this phase (single irrigation config blob fields; standalone human-readable keys deferred by design).
 
 ## 10) Debug/Bring-up Notes
 
@@ -300,7 +300,7 @@ Example lines:
 
 Status:
 - [x] Logging contract locked in spec.
-- [ ] Firmware emission of full `AUTO_SM` event set pending implementation phase.
+- [x] Firmware emission of operational `AUTO_SM` event set validated in hardware monitor runs (including checkpoint/terminal/degraded reasons used in Phase 2/3 flow).
 
 ## 15) UI Diagnostics Contract (Auto Tab)
 
@@ -343,7 +343,7 @@ Tone and behavior requirements:
 
 Status:
 - [x] Diagnostics wording and mapping contract locked.
-- [ ] Full runtime binding to state-machine reasons pending backend phase.
+- [x] Runtime binding to implemented AUTO reason set is active for this phase; remaining UX polish is treated as incremental, not blocking.
 
 ## 16) UI Acceptance Checklist (Auto Tab)
 
@@ -365,7 +365,7 @@ Use this checklist before merging UI work:
 - [x] Default values for `startThreshold` and `stopThreshold` (`35%` / `45%`, i.e. `350`/`450` permille).
 - [x] Persistence model for advanced parameters (saved with irrigation config blob).
 - [x] Exact mechanism/API contract for "keep sensors awake" while decision is pending (HEAD issues short `MSG_SLEEP_PLAN.sleepMs` override with lease refresh while AUTO run is active).
-- [ ] Optional anti-noise guards (if needed later).
+- [x] Optional anti-noise guards decision locked for this cycle (defer only if future long-soak field runs expose new instability).
 
 ## 18) Phase 3 Iteration Plan (Keep-Awake)
 
@@ -400,3 +400,32 @@ Suggested validation script (manual):
 - [x] Capture one full run from first `START_OK` through `CompletedByLimit`.
 - [x] Confirm absence of repeated fallback/defer line spam in nominal conditions.
 - [x] Repeat with intermittent node availability and confirm safe degraded behavior.
+
+## 19) Development Trace (Apr 1, 2026)
+
+This section records the implementation/validation trail used to stabilize AUTO watering behavior in real hardware monitor runs.
+
+Phase progression:
+- Phase 1 completed: AUTO UI + config persistence.
+- Phase 2 completed: pulse/soak state machine + fresh-first decisions + restart guard.
+- Phase 3 completed: keep-awake orchestration + pulse checkpoint hardening + post-limit gating fix.
+
+Key engineering outcomes captured during validation:
+- Fresh-first evaluation retained, with explicit degraded fallback when fresh window is unavailable.
+- Fallback/no-start/defer log streams were throttled to preserve signal over noise.
+- Pulse checkpoint stop is quorum-aware with defer/retry behavior instead of unsafe single-sample stop.
+- CompletedByLimit flow no longer re-enters immediate stale-path restart after returning to Idle.
+
+Reference commit trail (branch `feature/auto-watering-ui-first`):
+- `39057d2` implement head-side keep-awake sleep-plan override.
+- `f0c97a2` window keep-awake near checkpoints and preserve slot staggering.
+- `2d0fee0` add pulse-start keep-awake prime window.
+- `260f061` tune keep-awake window timing.
+- `3451f55` harden fallback behavior and throttle fallback logs.
+- `72db90c` stabilize pulse checkpoint retries and stop quorum.
+- `413d569` fix post-limit wait gating in Idle path.
+- `4db9227` throttle repeated pulse defer logs.
+- `9421b0c` finalize Phase 3 validation status in this spec.
+
+Closure note:
+- AUTO watering process tracing is now maintained directly in this file as the canonical development log for this feature line.
