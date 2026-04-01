@@ -1224,6 +1224,18 @@ static ControlAvailabilitySnapshot computeControlAvailabilitySnapshot()
   return snapshot;
 }
 
+static const char* autoStartBlockedReason(uint32_t nowMs)
+{
+  const ControlAvailabilitySnapshot controlSnapshot = computeControlAvailabilitySnapshot();
+  if (controlSnapshot.lowBatteryLockoutActive) {
+    return "START_BLOCKED_CONTROL_BATTERY_LOCKOUT";
+  }
+  if (!hasControlReachablePresence(nowMs)) {
+    return "START_BLOCKED_CONTROL_UNREACHABLE";
+  }
+  return nullptr;
+}
+
 static void stopIrrigation(const char* reason)
 {
   if (!s_manualIrrigationActive) {
@@ -1369,6 +1381,13 @@ static void irrigationAutomationTick(uint32_t nowMs)
         s_autoWaitNextWakeSeenMs = 0;
         s_autoWaitNextWakeCollectUntilMs = 0;
 
+        const char* blockedReason = autoStartBlockedReason(nowMs);
+        if (blockedReason) {
+          s_autoIdleLastLogMs = nowMs;
+          autoSmLog("Idle", "checkpoint", "Idle", "continue", blockedReason, &waitZones);
+          return;
+        }
+
         if (autoStartConditionMet(waitZones)) {
           s_autoRunId++;
           s_autoUsedPulses = 1;
@@ -1386,8 +1405,21 @@ static void irrigationAutomationTick(uint32_t nowMs)
         return;
       }
 
-      const AutoZoneSnapshot zones = computeAutoZonesForDecision(nowMs, "Idle");
+      const AutoZoneSnapshot zones = computeAutoZones(nowMs, true);
       if (!zones.hasValid) {
+        if (s_autoIdleLastLogMs == 0 || (int32_t)(nowMs - s_autoIdleLastLogMs) >= 30000) {
+          s_autoIdleLastLogMs = nowMs;
+          autoSmLog("Idle", "checkpoint", "Idle", "continue", "NO_FRESH_START_DATA");
+        }
+        return;
+      }
+
+      const char* blockedReason = autoStartBlockedReason(nowMs);
+      if (blockedReason) {
+        if (s_autoIdleLastLogMs == 0 || (int32_t)(nowMs - s_autoIdleLastLogMs) >= 30000) {
+          s_autoIdleLastLogMs = nowMs;
+          autoSmLog("Idle", "checkpoint", "Idle", "continue", blockedReason, &zones);
+        }
         return;
       }
 
@@ -1501,7 +1533,7 @@ static void irrigationAutomationTick(uint32_t nowMs)
         return;
       }
 
-      const AutoZoneSnapshot zones = computeAutoZonesForDecision(nowMs, "SoakWait");
+      const AutoZoneSnapshot zones = computeAutoZones(nowMs, true);
       if (!zones.hasValid) {
         autoResetRun("ABORT_N_LT_MIN");
         return;
@@ -1529,6 +1561,12 @@ static void irrigationAutomationTick(uint32_t nowMs)
         s_autoWaitNextWakeCollectUntilMs = 0;
         s_autoIdleLastLogMs = 0;
         autoSmLog("SoakWait", "checkpoint", "CompletedByLimit", "limit", "COMPLETE_BY_LIMIT", &zones);
+        return;
+      }
+
+      const char* blockedReason = autoStartBlockedReason(nowMs);
+      if (blockedReason) {
+        autoResetRun(blockedReason);
         return;
       }
 
