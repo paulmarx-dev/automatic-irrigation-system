@@ -357,3 +357,37 @@ Use this checklist before merging UI work:
 - [x] Persistence model for advanced parameters (saved with irrigation config blob).
 - [ ] Exact mechanism/API contract for "keep sensors awake" while decision is pending.
 - [ ] Optional anti-noise guards (if needed later).
+
+## 18) Phase 3 Iteration Plan (Keep-Awake)
+
+Goal:
+- Remove reliance on online-snapshot fallback during AUTO run checkpoints by ensuring fresh telemetry is available at decision points.
+
+Scope:
+- Head schedules/requests short awake window for eligible sensors around AUTO decision checkpoints.
+- AUTO decision path in active run prefers fresh-only evaluation (fallback remains only as guarded bring-up safety path).
+- Runtime logs include keep-awake intent/ack visibility for field debugging.
+
+Implementation checklist:
+- [ ] Define head->sensor keep-awake contract (message field(s), duration, retry semantics).
+- [ ] Implement head-side keep-awake scheduler for:
+- [ ] Pre-pulse decision window.
+- [ ] Intra-pulse checkpoint window (`pulseEnd - 10s`).
+- [ ] Soak-end checkpoint window.
+- [ ] Implement sensor-side handling of keep-awake request and bounded awake lease.
+- [ ] Ensure decision checkpoints consume fresh window data first and do not depend on stale snapshot when keep-awake succeeded.
+- [ ] Add/extend logs: keep-awake request sent, ack accepted/rejected, lease active/expired.
+- [ ] Keep fallback path behind explicit reason logging for degraded-mode runs.
+
+Acceptance checklist (hardware monitor):
+- [ ] During active AUTO run, checkpoint decisions are made on fresh telemetry for the target window.
+- [ ] `AUTO_SM_FALLBACK` does not appear in nominal run with responsive sensors.
+- [ ] Pulse/soak transitions remain deterministic: `Idle -> PulseActive -> SoakWait` with no false abort.
+- [ ] CompletedByLimit guard behavior remains intact (no immediate stale restart).
+- [ ] If keep-awake fails, system degrades safely (no overwatering; clear reason codes in logs).
+
+Suggested validation script (manual):
+- [ ] Configure `pulseIntervalSec=21`, `soakDelaySec=20`, `maxPulses=2`, AUTO mode enabled.
+- [ ] Capture one full run from first `START_OK` through `CompletedByLimit`.
+- [ ] Confirm absence of repeated fallback lines in nominal conditions.
+- [ ] Repeat with one node intentionally unavailable and confirm safe degraded behavior.
