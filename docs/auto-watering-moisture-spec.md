@@ -1,6 +1,6 @@
 # Auto Watering By Moisture - Spec (v1)
 
-Status: In progress. Phase 1 (UI + config persistence), Phase 2 (pulse/soak state machine on head), and Phase 3 (keep-awake orchestration hardening) completed and test-passed on Apr 1, 2026.
+Status: In progress. Phase 1 (UI + config persistence) is complete. Phase 2/3 runtime logic is stabilized and field-validated on Apr 1, 2026, but plan-to-code alignment is not yet 100% closed.
 
 ## Implementation Progress
 
@@ -14,11 +14,12 @@ Status: In progress. Phase 1 (UI + config persistence), Phase 2 (pulse/soak stat
   - Fresh-first decision path with online-snapshot fallback implemented to prevent false abort during sensor sleep windows.
   - Runtime logs de-spammed (one-shot fallback log, throttled idle no-start logs).
   - CompletedByLimit restart guard validated (no immediate same-loop restart on stale snapshot).
-- Phase 3: Done, test passed.
+- Phase 3: Stabilized in hardware, not fully closed against original plan.
   - Keep-awake orchestration contract and scheduling implemented on head runtime path.
   - Pulse checkpoint stop decision hardened with quorum-aware defer/retry behavior.
   - Fallback and defer observability de-spammed (throttled repeated lines per phase/pulse).
   - Post-limit wait gating fixed (no immediate re-entry through regular Idle path).
+  - Remaining gaps: AUTO start path still allows degraded fallback from `Idle`, and blocking conditions are not yet enforced directly in the AUTO start predicate.
 
 Phase 2 validation summary (hardware monitor):
 - Verified state transitions in multiple runs: `Idle -> PulseActive -> SoakWait -> PulseActive`.
@@ -71,9 +72,12 @@ If valid count is below minimum:
 - If watering is already active, stop and wait for next telemetry cycle.
 
 Status:
-- [x] Valid sample rules locked.
+- [ ] Valid sample rules fully match implementation.
 - [x] `N_min = 1` locked.
 - [x] Stop on `< N_min` during active watering locked.
+
+Implementation note:
+- Active run checkpoints prefer fresh samples, but `Idle` start may still fall back to online snapshot when fresh window is empty.
 
 ## 5) Zone Calculation
 
@@ -94,7 +98,11 @@ Start watering when all are true:
 - No blocking conditions (e.g. control unavailable / battery lockout / mode conflict)
 
 Status:
-- [x] Start condition logic locked.
+- [ ] Start condition fully matches plan.
+
+Implementation note:
+- Implemented moisture predicate is `dryZone < startThreshold && wetZone <= stopThreshold`.
+- Planned blocking conditions (`control unavailable`, `battery lockout`, other start-time gating) are not yet enforced directly in the AUTO start path.
 
 ## 7) Stop Condition (AUTO mode)
 
@@ -211,6 +219,10 @@ Status:
 - [x] Intra-pulse checkpoint timing locked (`pulseEnd - 10s`).
 - [x] `CompletedByLimit` behavior locked (restart only on next regular wake).
 - [x] Mode-change abort priority locked.
+
+Implementation note:
+- Runtime behavior matches the pulse/soak flow well for active runs.
+- Initial `Idle -> PulseActive` entry is still allowed via degraded fallback path, which is weaker than the planned fresh-only `PrePulseDecision` model.
 
 ## 13) Transition Table (Deterministic)
 
@@ -367,6 +379,10 @@ Use this checklist before merging UI work:
 - [x] Exact mechanism/API contract for "keep sensors awake" while decision is pending (HEAD issues short `MSG_SLEEP_PLAN.sleepMs` override with lease refresh while AUTO run is active).
 - [x] Optional anti-noise guards decision locked for this cycle (defer only if future long-soak field runs expose new instability).
 
+Still open in implementation:
+- [ ] Enforce blocking conditions directly in AUTO start path (`control unavailable`, `battery lockout`, equivalent start-time guards).
+- [ ] Make initial `Idle` AUTO start fresh-only instead of allowing degraded online-snapshot fallback.
+
 ## 18) Phase 3 Iteration Plan (Keep-Awake)
 
 Goal:
@@ -380,11 +396,11 @@ Scope:
 Implementation checklist:
 - [x] Define head->sensor keep-awake contract (existing `MSG_SLEEP_PLAN` fields, short base sleep override with lease refresh, existing sleep-ack retry semantics).
 - [x] Implement head-side keep-awake scheduler for active AUTO run windows.
-- [x] Pre-pulse decision window.
+- [ ] Fresh-only pre-pulse decision window.
 - [x] Intra-pulse checkpoint window (`pulseEnd - 10s`).
 - [x] Soak-end checkpoint window.
 - [x] Implement sensor-side handling of keep-awake request and bounded awake lease (covered by existing sleep-plan apply + sleep-ack handshake path).
-- [x] Ensure decision checkpoints consume fresh window data first and use fallback only as explicit degraded path.
+- [ ] Ensure initial AUTO start consumes fresh-only window; keep fallback only for explicitly degraded paths where allowed by design.
 - [x] Add/extend logs: keep-awake override on/off/expired, plus existing sleep ack accepted/rejected logs.
 - [x] Keep fallback path behind explicit reason logging for degraded-mode runs.
 
@@ -394,6 +410,7 @@ Acceptance checklist (hardware monitor):
 - [x] Pulse/soak transitions remain deterministic: `Idle -> PulseActive -> SoakWait` with no false abort.
 - [x] CompletedByLimit guard behavior remains intact (no immediate stale restart).
 - [x] If keep-awake fails, system degrades safely (no overwatering; clear reason codes in logs).
+- [ ] AUTO start path uses fresh-only telemetry and direct blocking-condition gating, matching the original plan.
 
 Suggested validation script (manual):
 - [x] Configure `pulseIntervalSec=21`, `soakDelaySec=20`, `maxPulses=2`, AUTO mode enabled.
@@ -428,4 +445,19 @@ Reference commit trail (branch `feature/auto-watering-ui-first`):
 - `9421b0c` finalize Phase 3 validation status in this spec.
 
 Closure note:
-- AUTO watering process tracing is now maintained directly in this file as the canonical development log for this feature line.
+- AUTO watering process tracing is maintained directly in this file as the canonical development log for this feature line.
+- Field stabilization is complete, but full plan closure still requires the remaining implementation gaps listed below.
+
+## 20) Implemented vs Planned Gaps
+
+The following items are the main remaining differences between the current firmware and the original plan/spec:
+
+- `Idle` AUTO start may use degraded online-snapshot fallback when fresh telemetry window is empty; the plan expects fresh-only `PrePulseDecision` at run start.
+- AUTO start currently keys off the moisture predicate but does not directly gate on blocking conditions such as control unavailability or low-battery lockout in the same start path.
+- Because of the two points above, Phase 3 is considered runtime-stable but not fully plan-complete.
+
+Recommended next logic work before declaring full feature closure:
+
+- Implement explicit start-time blocking-condition gate in `Idle` AUTO start.
+- Remove degraded fallback from initial AUTO start, or explicitly revise the spec if degraded start is accepted product behavior.
+- Re-run monitor validation and then close the reopened checklist items above.
