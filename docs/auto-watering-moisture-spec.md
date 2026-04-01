@@ -355,7 +355,7 @@ Use this checklist before merging UI work:
 
 - [x] Default values for `startThreshold` and `stopThreshold` (`35%` / `45%`, i.e. `350`/`450` permille).
 - [x] Persistence model for advanced parameters (saved with irrigation config blob).
-- [ ] Exact mechanism/API contract for "keep sensors awake" while decision is pending.
+- [x] Exact mechanism/API contract for "keep sensors awake" while decision is pending (HEAD issues short `MSG_SLEEP_PLAN.sleepMs` override with lease refresh while AUTO run is active).
 - [ ] Optional anti-noise guards (if needed later).
 
 ## 18) Phase 3 Iteration Plan (Keep-Awake)
@@ -369,15 +369,15 @@ Scope:
 - Runtime logs include keep-awake intent/ack visibility for field debugging.
 
 Implementation checklist:
-- [ ] Define head->sensor keep-awake contract (message field(s), duration, retry semantics).
-- [ ] Implement head-side keep-awake scheduler for:
+- [x] Define head->sensor keep-awake contract (existing `MSG_SLEEP_PLAN` fields, short base sleep override with lease refresh, existing sleep-ack retry semantics).
+- [x] Implement head-side keep-awake scheduler for active AUTO run windows.
 - [ ] Pre-pulse decision window.
-- [ ] Intra-pulse checkpoint window (`pulseEnd - 10s`).
-- [ ] Soak-end checkpoint window.
-- [ ] Implement sensor-side handling of keep-awake request and bounded awake lease.
+- [x] Intra-pulse checkpoint window (`pulseEnd - 10s`).
+- [x] Soak-end checkpoint window.
+- [x] Implement sensor-side handling of keep-awake request and bounded awake lease (covered by existing sleep-plan apply + sleep-ack handshake path).
 - [ ] Ensure decision checkpoints consume fresh window data first and do not depend on stale snapshot when keep-awake succeeded.
-- [ ] Add/extend logs: keep-awake request sent, ack accepted/rejected, lease active/expired.
-- [ ] Keep fallback path behind explicit reason logging for degraded-mode runs.
+- [x] Add/extend logs: keep-awake override on/off/expired, plus existing sleep ack accepted/rejected logs.
+- [x] Keep fallback path behind explicit reason logging for degraded-mode runs.
 
 Acceptance checklist (hardware monitor):
 - [ ] During active AUTO run, checkpoint decisions are made on fresh telemetry for the target window.

@@ -635,6 +635,8 @@ static TelemetryHeadCommandAck s_latestCommandAck = {};
 static uint32_t s_sleepPlanIdSeq = 1;
 static uint32_t s_headBootId = 1;
 static uint32_t s_waveReferenceTimeMs = 0;
+static uint32_t s_sleepBaseOverrideMs = 0;
+static uint32_t s_sleepBaseOverrideUntilMs = 0;
 
 static uint8_t commandAckPriority(uint8_t status)
 {
@@ -683,11 +685,47 @@ void telemetryInit()
   memset(s_nodes, 0, sizeof(s_nodes));
   s_ackSeq = 0;
   s_sleepPlanIdSeq = 1;
+  s_sleepBaseOverrideMs = 0;
+  s_sleepBaseOverrideUntilMs = 0;
   s_headBootId = static_cast<uint32_t>(esp_random());
   if (s_headBootId == 0) {
     s_headBootId = 1;
   }
   trackStorageInit(TRACK_STORAGE_CAPACITY);
+}
+
+void telemetryHeadSetSleepBaseOverrideMs(uint32_t baseSleepMs, uint32_t leaseMs)
+{
+  const uint32_t nowMs = millis();
+
+  if (baseSleepMs == 0 || leaseMs == 0) {
+    if (s_sleepBaseOverrideMs != 0 || s_sleepBaseOverrideUntilMs != 0) {
+      s_sleepBaseOverrideMs = 0;
+      s_sleepBaseOverrideUntilMs = 0;
+      Serial.println("HEAD_KEEP_AWAKE override=off");
+    }
+    return;
+  }
+
+  if (baseSleepMs < 1000UL) {
+    baseSleepMs = 1000UL;
+  }
+  if (baseSleepMs > SLEEP_BASE_DURATION_MS) {
+    baseSleepMs = SLEEP_BASE_DURATION_MS;
+  }
+
+  const uint32_t newUntilMs = nowMs + leaseMs;
+  const bool baseChanged = (s_sleepBaseOverrideMs != baseSleepMs);
+  const bool wasExpired = (s_sleepBaseOverrideUntilMs != 0) && ((int32_t)(nowMs - s_sleepBaseOverrideUntilMs) >= 0);
+  s_sleepBaseOverrideMs = baseSleepMs;
+  s_sleepBaseOverrideUntilMs = newUntilMs;
+
+  if (baseChanged || wasExpired) {
+    Serial.print("HEAD_KEEP_AWAKE override=on baseMs=");
+    Serial.print((unsigned long)s_sleepBaseOverrideMs);
+    Serial.print(" leaseMs=");
+    Serial.println((unsigned long)leaseMs);
+  }
 }
 
 static uint8_t mapTrackFlags(const MsgTelemetry* telemetry, bool isDuplicate)
@@ -845,8 +883,13 @@ static uint32_t computeAlignedSleepMs(uint32_t nowMs,
   return static_cast<uint32_t>(sleepMs);
 }
 
-static uint32_t controlSleepBaseMs(const NodeTelemetryState* node)
+static uint32_t controlSleepBaseMs(const NodeTelemetryState* node, uint32_t nowMs)
 {
+  if (s_sleepBaseOverrideMs != 0 && s_sleepBaseOverrideUntilMs != 0 &&
+      (int32_t)(nowMs - s_sleepBaseOverrideUntilMs) < 0) {
+    return s_sleepBaseOverrideMs;
+  }
+
   if (!node || !node->isControl) {
     return SLEEP_BASE_DURATION_MS;
   }
@@ -939,14 +982,17 @@ static bool sendSleepPlanToNode(NodeTelemetryState* node, uint32_t nowMs, bool i
     }
     node->sleepHeadBootId = s_headBootId;
     const uint32_t slotDelayMs = computeNodeSlotDelayMs(node->nodeId);
-    const uint32_t baseSleepMs = controlSleepBaseMs(node);
+    const uint32_t baseSleepMs = controlSleepBaseMs(node, nowMs);
 
     uint32_t plannedMs = baseSleepMs + slotDelayMs;
     if (s_waveReferenceTimeMs > 0) {
       plannedMs = computeAlignedSleepMs(nowMs, s_waveReferenceTimeMs, baseSleepMs, slotDelayMs);
     }
 
-    const uint32_t minSleepClampMs = 3000;
+    uint32_t minSleepClampMs = 3000;
+    if (baseSleepMs < minSleepClampMs) {
+      minSleepClampMs = baseSleepMs;
+    }
     const uint32_t maxSleepClampMs = baseSleepMs + TELEMETRY_PHASE_SPREAD_MS + SLEEP_SLOT_WIDTH_MS + SLEEP_SLOT_MICRO_JITTER_MS;
     if (plannedMs < minSleepClampMs) {
       plannedMs = minSleepClampMs;
@@ -972,7 +1018,7 @@ static bool sendSleepPlanToNode(NodeTelemetryState* node, uint32_t nowMs, bool i
   plan.headBootId = node->sleepHeadBootId;
   plan.sleepMs = node->sleepPlannedMs;
   plan.validUntilMs = node->sleepValidUntilMs;
-  const uint32_t baseSleepMs = controlSleepBaseMs(node);
+  const uint32_t baseSleepMs = controlSleepBaseMs(node, nowMs);
   plan.baseSleepSec = static_cast<uint16_t>(baseSleepMs / 1000UL);
   plan.slotDelayMs = static_cast<uint16_t>(node->sleepPlannedMs - baseSleepMs);
 
@@ -1313,6 +1359,13 @@ void telemetryOnRecv(const uint8_t* src_mac, const uint8_t* data, int len)
 
 void telemetryTickHead(uint32_t nowMs)
 {
+  if (s_sleepBaseOverrideMs != 0 && s_sleepBaseOverrideUntilMs != 0 &&
+      (int32_t)(nowMs - s_sleepBaseOverrideUntilMs) >= 0) {
+    s_sleepBaseOverrideMs = 0;
+    s_sleepBaseOverrideUntilMs = 0;
+    Serial.println("HEAD_KEEP_AWAKE override=expired");
+  }
+
   for (uint8_t i = 0; i < MAX_NODE_REGISTRY; ++i) {
     NodeTelemetryState* entry = &s_nodes[i];
     if (!entry->used) {
@@ -1621,6 +1674,12 @@ void telemetrySetNodeStatusFlags(uint8_t mask, bool enabled)
 {
   (void)mask;
   (void)enabled;
+}
+
+void telemetryHeadSetSleepBaseOverrideMs(uint32_t baseSleepMs, uint32_t leaseMs)
+{
+  (void)baseSleepMs;
+  (void)leaseMs;
 }
 
 #endif
