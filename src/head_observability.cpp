@@ -107,7 +107,8 @@ static constexpr uint16_t AUTO_MIN_VALID_SENSORS = 1;
 static constexpr uint32_t AUTO_CHECKPOINT_WINDOW_MS = 1000;
 static constexpr uint32_t AUTO_WAIT_NEXT_WAKE_COLLECTION_MS = 3000;
 static constexpr uint32_t AUTO_INTRA_PULSE_LEAD_MS = 10000;
-static constexpr uint8_t AUTO_PULSE_STOP_MIN_VALID_ON_FALLBACK = 2;
+static constexpr uint8_t AUTO_PULSE_STOP_MIN_VALID = 2;
+static constexpr uint32_t AUTO_PULSE_CHECKPOINT_RETRY_MS = 1200;
 static constexpr uint32_t AUTO_FALLBACK_LOG_THROTTLE_MS = 15000;
 static constexpr uint32_t AUTO_KEEP_AWAKE_BASE_SLEEP_MS = 1200;
 static constexpr uint32_t AUTO_KEEP_AWAKE_LEASE_MS = 4500;
@@ -541,11 +542,36 @@ static uint32_t latestAutoEligibleSeenMs()
   return latestSeenMs;
 }
 
+static uint8_t countAutoEligibleOnlineNodes()
+{
+  TelemetryHeadNodePresence nodes[8] = {};
+  const uint8_t count = telemetryHeadGetPresence(nodes, 8);
+  uint8_t eligibleCount = 0;
+
+  for (uint8_t i = 0; i < count; ++i) {
+    const TelemetryHeadNodePresence& node = nodes[i];
+    if (node.isControl || node.state != TELEMETRY_HEAD_NODE_ONLINE) {
+      continue;
+    }
+    if (node.moisturePermille < AUTO_VALID_MOISTURE_MIN_PERMILLE) {
+      continue;
+    }
+    ++eligibleCount;
+  }
+
+  return eligibleCount;
+}
+
+static void resetAutoFallbackLogState()
+{
+  s_autoFallbackLogged = false;
+  s_autoFallbackLastLogMs = 0;
+}
+
 static AutoZoneSnapshot computeAutoZonesForDecision(uint32_t nowMs, const char* stateTag)
 {
   AutoZoneSnapshot zones = computeAutoZones(nowMs, true);
   if (zones.hasValid) {
-    s_autoFallbackLogged = false;
     return zones;
   }
 
@@ -613,8 +639,7 @@ static void autoResetRun(const char* reason)
   s_autoSoakDeadlineMs = 0;
   s_autoCheckpointAtMs = 0;
   s_autoPulseStartedAtMs = 0;
-  s_autoFallbackLogged = false;
-  s_autoFallbackLastLogMs = 0;
+  resetAutoFallbackLogState();
   s_autoIdleLastLogMs = 0;
   s_autoWaitNextWakeSeenMs = 0;
   s_autoWaitNextWakeCollectUntilMs = 0;
@@ -1342,6 +1367,7 @@ static void irrigationAutomationTick(uint32_t nowMs)
           s_autoRunId++;
           s_autoUsedPulses = 1;
           s_autoRunState = AUTO_RUN_PULSE_ACTIVE;
+          resetAutoFallbackLogState();
           s_autoCheckpointAtMs = 0;
           s_autoPulseStartedAtMs = nowMs;
           startIrrigation(nowMs, s_autoPulseIntervalSec, "AUTO pulse start");
@@ -1357,6 +1383,7 @@ static void irrigationAutomationTick(uint32_t nowMs)
         s_autoRunId++;
         s_autoUsedPulses = 1;
         s_autoRunState = AUTO_RUN_PULSE_ACTIVE;
+        resetAutoFallbackLogState();
         s_autoCheckpointAtMs = 0;
         s_autoPulseStartedAtMs = nowMs;
         startIrrigation(nowMs, s_autoPulseIntervalSec, "AUTO pulse start");
@@ -1395,8 +1422,22 @@ static void irrigationAutomationTick(uint32_t nowMs)
           autoResetRun("ABORT_N_LT_MIN");
           return;
         }
-        if (!zones.fromFreshWindow && zones.validCount < AUTO_PULSE_STOP_MIN_VALID_ON_FALLBACK) {
-          autoSmLog("PulseActive", "checkpoint", "PulseActive", "continue", "STOP_DEFER_FALLBACK_LOW_N", &zones);
+        const uint8_t eligibleOnlineCount = countAutoEligibleOnlineNodes();
+        const uint8_t minValidForStop = (eligibleOnlineCount >= AUTO_PULSE_STOP_MIN_VALID)
+            ? AUTO_PULSE_STOP_MIN_VALID
+            : AUTO_MIN_VALID_SENSORS;
+        if (zones.validCount < minValidForStop) {
+          const uint32_t retryAtMs = nowMs + AUTO_PULSE_CHECKPOINT_RETRY_MS;
+          if (s_manualRunDeadlineMs != 0 && (int32_t)(s_manualRunDeadlineMs - retryAtMs) > 0) {
+            s_autoCheckpointAtMs = retryAtMs;
+          }
+          autoSmLog(
+              "PulseActive",
+              "checkpoint",
+              "PulseActive",
+              "continue",
+              zones.fromFreshWindow ? "STOP_DEFER_LOW_N" : "STOP_DEFER_FALLBACK_LOW_N",
+              &zones);
           return;
         }
         if (autoStopConditionMet(zones)) {
@@ -1404,6 +1445,7 @@ static void irrigationAutomationTick(uint32_t nowMs)
           s_controlPhase = CONTROL_CMD_PENDING_STOP;
           beginPendingControlCommand(REMOTE_BUTTON_IRRIGATION_STOP, nowMs);
           s_autoRunState = AUTO_RUN_IDLE;
+          resetAutoFallbackLogState();
           s_autoUsedPulses = 0;
           s_autoSoakDeadlineMs = 0;
           s_autoPulseStartedAtMs = 0;
@@ -1418,6 +1460,7 @@ static void irrigationAutomationTick(uint32_t nowMs)
         s_controlPhase = CONTROL_CMD_PENDING_STOP;
         beginPendingControlCommand(REMOTE_BUTTON_IRRIGATION_STOP, nowMs);
         s_autoRunState = AUTO_RUN_SOAK_WAIT;
+        resetAutoFallbackLogState();
         s_autoSoakDeadlineMs = nowMs + (static_cast<uint32_t>(s_autoSoakDelaySec) * 1000UL);
         s_autoCheckpointAtMs = s_autoSoakDeadlineMs;
         s_autoPulseStartedAtMs = 0;
@@ -1444,6 +1487,7 @@ static void irrigationAutomationTick(uint32_t nowMs)
 
       if (autoStopConditionMet(zones)) {
         s_autoRunState = AUTO_RUN_IDLE;
+        resetAutoFallbackLogState();
         s_autoUsedPulses = 0;
         s_autoSoakDeadlineMs = 0;
         s_autoCheckpointAtMs = 0;
@@ -1454,6 +1498,7 @@ static void irrigationAutomationTick(uint32_t nowMs)
 
       if (s_autoUsedPulses >= s_autoMaxPulses) {
         s_autoRunState = AUTO_RUN_IDLE;
+        resetAutoFallbackLogState();
         s_autoUsedPulses = 0;
         s_autoSoakDeadlineMs = 0;
         s_autoCheckpointAtMs = 0;
@@ -1467,6 +1512,7 @@ static void irrigationAutomationTick(uint32_t nowMs)
 
       s_autoUsedPulses++;
       s_autoRunState = AUTO_RUN_PULSE_ACTIVE;
+      resetAutoFallbackLogState();
       s_autoSoakDeadlineMs = 0;
       s_autoCheckpointAtMs = 0;
       s_autoPulseStartedAtMs = nowMs;
