@@ -1,6 +1,6 @@
 # Auto Watering By Moisture - Spec (v1)
 
-Status: In progress. Phase 1 (UI + config persistence) is complete. Phase 2/3 runtime logic is stabilized and field-validated on Apr 1, 2026; AUTO start-path alignment with plan is closed, with one remaining degraded-checkpoint gap in active pulse behavior.
+Status: In progress. Phase 1 (UI + config persistence) is complete. Phase 2/3 runtime logic is stabilized and field-validated on Apr 1, 2026; AUTO decision paths now run on strict fresh telemetry semantics.
 
 ## Implementation Progress
 
@@ -14,13 +14,13 @@ Status: In progress. Phase 1 (UI + config persistence) is complete. Phase 2/3 ru
   - Fresh-first decision path with online-snapshot fallback implemented to prevent false abort during sensor sleep windows.
   - Runtime logs de-spammed (one-shot fallback log, throttled idle no-start logs).
   - CompletedByLimit restart guard validated (no immediate same-loop restart on stale snapshot).
-- Phase 3: Stabilized in hardware, not fully closed against original plan.
+- Phase 3: Done, test passed.
   - Keep-awake orchestration contract and scheduling implemented on head runtime path.
   - Pulse checkpoint stop decision hardened with quorum-aware defer/retry behavior.
   - Fallback and defer observability de-spammed (throttled repeated lines per phase/pulse).
   - Post-limit wait gating fixed (no immediate re-entry through regular Idle path).
   - AUTO start path now requires fresh telemetry plus direct CONTROL reachability/lockout gating.
-  - Remaining gap: intra-pulse checkpoint still supports degraded fallback/defer behavior instead of strict fresh-only decisioning.
+  - Intra-pulse checkpoint now uses strict fresh-only decisioning (no degraded fallback to stale snapshot).
 
 Phase 2 validation summary (hardware monitor):
 - Verified state transitions in multiple runs: `Idle -> PulseActive -> SoakWait -> PulseActive`.
@@ -73,13 +73,13 @@ If valid count is below minimum:
 - If watering is already active, stop and wait for next telemetry cycle.
 
 Status:
-- [ ] Valid sample rules fully match implementation.
+- [x] Valid sample rules fully match implementation.
 - [x] `N_min = 1` locked.
 - [x] Stop on `< N_min` during active watering locked.
 
 Implementation note:
 - AUTO start paths (`Idle` and `SoakWait -> next pulse`) now require fresh samples.
-- Intra-pulse checkpoint still has an explicit degraded fallback path when the fresh window is empty.
+- Intra-pulse checkpoint also requires fresh samples; stale snapshot fallback removed.
 
 ## 5) Zone Calculation
 
@@ -382,7 +382,7 @@ Use this checklist before merging UI work:
 - [x] Optional anti-noise guards decision locked for this cycle (defer only if future long-soak field runs expose new instability).
 
 Still open in implementation:
-- [ ] Decide whether intra-pulse checkpoint should remain degraded-capable or be tightened to strict fresh-only stop/safety behavior.
+- [x] Intra-pulse checkpoint is strict fresh-only; degraded fallback removed.
 
 ## 18) Phase 3 Iteration Plan (Keep-Awake)
 
@@ -402,13 +402,13 @@ Implementation checklist:
 - [x] Soak-end checkpoint window.
 - [x] Implement sensor-side handling of keep-awake request and bounded awake lease (covered by existing sleep-plan apply + sleep-ack handshake path).
 - [x] Ensure initial AUTO start consumes fresh-only window.
-- [ ] Decide whether intra-pulse degraded fallback remains accepted design behavior.
+- [x] Intra-pulse checkpoint uses strict fresh-only behavior.
 - [x] Add/extend logs: keep-awake override on/off/expired, plus existing sleep ack accepted/rejected logs.
 - [x] Keep fallback path behind explicit reason logging for degraded-mode runs.
 
 Acceptance checklist (hardware monitor):
 - [x] During active AUTO run, checkpoint decisions prioritize fresh telemetry for the target window.
-- [x] Fallback lines are explicit and throttled (no repeated spam in nominal/degraded runs).
+- [x] No stale-snapshot fallback decisions at AUTO checkpoints (fresh-only).
 - [x] Pulse/soak transitions remain deterministic: `Idle -> PulseActive -> SoakWait` with no false abort.
 - [x] CompletedByLimit guard behavior remains intact (no immediate stale restart).
 - [x] If keep-awake fails, system degrades safely (no overwatering; clear reason codes in logs).
@@ -455,12 +455,8 @@ Closure note:
 
 The following items are the main remaining differences between the current firmware and the original plan/spec:
 
-- Intra-pulse checkpoint still allows an explicit degraded fallback/defer path when fresh telemetry is missing.
-- The original plan leans toward strictly fresh checkpoint decisions with immediate safety stop on missing valid data.
-- Because of that difference, runtime is stable, but checkpoint semantics are still not fully plan-identical.
+- None for the core AUTO decision semantics described in this spec revision.
 
 Recommended next logic work before declaring full feature closure:
 
-- Decide whether degraded intra-pulse checkpoint behavior is acceptable product behavior.
-- If not, remove fallback/defer from `PulseActive` checkpoint and revert to strict fresh-only safety stop.
-- Re-run monitor validation and then close the reopened checklist items above.
+- Long-soak field validation and optional anti-noise refinement only.

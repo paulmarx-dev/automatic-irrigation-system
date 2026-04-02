@@ -110,7 +110,6 @@ static constexpr uint32_t AUTO_INTRA_PULSE_LEAD_MS = 10000;
 static constexpr uint8_t AUTO_PULSE_STOP_MIN_VALID = 2;
 static constexpr uint32_t AUTO_PULSE_CHECKPOINT_RETRY_MS = 1200;
 static constexpr uint32_t AUTO_PULSE_DEFER_LOG_THROTTLE_MS = 5000;
-static constexpr uint32_t AUTO_FALLBACK_LOG_THROTTLE_MS = 15000;
 static constexpr uint32_t AUTO_KEEP_AWAKE_BASE_SLEEP_MS = 1200;
 static constexpr uint32_t AUTO_KEEP_AWAKE_LEASE_MS = 4500;
 static constexpr uint32_t AUTO_KEEP_AWAKE_WINDOW_LEAD_MS = 7000;
@@ -159,8 +158,6 @@ static uint32_t s_autoCheckpointAtMs = 0;
 static uint32_t s_autoPulseStartedAtMs = 0;
 static bool s_autoWaitNextWakeAfterLimit = false;
 static uint32_t s_autoRunId = 0;
-static bool s_autoFallbackLogged = false;
-static uint32_t s_autoFallbackLastLogMs = 0;
 static uint32_t s_autoPulseDeferLastLogMs = 0;
 static bool s_autoPulseDeferLastUsedFallback = false;
 static uint32_t s_autoIdleLastLogMs = 0;
@@ -567,34 +564,13 @@ static uint8_t countAutoEligibleOnlineNodes()
 
 static void resetAutoFallbackLogState()
 {
-  s_autoFallbackLogged = false;
-  s_autoFallbackLastLogMs = 0;
+  // No-op: degraded fallback path removed; kept for transition call sites.
 }
 
 static void resetAutoPulseDeferLogState()
 {
   s_autoPulseDeferLastLogMs = 0;
   s_autoPulseDeferLastUsedFallback = false;
-}
-
-static AutoZoneSnapshot computeAutoZonesForDecision(uint32_t nowMs, const char* stateTag)
-{
-  AutoZoneSnapshot zones = computeAutoZones(nowMs, true);
-  if (zones.hasValid) {
-    return zones;
-  }
-
-  zones = computeAutoZones(nowMs, false);
-  if (zones.hasValid &&
-      (!s_autoFallbackLogged ||
-       static_cast<uint32_t>(nowMs - s_autoFallbackLastLogMs) >= AUTO_FALLBACK_LOG_THROTTLE_MS)) {
-    s_autoFallbackLogged = true;
-    s_autoFallbackLastLogMs = nowMs;
-    Serial.print("AUTO_SM_FALLBACK state=");
-    Serial.print(stateTag ? stateTag : "unknown");
-    Serial.println(" reason=NO_FRESH_WINDOW using=online_snapshot");
-  }
-  return zones;
 }
 
 static bool autoStopConditionMet(const AutoZoneSnapshot& zones)
@@ -1458,7 +1434,7 @@ static void irrigationAutomationTick(uint32_t nowMs)
       }
 
       if (s_autoCheckpointAtMs != 0 && (int32_t)(nowMs - s_autoCheckpointAtMs) >= 0) {
-        const AutoZoneSnapshot zones = computeAutoZonesForDecision(nowMs, "PulseActive");
+        const AutoZoneSnapshot zones = computeAutoZones(nowMs, true);
         s_autoCheckpointAtMs = 0;
         if (!zones.hasValid) {
           stopIrrigation("AUTO checkpoint no valid sensors");
