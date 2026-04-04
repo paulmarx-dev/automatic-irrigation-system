@@ -1,5 +1,14 @@
 ## TODO
 
+## Update 2026-04-04 (implemented)
+
+- [x] AUTO pulse/soak desync fix: keep-awake lease renewed every tick during PULSE_ACTIVE and SOAK_WAIT phases; soak no-data retry instead of immediate abort.
+- [x] AUTO stop message fix: new `target_reached` phase distinguishes moisture-target-met from pulse-limit-reached in UI.
+- [x] Dry/wet avg hold fix: frontend preserves last known dry/wet values when server sends null during soak sensor sleep.
+- [x] Stats chart performance: single-pass flat record format + 2KB buffered sendContent reduces load time.
+- [x] Control SUSPECT fix during irrigation: `telemetryHeadResendSleepPlansToOnlineNodes` skips control with active irrigation; BUSY sleep-ACK reject no longer marks SUSPECT.
+- [x] Manual irrigation UX fixes: timer oscillation removed, startup window shrink fixed, dead code cleanup.
+
 ## Update 2026-03-30 (implemented)
 
 - [x] Sleep coordination in production path: HEAD `SLEEP_PLAN` -> UNIT `SLEEP_ACK` -> HEAD `SLEEP_ACK_ACK` with sleep-aware node presence handling.
@@ -37,12 +46,12 @@
 - [x] Sensor -> head telemetry (happy path) + ack policy + retries
 - [x] Power management for sensor: deep sleep cycle, wake -> measure -> transmit -> sleep
   - [ ] Make node presence thresholds configurable for field mode (SUSPECT/OFFLINE), not debug-fixed seconds
-  - [ ] Tie presence thresholds to real telemetry period after sleep/power management is implemented
+  - [x] Tie presence thresholds to real telemetry period after sleep/power management is implemented
 - [x] Battery-driven behavior: low battery thresholds, "critical" mode, messaging to head
   - [x] SENSOR critical battery intent/ack flow and final protective deep sleep fallback
   - [x] CONTROL battery telemetry and low-battery lockout flags reach HEAD via shared telemetry path
   - [x] USB/near-zero battery ADC fallback handling prevents false low-battery decisions
-- [ ] Control unit: duty-cycle listen vs active mode, heartbeat, command execution state machine
+- [x] Control unit: duty-cycle listen vs active mode, heartbeat, command execution state machine
 - [x] Head logic: command state machine and remaining runtime semantics
   - [x] Command decisions use sensor data
   - [x] Manual/web commands are accepted as decision inputs

@@ -1,6 +1,6 @@
 # Auto Watering By Moisture - Spec (v1)
 
-Status: In progress. Phase 1 (UI + config persistence) is complete. Phase 2/3 runtime logic is stabilized and field-validated on Apr 1, 2026; AUTO decision paths now run on strict fresh telemetry semantics.
+Status: In progress. Phase 1 (UI + config persistence) is complete. Phase 2/3 runtime logic is stabilized and field-validated on Apr 1, 2026; AUTO decision paths now run on strict fresh telemetry semantics. Phase 4 (Apr 4, 2026): keep-awake lease fix, target_reached phase, dry/wet avg hold, control SUSPECT fix during irrigation.
 
 ## Implementation Progress
 
@@ -460,3 +460,19 @@ The following items are the main remaining differences between the current firmw
 Recommended next logic work before declaring full feature closure:
 
 - Long-soak field validation and optional anti-noise refinement only.
+
+## 21) Phase 4 Stabilization (Apr 4, 2026)
+
+Additional fixes applied after extended field testing:
+
+- [x] Keep-awake lease renewal: `AUTO_KEEP_AWAKE_LEASE_MS` (4.5s) was too short for pulse+soak cycles. Fixed by renewing lease every tick in PULSE_ACTIVE and SOAK_WAIT states.
+- [x] Soak checkpoint no-data retry: instead of immediate `ABORT_N_LT_MIN` when sensors haven't reported yet during soak checkpoint, system retries every 1.2s with generous timeout.
+- [x] Resend sleep plans at pulse→soak transition to ensure sensors get short-cadence plans for soak monitoring.
+- [x] New `target_reached` API phase: distinguishes stop-condition-met (moisture target reached) from pulse-limit-reached in UI status messages.
+- [x] Dry/wet avg hold: frontend preserves last known dry/wet zone values when server sends null (sensors momentarily non-ONLINE during soak).
+- [x] Control SUSPECT fix: `telemetryHeadResendSleepPlansToOnlineNodes()` now skips control node with irrigationActive (prevents rejected sleep plan → SUSPECT). BUSY sleep-ACK reject reason no longer sets SUSPECT state.
+
+Reference commits:
+- `4829ff9` keep-awake lease renewal during pulse+soak
+- `e62f92b` target_reached phase + dry/wet avg hold
+- `2da88e3` stats chart performance optimization

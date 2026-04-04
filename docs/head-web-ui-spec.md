@@ -13,6 +13,12 @@ Implementation update (2026-03-30):
 - Control battery values in cards now refresh correctly across deep-sleep wake cycles (`seq` restart handling fixed on HEAD).
 - Irrigation lease sync and command probe handling were stabilized for control wake/sleep operation.
 
+Implementation update (2026-04-04):
+- Stats tab MVP implemented with chart endpoint, per-node visibility toggles, and period selector.
+- Stats chart API optimized: single-pass flat record format + 2KB buffered sendContent.
+- Manual irrigation UX stabilized: timer oscillation removed, countdown uses backend-authoritative values only.
+- AUTO pulse/soak cycle stabilized: keep-awake lease renewal, target_reached phase, dry/wet avg hold.
+
 ## 1) Product concept
 
 Head provides a **local web console** over its own AP for:
@@ -206,9 +212,9 @@ Note:
 
 ## Phase D — stats (phase 2)
 - [x] Design moisture history ring buffer
-- [ ] Add irrigation event markers ON/OFF
-- [ ] Add `GET /api/stats/moisture` endpoint
-- [ ] Implement Stats tab graph with filters per sensor + avg
+- [x] Add irrigation event markers ON/OFF
+- [x] Add `GET /api/stats/chart` endpoint (flat record format with 2KB buffered output)
+- [x] Implement Stats tab graph with filters per sensor + avg + period selector
 
 ---
 

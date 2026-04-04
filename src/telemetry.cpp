@@ -763,6 +763,9 @@ void telemetryHeadResendSleepPlansToOnlineNodes()
     if (!entry->used || entry->state != TELEMETRY_HEAD_NODE_ONLINE) {
       continue;
     }
+    if (entry->isControl && entry->irrigationActive) {
+      continue;
+    }
     (void)sendSleepPlanToNode(entry, nowMs, false);
   }
 }
@@ -1248,7 +1251,9 @@ void telemetryOnRecv(const uint8_t* src_mac, const uint8_t* data, int len)
         } else if (planMatch && !ack->accepted) {
           node->sleepAwaitAck = false;
           node->sleepAcked = false;
-          node->state = TELEMETRY_HEAD_NODE_SUSPECT;
+          if (ack->rejectReason != SLEEP_ACK_REJECT_BUSY) {
+            node->state = TELEMETRY_HEAD_NODE_SUSPECT;
+          }
         }
 
         Serial.print("[nodeId=");

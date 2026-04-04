@@ -97,12 +97,16 @@ These constants are mandatory implementation values for v1 and map directly to t
 8. HEAD must publish explicit service reason/status that irrigation is unavailable due to CONTROL loss.
 9. Manual irrigation requested while CONTROL sleeps is represented as `scheduled` and starts at nearest CONTROL wake, unless canceled by rule 7.
 
-## Current Deployed Profile (2026-03-30)
+## Current Deployed Profile (2026-04-04)
 
 This block documents currently deployed behavior in firmware and has precedence for field validation.
 
 - HEAD sleep plan handshake is active: `SLEEP_PLAN` -> `SLEEP_ACK` -> `SLEEP_ACK_ACK`.
 - Base head-issued sleep duration is currently `SLEEP_BASE_DURATION_MS = 60000`.
+- During AUTO irrigation, keep-awake lease is renewed every tick in PULSE_ACTIVE and SOAK_WAIT states (lease = 4500ms, base sleep override = 1200ms).
+- Sleep plans are resent at pulse-to-soak transition to ensure sensors get short-cadence plans.
+- `telemetryHeadResendSleepPlansToOnlineNodes()` skips control node when `irrigationActive` is set.
+- BUSY sleep-ACK reject from control during irrigation no longer marks node as SUSPECT.
 - CONTROL battery tiers are active:
   - Tier 0: 60s base sleep
   - Tier 1: 15min base sleep

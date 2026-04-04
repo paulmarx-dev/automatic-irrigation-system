@@ -9,6 +9,16 @@
 - [x] Basic UI-facing CONTROL availability model is active (`online` / `offline` / `battery_lockout` / `not_paired`).
 - [x] TIME mode stale delayed-start behavior removed (missed cycle is skipped).
 
+## Completed in this cycle (2026-04-04)
+
+- [x] AUTO pulse/soak desync: keep-awake lease renewal every tick in PULSE_ACTIVE and SOAK_WAIT; soak checkpoint retry on no-data instead of immediate abort.
+- [x] AUTO stop message: new `target_reached` API phase distinguishes moisture-target-met from pulse-limit-reached.
+- [x] Dry/wet avg reset during soak: frontend holds last known value when server sends null.
+- [x] Stats chart performance: single-pass flat record format `[nodeIdx, t, m, b, i]` + 2KB send buffer.
+- [x] Control SUSPECT during irrigation: resend-sleep-plans skips control with irrigationActive; BUSY sleep-ACK reject no longer marks SUSPECT.
+- [x] Manual irrigation UX: timer double-update patterns removed, startup window shrink fixed, dead code cleaned up.
+- [x] Stats view MVP: chart endpoint + tab with node visibility toggles and period selector.
+
 ## Completed in this cycle (2026-04-01)
 
 - [x] AUTO watering Phase 3 keep-awake stabilization on head runtime path.
@@ -56,7 +66,7 @@
 
 ## Proposed next step (2026-03-30)
 
-- [ ] Stats view MVP (next active focus):
-  - Add `GET /api/stats/moisture` JSON endpoint backed by existing track ring buffer.
-  - Include per-node series + average series + irrigation on/off markers.
-  - Build minimal Stats tab with period selector (`10m`, `1h`, `6h`, `24h`) and node visibility toggles.
+- [x] Stats view MVP (completed 2026-04-04):
+  - [x] Add `GET /api/stats/moisture` JSON endpoint backed by existing track ring buffer.
+  - [x] Include per-node series + average series + irrigation on/off markers.
+  - [x] Build minimal Stats tab with period selector (`10m`, `1h`, `6h`, `24h`) and node visibility toggles.

@@ -1,5 +1,28 @@
 # Next Iteration Handoff (after context reset)
 
+## Archive update (2026-04-04)
+
+Stabilization and polish cycle complete on branch `feature/auto-watering-ui-first`.
+
+Closed outcomes:
+- AUTO pulse/soak desync fixed: keep-awake lease renewed every tick during PULSE_ACTIVE and SOAK_WAIT (was expiring after 4.5s, causing sensors to go SUSPECT mid-cycle).
+- Soak checkpoint retries on no-data instead of immediate ABORT_N_LT_MIN.
+- New `target_reached` API phase distinguishes moisture-target-met from pulse-limit-reached.
+- Frontend holds last known dry/wet avg when server sends null during soak sensor sleep windows.
+- Stats chart API optimized: single-pass flat record format + 2KB send buffer (was N+1 passes with per-record TCP writes).
+- Control node no longer goes SUSPECT during irrigation cycles (resend-sleep-plans now skips control with irrigationActive; BUSY sleep-ACK reject no longer marks SUSPECT).
+- Manual irrigation UX: all timer double-update patterns removed, startup window shrink fixed, dead code cleaned up.
+
+Key commits:
+- `4829ff9` fix AUTO pulse/soak keep-awake lease renewal
+- `e62f92b` target_reached phase + dry/wet avg hold fix
+- `2da88e3` stats chart API single-pass + buffered sendContent
+
+Next recommended focus:
+- Field soak testing with real conditions and longer cycles.
+- Sleep profile tuning for battery-efficient field cadence.
+- Phase C reliability hardening (rate limits, handler timeouts).
+
 ## Archive update (2026-04-01)
 
 Auto-watering Phase 3 stabilization is complete on branch `feature/auto-watering-ui-first`.
@@ -27,8 +50,9 @@ Key stabilization commits:
 - `9421b0c` Finalize Phase 3 keep-awake validation in spec.
 
 Next recommended focus (post-closeout):
-- Stats view MVP endpoint + minimal tab wiring.
-- Optional anti-noise guards only if needed after longer field soak tests.
+- Field soak testing with longer cycles and real soil conditions.
+- Sleep profile tuning for field cadence (hourly sensors, battery-first).
+- Phase C reliability hardening if needed after field experience.
 
 ## Archive update (2026-03-15)
 
