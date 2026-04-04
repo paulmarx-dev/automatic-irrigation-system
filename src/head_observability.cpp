@@ -182,6 +182,7 @@ static uint32_t s_autoSoakDeadlineMs = 0;
 static uint32_t s_autoCheckpointAtMs = 0;
 static uint32_t s_autoPulseStartedAtMs = 0;
 static bool s_autoWaitNextWakeAfterLimit = false;
+static bool s_autoWaitNextWakeIsTargetReached = false;
 static uint32_t s_autoRunId = 0;
 static uint32_t s_autoPulseDeferLastLogMs = 0;
 static bool s_autoPulseDeferLastUsedFallback = false;
@@ -705,6 +706,7 @@ static void autoEnterWaitNextWake(uint32_t nowMs)
   s_autoPulseStartedAtMs = 0;
   s_autoIdleLastLogMs = 0;
   s_autoWaitNextWakeAfterLimit = true;
+  s_autoWaitNextWakeIsTargetReached = true;
   s_autoWaitNextWakeSeenMs = latestAutoEligibleSeenMs();
   s_autoWaitNextWakeCollectUntilMs = 0;
 
@@ -1075,7 +1077,7 @@ static size_t composeIrrigationConfigJson(char* body, size_t bodySize, uint32_t 
         autoStartInSec = autoPhaseRemainingSec;
       }
     } else if (s_autoWaitNextWakeAfterLimit) {
-      autoPhase = "wait_next_wake";
+      autoPhase = s_autoWaitNextWakeIsTargetReached ? "target_reached" : "wait_next_wake";
     }
   }
 
@@ -1640,6 +1642,7 @@ static void irrigationAutomationTick(uint32_t nowMs)
         }
 
         s_autoWaitNextWakeAfterLimit = false;
+        s_autoWaitNextWakeIsTargetReached = false;
         s_autoWaitNextWakeSeenMs = 0;
         s_autoWaitNextWakeCollectUntilMs = 0;
 
@@ -1865,6 +1868,7 @@ static void irrigationAutomationTick(uint32_t nowMs)
         s_autoSoakDeadlineMs = 0;
         s_autoCheckpointAtMs = 0;
         s_autoWaitNextWakeAfterLimit = true;
+        s_autoWaitNextWakeIsTargetReached = false;
         s_autoWaitNextWakeSeenMs = latestAutoEligibleSeenMs();
         s_autoWaitNextWakeCollectUntilMs = 0;
         s_autoIdleLastLogMs = 0;

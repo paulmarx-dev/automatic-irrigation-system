@@ -890,6 +890,18 @@ function autoServiceStatusText() {
     }
     return `AUTO: synchronized sensor collection, decision in ${formatHoursMinutesSeconds(remaining)}.`;
   }
+  if (latestAutoPhase === 'target_reached') {
+    if (!sensorSnapshot.hasSensors) {
+      return 'AUTO: target moisture reached, waiting for sensors.';
+    }
+    if (sensorSnapshot.activeNow) {
+      return 'AUTO: target moisture reached, monitoring.';
+    }
+    if (Number.isFinite(sensorSnapshot.nextWakeSec)) {
+      return `AUTO: target moisture reached, next check in ${formatHoursMinutesSeconds(sensorSnapshot.nextWakeSec)}.`;
+    }
+    return 'AUTO: target moisture reached, waiting for next sensor wave.';
+  }
   if (latestAutoPhase === 'wait_next_wake') {
     if (!sensorSnapshot.hasSensors) {
       return 'AUTO: pulse limit reached, waiting for paired sensors to form the next synchronized wave.';
@@ -1574,8 +1586,10 @@ function renderHomeSummary(summary) {
   const total = Number.isFinite(Number(summary.totalVisibleSensors)) ? Number(summary.totalVisibleSensors) : 0;
   const avgMoisturePermille = summary.avgMoisturePermille;
   latestAvgMoisturePermille = Number.isFinite(Number(avgMoisturePermille)) ? Number(avgMoisturePermille) : null;
-  latestAutoDryPermille = Number.isFinite(Number(summary.autoDryPermille)) ? Number(summary.autoDryPermille) : null;
-  latestAutoWetPermille = Number.isFinite(Number(summary.autoWetPermille)) ? Number(summary.autoWetPermille) : null;
+  const serverDry = Number.isFinite(Number(summary.autoDryPermille)) ? Number(summary.autoDryPermille) : null;
+  const serverWet = Number.isFinite(Number(summary.autoWetPermille)) ? Number(summary.autoWetPermille) : null;
+  if (serverDry !== null) latestAutoDryPermille = serverDry;
+  if (serverWet !== null) latestAutoWetPermille = serverWet;
   const pairingOpen = Boolean(summary.pairingOpen);
   const pairingSec = Number(summary.pairingRemainingSec);
   const uptimeSec = Number(summary.uptimeSec);
