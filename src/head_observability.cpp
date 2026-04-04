@@ -1742,6 +1742,8 @@ static void irrigationAutomationTick(uint32_t nowMs)
     }
 
     if (s_autoRunState == AUTO_RUN_PULSE_ACTIVE) {
+      telemetryHeadSetSleepBaseOverrideMs(AUTO_KEEP_AWAKE_BASE_SLEEP_MS, AUTO_KEEP_AWAKE_LEASE_MS);
+
       if (!s_manualIrrigationActive) {
         autoResetRun("ABORT_PULSE_NOT_ACTIVE");
         return;
@@ -1802,12 +1804,15 @@ static void irrigationAutomationTick(uint32_t nowMs)
         s_autoSoakDeadlineMs = nowMs + (static_cast<uint32_t>(s_autoSoakDelaySec) * 1000UL);
         s_autoCheckpointAtMs = s_autoSoakDeadlineMs;
         s_autoPulseStartedAtMs = 0;
+        telemetryHeadResendSleepPlansToOnlineNodes();
         autoSmLog("PulseActive", "pulse_elapsed", "SoakWait", "continue", "PULSE_END");
       }
       return;
     }
 
     if (s_autoRunState == AUTO_RUN_SOAK_WAIT) {
+      telemetryHeadSetSleepBaseOverrideMs(AUTO_KEEP_AWAKE_BASE_SLEEP_MS, AUTO_KEEP_AWAKE_LEASE_MS);
+
       if (s_manualIrrigationActive) {
         stopIrrigation("AUTO soak enforces OFF");
         s_controlPhase = CONTROL_CMD_PENDING_STOP;
@@ -1835,7 +1840,15 @@ static void irrigationAutomationTick(uint32_t nowMs)
 
       clearAutoCohortCollection();
       if (!zones.hasValid) {
-        autoResetRun("ABORT_N_LT_MIN");
+        const uint32_t soakRetryLimitMs = s_autoSoakDeadlineMs
+            + static_cast<uint32_t>(s_sensorPollIntervalMin) * 60UL * 1000UL
+            + 30000UL;
+        if ((int32_t)(nowMs - soakRetryLimitMs) >= 0) {
+          autoResetRun("ABORT_SOAK_NO_DATA_TIMEOUT");
+          return;
+        }
+        s_autoCheckpointAtMs = nowMs + AUTO_PULSE_CHECKPOINT_RETRY_MS;
+        autoSmLog("SoakWait", "checkpoint", "SoakWait", "continue", "SOAK_NO_DATA_RETRY");
         return;
       }
 
