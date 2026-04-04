@@ -935,8 +935,10 @@ static uint32_t controlSleepBaseMs(const NodeTelemetryState* node, uint32_t nowM
     return s_defaultSleepBaseMs;
   }
 
+  // Control with external power (solar/USB): fixed 60s cadence for fast
+  // command responsiveness, independent of sensorPollInterval.
   if (node->batteryEstMv <= BATTERY_EXTERNAL_POWER_MAX_MV) {
-    return s_defaultSleepBaseMs;
+    return SLEEP_BASE_DURATION_MS;
   }
 
   if (node->controlSleepTier >= 2) {
@@ -945,7 +947,8 @@ static uint32_t controlSleepBaseMs(const NodeTelemetryState* node, uint32_t nowM
   if (node->controlSleepTier == 1) {
     return CONTROL_SLEEP_TIER1_DURATION_MS;
   }
-  return s_defaultSleepBaseMs;
+  // Control on battery, no tier: fixed 60s cadence.
+  return SLEEP_BASE_DURATION_MS;
 }
 
 static void updateControlSleepTier(NodeTelemetryState* node)
