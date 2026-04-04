@@ -1016,6 +1016,15 @@ static bool sendSleepPlanToNode(NodeTelemetryState* node, uint32_t nowMs, bool i
     return false;
   }
 
+  // Don't send a new plan to a node that's in confirmed deep sleep — it can't
+  // receive ESP-NOW and the failed ACK cycle would mark it SUSPECT.  The new
+  // plan will be delivered on its next wake when telemetry arrives.
+  if (!isRetry && node->sleepAcked &&
+      node->sleepExpectedReportDeadlineMs != 0 &&
+      (int32_t)(node->sleepExpectedReportDeadlineMs - nowMs) > 0) {
+    return false;
+  }
+
   if (!isRetry) {
     const bool hadActiveSleepWindow =
         node->sleepAcked &&
