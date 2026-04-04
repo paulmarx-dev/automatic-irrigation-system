@@ -577,8 +577,9 @@ static const uint8_t MAX_NODE_REGISTRY = 8;
 static const size_t TRACK_STORAGE_CAPACITY = 4096;
 static const uint8_t BROADCAST_MAC[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 static const uint32_t EXPECTED_TELEMETRY_PERIOD_MS = TELEMETRY_BASE_INTERVAL_MS + TELEMETRY_INTERVAL_JITTER_MS;
-static const uint32_t NODE_SUSPECT_TIMEOUT_MS = 3 * EXPECTED_TELEMETRY_PERIOD_MS;
-static const uint32_t NODE_OFFLINE_TIMEOUT_MS = 8 * EXPECTED_TELEMETRY_PERIOD_MS;
+static const uint32_t NODE_SUSPECT_TIMEOUT_MS = 6 * EXPECTED_TELEMETRY_PERIOD_MS;
+static const uint32_t NODE_OFFLINE_TIMEOUT_MS = 18 * EXPECTED_TELEMETRY_PERIOD_MS;
+static const uint32_t TELEMETRY_DUPLICATE_WINDOW_MS = 1500;
 
 static const char* nodeStateToText(TelemetryHeadNodeState state)
 {
@@ -635,6 +636,7 @@ static TelemetryHeadCommandAck s_latestCommandAck = {};
 static uint32_t s_sleepPlanIdSeq = 1;
 static uint32_t s_headBootId = 1;
 static uint32_t s_waveReferenceTimeMs = 0;
+static uint32_t s_defaultSleepBaseMs = SLEEP_BASE_DURATION_MS;
 static uint32_t s_sleepBaseOverrideMs = 0;
 static uint32_t s_sleepBaseOverrideUntilMs = 0;
 
@@ -644,6 +646,8 @@ static bool isSleepBaseOverrideActive(uint32_t nowMs)
          s_sleepBaseOverrideUntilMs != 0 &&
          (int32_t)(nowMs - s_sleepBaseOverrideUntilMs) < 0;
 }
+
+static bool sendSleepPlanToNode(NodeTelemetryState* node, uint32_t nowMs, bool isRetry);
 
 static uint8_t commandAckPriority(uint8_t status)
 {
@@ -692,6 +696,7 @@ void telemetryInit()
   memset(s_nodes, 0, sizeof(s_nodes));
   s_ackSeq = 0;
   s_sleepPlanIdSeq = 1;
+  s_defaultSleepBaseMs = SLEEP_BASE_DURATION_MS;
   s_sleepBaseOverrideMs = 0;
   s_sleepBaseOverrideUntilMs = 0;
   s_headBootId = static_cast<uint32_t>(esp_random());
@@ -717,8 +722,8 @@ void telemetryHeadSetSleepBaseOverrideMs(uint32_t baseSleepMs, uint32_t leaseMs)
   if (baseSleepMs < 1000UL) {
     baseSleepMs = 1000UL;
   }
-  if (baseSleepMs > SLEEP_BASE_DURATION_MS) {
-    baseSleepMs = SLEEP_BASE_DURATION_MS;
+  if (baseSleepMs > s_defaultSleepBaseMs) {
+    baseSleepMs = s_defaultSleepBaseMs;
   }
 
   const uint32_t newUntilMs = nowMs + leaseMs;
@@ -732,6 +737,33 @@ void telemetryHeadSetSleepBaseOverrideMs(uint32_t baseSleepMs, uint32_t leaseMs)
     Serial.print((unsigned long)s_sleepBaseOverrideMs);
     Serial.print(" leaseMs=");
     Serial.println((unsigned long)leaseMs);
+  }
+}
+
+void telemetryHeadSetDefaultSleepBaseMs(uint32_t baseSleepMs)
+{
+  if (baseSleepMs < 1000UL) {
+    baseSleepMs = 1000UL;
+  }
+  if (baseSleepMs > 86400000UL) {
+    baseSleepMs = 86400000UL;
+  }
+  s_defaultSleepBaseMs = baseSleepMs;
+
+  if (s_sleepBaseOverrideMs > s_defaultSleepBaseMs) {
+    s_sleepBaseOverrideMs = s_defaultSleepBaseMs;
+  }
+}
+
+void telemetryHeadResendSleepPlansToOnlineNodes()
+{
+  const uint32_t nowMs = millis();
+  for (uint8_t i = 0; i < MAX_NODE_REGISTRY; ++i) {
+    NodeTelemetryState* entry = &s_nodes[i];
+    if (!entry->used || entry->state != TELEMETRY_HEAD_NODE_ONLINE) {
+      continue;
+    }
+    (void)sendSleepPlanToNode(entry, nowMs, false);
   }
 }
 
@@ -897,11 +929,11 @@ static uint32_t controlSleepBaseMs(const NodeTelemetryState* node, uint32_t nowM
   }
 
   if (!node || !node->isControl) {
-    return SLEEP_BASE_DURATION_MS;
+    return s_defaultSleepBaseMs;
   }
 
   if (node->batteryEstMv <= BATTERY_EXTERNAL_POWER_MAX_MV) {
-    return SLEEP_BASE_DURATION_MS;
+    return s_defaultSleepBaseMs;
   }
 
   if (node->controlSleepTier >= 2) {
@@ -910,7 +942,7 @@ static uint32_t controlSleepBaseMs(const NodeTelemetryState* node, uint32_t nowM
   if (node->controlSleepTier == 1) {
     return CONTROL_SLEEP_TIER1_DURATION_MS;
   }
-  return SLEEP_BASE_DURATION_MS;
+  return s_defaultSleepBaseMs;
 }
 
 static void updateControlSleepTier(NodeTelemetryState* node)
@@ -982,6 +1014,12 @@ static bool sendSleepPlanToNode(NodeTelemetryState* node, uint32_t nowMs, bool i
   }
 
   if (!isRetry) {
+    const bool hadActiveSleepWindow =
+        node->sleepAcked &&
+        node->sleepExpectedReportDeadlineMs != 0 &&
+        (int32_t)(node->sleepExpectedReportDeadlineMs - nowMs) > 0;
+    const uint32_t prevExpectedDeadlineMs = node->sleepExpectedReportDeadlineMs;
+
     node->sleepPlanId = s_sleepPlanIdSeq++;
     if (s_sleepPlanIdSeq == 0) {
       s_sleepPlanIdSeq = 1;
@@ -1011,9 +1049,14 @@ static bool sendSleepPlanToNode(NodeTelemetryState* node, uint32_t nowMs, bool i
     node->sleepPlannedMs = plannedMs;
     node->sleepValidUntilMs = nowMs + SLEEP_PLAN_VALID_WINDOW_MS;
     node->sleepAwaitAck = true;
-    node->sleepAcked = false;
+    // If node is currently in an acknowledged sleep window, keep that state
+    // until current wake to avoid false "lost" transitions when interval shrinks.
+    node->sleepAcked = hadActiveSleepWindow;
     node->sleepRetries = 0;
-    node->sleepExpectedReportDeadlineMs = nowMs + node->sleepPlannedMs + SLEEP_EXPECTED_WAKE_GRACE_MS;
+    const uint32_t plannedDeadlineMs = nowMs + node->sleepPlannedMs + SLEEP_EXPECTED_WAKE_GRACE_MS;
+    node->sleepExpectedReportDeadlineMs = hadActiveSleepWindow
+      ? ((plannedDeadlineMs > prevExpectedDeadlineMs) ? plannedDeadlineMs : prevExpectedDeadlineMs)
+      : plannedDeadlineMs;
   }
 
   MsgSleepPlan plan{};
@@ -1307,6 +1350,7 @@ void telemetryOnRecv(const uint8_t* src_mac, const uint8_t* data, int len)
     Serial.println("] online");
   }
 
+  const uint32_t prevSeenMs = nodeState->lastSeenMs;
   nodeState->lastSeenMs = nowMs;
   // If the node was in confirmed sleep (deep sleep = full reboot), the seq counter
   // resets on the node side.  Clear hasLastSeq so the first packet after wake is
@@ -1318,7 +1362,15 @@ void telemetryOnRecv(const uint8_t* src_mac, const uint8_t* data, int len)
     nodeState->hasLastSeq = false;
   }
 
-  const bool isDuplicate = nodeState->hasLastSeq && (nodeState->lastSeq == telemetry->hdr.seq);
+  const bool sameSeq = nodeState->hasLastSeq && (nodeState->lastSeq == telemetry->hdr.seq);
+  const bool payloadChanged =
+      nodeState->moisturePermille != telemetry->moisturePermille ||
+      nodeState->batteryEstMv != telemetry->batteryEstMv ||
+      nodeState->isControl != ((telemetry->flags & FLAG_NODE_ROLE_CONTROL) != 0) ||
+      nodeState->lowBatteryLockout != ((telemetry->flags & FLAG_NODE_LOW_BATTERY_LOCKOUT) != 0) ||
+      nodeState->irrigationActive != ((telemetry->flags & FLAG_IRRIGATION_ACTIVE) != 0);
+  const uint32_t interArrivalMs = nowMs - prevSeenMs;
+  const bool isDuplicate = sameSeq && !payloadChanged && interArrivalMs <= TELEMETRY_DUPLICATE_WINDOW_MS;
   pushTrackRecord(telemetry, src_mac, nowMs, isDuplicate);
 
   if (isDuplicate) {
@@ -1688,5 +1740,12 @@ void telemetryHeadSetSleepBaseOverrideMs(uint32_t baseSleepMs, uint32_t leaseMs)
   (void)baseSleepMs;
   (void)leaseMs;
 }
+
+void telemetryHeadSetDefaultSleepBaseMs(uint32_t baseSleepMs)
+{
+  (void)baseSleepMs;
+}
+
+void telemetryHeadResendSleepPlansToOnlineNodes() {}
 
 #endif

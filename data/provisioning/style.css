@@ -287,6 +287,20 @@ body {
   margin: 0;
 }
 
+.sensor-poll-live {
+  margin: 0;
+  grid-column: 1 / -1;
+  color: #234b70;
+  font-size: 12px;
+}
+
+.auto-service-live {
+  margin: 0;
+  grid-column: 1 / -1;
+  color: #5a3b07;
+  font-size: 12px;
+}
+
 @media (max-width: 380px) {
   .auto-advanced-panel {
     grid-template-columns: 1fr;
@@ -497,6 +511,41 @@ pre {
   display: grid;
   gap: 10px;
   margin-top: 12px;
+}
+
+.sensor-settings-panel {
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid #d5deea;
+  border-radius: 10px;
+  background: #f5f8fc;
+}
+
+.sensor-settings-title {
+  margin: 0;
+  font-size: 13px;
+  color: #3c5266;
+}
+
+.sensor-settings-row {
+  margin-top: 8px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: end;
+}
+
+.sensor-settings-row #sensorPollIntervalSaveBtn {
+  margin-top: 0;
+  padding: 10px 12px;
+}
+
+.sensor-settings-row #sensorPollIntervalSaveBtn:disabled {
+  opacity: 0.8;
+}
+
+.sensor-settings-panel .sensor-poll-live {
+  margin-top: 8px;
 }
 
 .sensor-topbar {

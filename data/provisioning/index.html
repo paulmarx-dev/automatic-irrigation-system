@@ -95,13 +95,14 @@
                 Max pulses
                 <input id="autoMaxPulsesInput" type="number" min="1" max="20" step="1" />
               </label>
+              <p id="autoServiceStatus" class="home-mode-status auto-service-live" hidden>AUTO: -</p>
             </div>
           </div>
         </div>
         <div id="homeManualConfig" hidden>
           <label>
-             Watering duration (minutes)
-            <input id="manualDurationSecInput" type="text" inputmode="decimal" autocomplete="off" />
+             Watering duration (seconds)
+            <input id="manualDurationSecInput" type="number" min="0" max="600" step="1" inputmode="numeric" autocomplete="off" />
           </label>
           <p id="manualDurationHint" class="home-mode-status" hidden></p>
         </div>
@@ -177,6 +178,14 @@
       <div class="sensor-topbar">
         <button type="button" id="addSensorBtn">Add new</button>
         <button type="button" id="closePairingBtn" class="ghost">Close pairing</button>
+      </div>
+      <div class="sensor-settings-panel">
+        <p class="sensor-settings-title">Sensor poll interval min</p>
+        <div class="sensor-settings-row">
+          <input id="sensorPollIntervalMinInput" type="number" min="1" max="1440" step="1" />
+          <button type="button" id="sensorPollIntervalSaveBtn" class="ghost" disabled>Saved</button>
+        </div>
+        <p id="sensorPollIntervalStatus" class="home-mode-status sensor-poll-live" hidden>Next sensor online: -</p>
       </div>
     </section>
 

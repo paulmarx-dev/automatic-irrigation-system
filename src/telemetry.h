@@ -59,4 +59,6 @@ bool telemetryHeadSendRemoteButtonAction(uint16_t nodeId, uint8_t action, uint16
 bool telemetryHeadSendIrrigationState(uint8_t desiredState, uint64_t leaseId, uint32_t remainingLeaseMs);
 bool telemetryHeadConsumeCommandAck(TelemetryHeadCommandAck* outAck);
 void telemetryHeadSetSleepBaseOverrideMs(uint32_t baseSleepMs, uint32_t leaseMs);
+void telemetryHeadSetDefaultSleepBaseMs(uint32_t baseSleepMs);
+void telemetryHeadResendSleepPlansToOnlineNodes();
 void telemetrySetNodeStatusFlags(uint8_t mask, bool enabled);

@@ -24,7 +24,7 @@ static constexpr size_t SENSOR_NAME_MAX = 32;
 static constexpr uint16_t SENSOR_LABELS_NVS_VERSION = 1;
 static const char* SENSOR_LABELS_NVS_NAMESPACE = "sensor_labels";
 static const char* SENSOR_LABELS_NVS_KEY = "labels_blob";
-static constexpr uint16_t IRRIGATION_CONFIG_NVS_VERSION = 4;
+static constexpr uint16_t IRRIGATION_CONFIG_NVS_VERSION = 5;
 static const char* IRRIGATION_CONFIG_NVS_NAMESPACE = "irrigation_cfg";
 static const char* IRRIGATION_CONFIG_NVS_KEY = "config_blob";
 static const char* IRRIGATION_LEASE_ID_NVS_KEY = "lease_id";
@@ -74,6 +74,22 @@ struct IrrigationConfigNvsBlob {
   uint16_t manualDurationSec;
   uint16_t timeIntervalMin;
   uint16_t timeRunDurationSec;
+  uint16_t sensorPollIntervalMin;
+};
+
+struct IrrigationConfigNvsBlobV4 {
+  uint16_t version;
+  uint8_t mode;
+  uint8_t reserved0;
+  uint16_t autoStartPermille;
+  uint16_t autoStopPermille;
+  uint16_t autoWetTolerancePct;
+  uint16_t autoPulseIntervalSec;
+  uint16_t autoSoakDelaySec;
+  uint16_t autoMaxPulses;
+  uint16_t manualDurationSec;
+  uint16_t timeIntervalMin;
+  uint16_t timeRunDurationSec;
 };
 
 struct IrrigationConfigNvsBlobV3 {
@@ -105,6 +121,7 @@ static constexpr uint16_t AUTO_MAX_PULSES_MAX = 20;
 static constexpr uint16_t AUTO_VALID_MOISTURE_MIN_PERMILLE = 30;
 static constexpr uint16_t AUTO_MIN_VALID_SENSORS = 1;
 static constexpr uint32_t AUTO_CHECKPOINT_WINDOW_MS = 1000;
+static constexpr uint32_t AUTO_COHORT_COLLECTION_MS = 3000;
 static constexpr uint32_t AUTO_WAIT_NEXT_WAKE_COLLECTION_MS = 3000;
 static constexpr uint32_t AUTO_INTRA_PULSE_LEAD_MS = 10000;
 static constexpr uint8_t AUTO_PULSE_STOP_MIN_VALID = 2;
@@ -117,12 +134,16 @@ static constexpr uint32_t AUTO_KEEP_AWAKE_PRIME_MS = 7000;
 static constexpr uint16_t MANUAL_DURATION_DEFAULT_SEC = 120;
 static constexpr uint16_t MANUAL_DURATION_MIN_SEC = 0;
 static constexpr uint16_t MANUAL_DURATION_MAX_SEC = 600;
+static constexpr uint32_t MANUAL_START_CONFIRM_TIMEOUT_MS = 30000;
 static constexpr uint16_t TIME_INTERVAL_DEFAULT_MIN = 360;
 static constexpr uint16_t TIME_INTERVAL_MIN = 5;
 static constexpr uint16_t TIME_INTERVAL_MAX = 1440;
 static constexpr uint16_t TIME_RUN_DEFAULT_SEC = 300;
 static constexpr uint16_t TIME_RUN_MIN_SEC = 0;
 static constexpr uint16_t TIME_RUN_MAX_SEC = 600;
+static constexpr uint16_t SENSOR_POLL_INTERVAL_DEFAULT_MIN = 1;
+static constexpr uint16_t SENSOR_POLL_INTERVAL_MIN = 1;
+static constexpr uint16_t SENSOR_POLL_INTERVAL_MAX = 1440;
 
 static IrrigationMode s_irrigationMode = IRRIGATION_MODE_AUTO;
 static bool s_manualIrrigationActive = false;
@@ -135,10 +156,14 @@ static uint16_t s_autoMaxPulses = AUTO_MAX_PULSES_DEFAULT;
 static uint16_t s_manualDurationSec = MANUAL_DURATION_DEFAULT_SEC;
 static uint16_t s_timeIntervalMin = TIME_INTERVAL_DEFAULT_MIN;
 static uint16_t s_timeRunDurationSec = TIME_RUN_DEFAULT_SEC;
+static uint16_t s_sensorPollIntervalMin = SENSOR_POLL_INTERVAL_DEFAULT_MIN;
 static uint32_t s_manualRunDeadlineMs = 0;
 static uint32_t s_requestedRunDurationSec = 0;
+static uint32_t s_manualStartRequestedAtMs = 0;
+static bool s_manualRunConfirmedOnce = false;
 static uint32_t s_timeNextStartMs = 0;
 static uint32_t s_timeCycleStartMs = 0;
+static uint32_t s_timeStartupWindowMs = 0;
 static bool s_irrigationSyncDirty = true;
 static uint32_t s_lastIrrigationSyncMs = 0;
 static uint64_t s_irrigationLeaseId = 1;
@@ -163,6 +188,11 @@ static bool s_autoPulseDeferLastUsedFallback = false;
 static uint32_t s_autoIdleLastLogMs = 0;
 static uint32_t s_autoWaitNextWakeSeenMs = 0;
 static uint32_t s_autoWaitNextWakeCollectUntilMs = 0;
+static bool s_autoCohortCollectActive = false;
+static uint32_t s_autoCohortStartedAtMs = 0;
+static uint32_t s_autoCohortDeadlineMs = 0;
+static uint32_t s_autoCohortBaselineSeenMs = 0;
+static uint8_t s_autoCohortExpectedEligible = 0;
 
 enum ControlCommandPhase : uint8_t {
   CONTROL_CMD_IDLE = 0,
@@ -194,6 +224,7 @@ static constexpr uint32_t CONTROL_CMD_HARD_TIMEOUT_MS = 30000;
 static constexpr uint32_t CONTROL_CMD_SOFT_TIMEOUT_MS = 2500;
 static constexpr uint32_t CONTROL_STATUS_PROBE_INTERVAL_MS = 1200;
 static constexpr uint32_t CONTROL_DESIRED_RECONCILE_MS = 2000;
+static constexpr uint32_t TIME_MODE_RETRY_WHEN_CONTROL_UNREACHABLE_MS = 5000;
 static constexpr uint32_t CONTROL_CMD_RETRY_DELAYS_MS[3] = {180, 500, 1200};
 static constexpr uint32_t CONTROL_ACK_PRESENCE_GRACE_MS = 7000;
 static uint32_t s_nextControlDesiredReconcileAtMs = 0;
@@ -205,7 +236,7 @@ static char s_lastSseSnapshotJson[8192] = {0};
 static char s_sseSnapshotJson[8192] = {0};
 static char s_sseWebStatusJson[320] = {0};
 static char s_sseUnitStatusJson[320] = {0};
-static char s_sseIrrigationConfigJson[640] = {0};
+static char s_sseIrrigationConfigJson[1024] = {0};
 static char s_sseSystemSummaryJson[384] = {0};
 static char s_sseNodesJson[4096] = {0};
 static uint32_t s_nextSseHeartbeatMs = 0;
@@ -324,6 +355,11 @@ static uint16_t clampU16(uint16_t value, uint16_t minValue, uint16_t maxValue)
   return value;
 }
 
+static void applySensorPollIntervalToTelemetry()
+{
+  telemetryHeadSetDefaultSleepBaseMs(static_cast<uint32_t>(s_sensorPollIntervalMin) * 60UL * 1000UL);
+}
+
 static void normalizeIrrigationConfig()
 {
   s_autoStartPermille = clampU16(s_autoStartPermille, 0, 1000);
@@ -342,6 +378,8 @@ static void normalizeIrrigationConfig()
   s_autoMaxPulses = clampU16(s_autoMaxPulses, AUTO_MAX_PULSES_MIN, AUTO_MAX_PULSES_MAX);
   s_timeIntervalMin = clampU16(s_timeIntervalMin, TIME_INTERVAL_MIN, TIME_INTERVAL_MAX);
   s_timeRunDurationSec = clampU16(s_timeRunDurationSec, TIME_RUN_MIN_SEC, TIME_RUN_MAX_SEC);
+  s_sensorPollIntervalMin = clampU16(s_sensorPollIntervalMin, SENSOR_POLL_INTERVAL_MIN, SENSOR_POLL_INTERVAL_MAX);
+  applySensorPollIntervalToTelemetry();
 }
 
 static bool parseIrrigationModeArg(const String& value, IrrigationMode* outMode)
@@ -375,6 +413,7 @@ static bool desiredIrrigationActive()
 
 static void stopIrrigation(const char* reason);
 static void markIrrigationSyncDirty();
+static bool sendDesiredIrrigationState();
 static void resolveSensorName(uint16_t nodeId, char outName[SENSOR_NAME_MAX]);
 
 static bool computeAverageOnlineSensorMoisture(uint16_t* outPermille)
@@ -562,6 +601,27 @@ static uint8_t countAutoEligibleOnlineNodes()
   return eligibleCount;
 }
 
+static void beginAutoCohortCollection(uint32_t nowMs, uint32_t baselineSeenMs)
+{
+  s_autoCohortCollectActive = true;
+  s_autoCohortStartedAtMs = nowMs;
+  s_autoCohortDeadlineMs = nowMs + AUTO_COHORT_COLLECTION_MS;
+  s_autoCohortBaselineSeenMs = baselineSeenMs;
+  s_autoCohortExpectedEligible = countAutoEligibleOnlineNodes();
+
+  telemetryHeadSetSleepBaseOverrideMs(AUTO_KEEP_AWAKE_BASE_SLEEP_MS, AUTO_KEEP_AWAKE_LEASE_MS);
+  telemetryHeadResendSleepPlansToOnlineNodes();
+}
+
+static void clearAutoCohortCollection()
+{
+  s_autoCohortCollectActive = false;
+  s_autoCohortStartedAtMs = 0;
+  s_autoCohortDeadlineMs = 0;
+  s_autoCohortBaselineSeenMs = 0;
+  s_autoCohortExpectedEligible = 0;
+}
+
 static void resetAutoFallbackLogState()
 {
   // No-op: degraded fallback path removed; kept for transition call sites.
@@ -629,7 +689,28 @@ static void autoResetRun(const char* reason)
   s_autoIdleLastLogMs = 0;
   s_autoWaitNextWakeSeenMs = 0;
   s_autoWaitNextWakeCollectUntilMs = 0;
+  clearAutoCohortCollection();
   autoSmLog(prev, "reset", "Idle", "abort", reason);
+}
+
+static void autoEnterWaitNextWake(uint32_t nowMs)
+{
+  (void)nowMs;
+  s_autoRunState = AUTO_RUN_IDLE;
+  resetAutoFallbackLogState();
+  resetAutoPulseDeferLogState();
+  s_autoUsedPulses = 0;
+  s_autoSoakDeadlineMs = 0;
+  s_autoCheckpointAtMs = 0;
+  s_autoPulseStartedAtMs = 0;
+  s_autoIdleLastLogMs = 0;
+  s_autoWaitNextWakeAfterLimit = true;
+  s_autoWaitNextWakeSeenMs = latestAutoEligibleSeenMs();
+  s_autoWaitNextWakeCollectUntilMs = 0;
+
+  // Return nodes to the configured inter-irrigation sleep cadence immediately.
+  telemetryHeadSetSleepBaseOverrideMs(0, 0);
+  telemetryHeadResendSleepPlansToOnlineNodes();
 }
 
 static bool hasControlOnlinePresence()
@@ -662,6 +743,39 @@ static bool hasControlReachablePresence(uint32_t nowMs)
     }
   }
   return false;
+}
+
+static bool hasControlRecentPresence()
+{
+  TelemetryHeadNodePresence nodes[8] = {};
+  const uint8_t count = telemetryHeadGetPresence(nodes, 8);
+  for (uint8_t i = 0; i < count; ++i) {
+    const TelemetryHeadNodePresence& node = nodes[i];
+    if (!node.isControl) {
+      continue;
+    }
+    return node.state != TELEMETRY_HEAD_NODE_OFFLINE;
+  }
+  return false;
+}
+
+static uint32_t controlSleepRemainingMs(uint32_t nowMs)
+{
+  TelemetryHeadNodePresence nodes[8] = {};
+  const uint8_t count = telemetryHeadGetPresence(nodes, 8);
+  for (uint8_t i = 0; i < count; ++i) {
+    const TelemetryHeadNodePresence& node = nodes[i];
+    if (!node.isControl || node.state != TELEMETRY_HEAD_NODE_ONLINE) {
+      continue;
+    }
+    if (node.sleepAcked &&
+        node.sleepExpectedReportDeadlineMs != 0 &&
+        (int32_t)(node.sleepExpectedReportDeadlineMs - nowMs) > 0) {
+      return static_cast<uint32_t>(node.sleepExpectedReportDeadlineMs - nowMs);
+    }
+    return 0;
+  }
+  return 0;
 }
 
 static bool sendControlCommandOnce(uint8_t action, uint16_t cmdId)
@@ -719,12 +833,30 @@ static void settleControlPhaseFromIrrigationState(uint8_t irrigationState)
   s_controlConfirmedIrrigationActive = (irrigationState == IRRIGATION_STATE_RUN);
   if (s_controlConfirmedIrrigationActive) {
     s_controlPhase = CONTROL_CMD_ACTIVE;
+    if (s_manualIrrigationActive) {
+      s_manualRunConfirmedOnce = true;
+    }
     if (s_requestedRunDurationSec > 0) {
       s_manualRunDeadlineMs = millis() + (s_requestedRunDurationSec * 1000UL);
     }
   } else {
+    if ((s_irrigationMode == IRRIGATION_MODE_MANUAL || s_irrigationMode == IRRIGATION_MODE_TIME) &&
+        s_manualIrrigationActive &&
+        !s_manualRunConfirmedOnce) {
+      // While waiting for the very first RUN confirmation, an OFF state means
+      // "not started yet" rather than completion. Keep pending_start queued.
+      s_controlPhase = CONTROL_CMD_PENDING_START;
+      s_manualRunDeadlineMs = 0;
+      return;
+    }
+
     s_controlPhase = CONTROL_CMD_IDLE;
     s_manualRunDeadlineMs = 0;
+    if (s_irrigationMode == IRRIGATION_MODE_MANUAL &&
+        s_manualIrrigationActive &&
+        s_manualRunConfirmedOnce) {
+      stopIrrigation("manual cycle completed (control off)");
+    }
   }
 }
 
@@ -775,7 +907,39 @@ static void pendingControlCommandTick(uint32_t nowMs)
   }
 
   if ((int32_t)(nowMs - s_pendingControlCmd.hardDeadlineMs) >= 0) {
+    const bool controlStillRecent = hasControlRecentPresence();
+    const uint8_t timedOutAction = s_pendingControlCmd.action;
     s_pendingControlCmd.active = false;
+
+    // For MANUAL mode, keep pending_start queued while control is still recent
+    // (typically sleeping) so the start can survive until the next wake.
+    if (timedOutAction == REMOTE_BUTTON_IRRIGATION_START &&
+        s_irrigationMode == IRRIGATION_MODE_MANUAL &&
+        s_manualIrrigationActive &&
+        !s_controlConfirmedIrrigationActive) {
+      if (controlStillRecent) {
+        s_controlPhase = CONTROL_CMD_PENDING_START;
+        Serial.println("OBS: manual start timeout deferred (waiting for control wake)");
+        return;
+      }
+
+      s_controlPhase = CONTROL_CMD_IDLE;
+      s_controlConfirmedIrrigationActive = false;
+      s_manualRunDeadlineMs = 0;
+      stopIrrigation("manual start command timeout");
+      Serial.println("OBS: manual start canceled after control command timeout");
+      return;
+    }
+
+    if (controlStillRecent) {
+      s_controlPhase =
+          timedOutAction == REMOTE_BUTTON_IRRIGATION_STOP
+              ? CONTROL_CMD_PENDING_STOP
+              : CONTROL_CMD_PENDING_START;
+      Serial.println("OBS: control command timeout deferred (control still recent)");
+      return;
+    }
+
     s_controlPhase = CONTROL_CMD_LOST;
     s_controlConfirmedIrrigationActive = false;
     s_manualRunDeadlineMs = 0;
@@ -848,6 +1012,7 @@ struct ControlAvailabilitySnapshot {
 };
 
 static ControlAvailabilitySnapshot computeControlAvailabilitySnapshot();
+static const char* autoStartBlockedReason(uint32_t nowMs);
 
 static size_t composeIrrigationConfigJson(char* body, size_t bodySize, uint32_t nowMs)
 {
@@ -870,10 +1035,54 @@ static size_t composeIrrigationConfigJson(char* body, size_t bodySize, uint32_t 
       ? static_cast<uint32_t>(nowMs - s_pendingControlCmd.sentAtMs) / 1000UL
       : 0;
 
+  const char* autoPhase = "idle";
+  uint32_t autoPhaseRemainingSec = 0;
+  bool autoStartPlanned = false;
+  uint32_t autoStartInSec = 0;
+  if (s_irrigationMode == IRRIGATION_MODE_AUTO) {
+    if (s_autoRunState == AUTO_RUN_PULSE_ACTIVE) {
+      autoPhase = "pulse";
+      if (s_manualRunDeadlineMs != 0 && (int32_t)(s_manualRunDeadlineMs - nowMs) > 0) {
+        autoPhaseRemainingSec = static_cast<uint32_t>(s_manualRunDeadlineMs - nowMs) / 1000UL;
+      } else if (s_autoPulseStartedAtMs != 0 && s_requestedRunDurationSec > 0) {
+        const uint32_t pulseElapsedMs = static_cast<uint32_t>(nowMs - s_autoPulseStartedAtMs);
+        const uint32_t requestedMs = s_requestedRunDurationSec * 1000UL;
+        if (pulseElapsedMs < requestedMs) {
+          autoPhaseRemainingSec = (requestedMs - pulseElapsedMs) / 1000UL;
+        }
+      }
+    } else if (s_autoRunState == AUTO_RUN_SOAK_WAIT) {
+      if (s_autoCohortCollectActive) {
+        autoPhase = "soak_collect";
+        if ((int32_t)(s_autoCohortDeadlineMs - nowMs) > 0) {
+          autoPhaseRemainingSec = static_cast<uint32_t>(s_autoCohortDeadlineMs - nowMs) / 1000UL;
+        }
+      } else {
+        autoPhase = "soak";
+        if (s_autoCheckpointAtMs != 0 && (int32_t)(s_autoCheckpointAtMs - nowMs) > 0) {
+          autoPhaseRemainingSec = static_cast<uint32_t>(s_autoCheckpointAtMs - nowMs) / 1000UL;
+        }
+      }
+    } else if (s_autoCohortCollectActive) {
+      autoPhase = "collect";
+      if ((int32_t)(s_autoCohortDeadlineMs - nowMs) > 0) {
+        autoPhaseRemainingSec = static_cast<uint32_t>(s_autoCohortDeadlineMs - nowMs) / 1000UL;
+      }
+
+      const AutoZoneSnapshot zones = computeAutoZonesSinceSeenMs(s_autoCohortBaselineSeenMs);
+      if (zones.hasValid && autoStartConditionMet(zones) && autoStartBlockedReason(nowMs) == nullptr) {
+        autoStartPlanned = true;
+        autoStartInSec = autoPhaseRemainingSec;
+      }
+    } else if (s_autoWaitNextWakeAfterLimit) {
+      autoPhase = "wait_next_wake";
+    }
+  }
+
   const int written = snprintf(
       body,
       bodySize,
-      "{\"mode\":\"%s\",\"manualActive\":%s,\"manualDurationSec\":%u,\"autoStartPermille\":%u,\"autoStopPermille\":%u,\"autoWetTolerancePct\":%u,\"autoPulseIntervalSec\":%u,\"autoSoakDelaySec\":%u,\"autoMaxPulses\":%u,\"timeIntervalMin\":%u,\"timeRunDurationSec\":%u,\"timeNextStartSec\":%lu,\"runRemainingSec\":%lu,\"manualBlockedReason\":\"%s\",\"confirmedState\":\"%s\",\"pendingElapsedSec\":%lu,\"control\":{\"status\":\"%s\",\"nextWakeKnown\":false,\"nextWakeEtaSec\":null}}",
+      "{\"mode\":\"%s\",\"manualActive\":%s,\"manualDurationSec\":%u,\"autoStartPermille\":%u,\"autoStopPermille\":%u,\"autoWetTolerancePct\":%u,\"autoPulseIntervalSec\":%u,\"autoSoakDelaySec\":%u,\"autoMaxPulses\":%u,\"timeIntervalMin\":%u,\"timeRunDurationSec\":%u,\"sensorPollIntervalMin\":%u,\"timeNextStartSec\":%lu,\"runRemainingSec\":%lu,\"manualBlockedReason\":\"%s\",\"confirmedState\":\"%s\",\"pendingElapsedSec\":%lu,\"auto\":{\"phase\":\"%s\",\"phaseRemainingSec\":%lu,\"pulseIndex\":%u,\"maxPulses\":%u,\"startPlanned\":%s,\"startInSec\":%lu},\"control\":{\"status\":\"%s\",\"nextWakeKnown\":false,\"nextWakeEtaSec\":null}}",
       irrigationModeToText(s_irrigationMode),
       s_controlConfirmedIrrigationActive ? "true" : "false",
       static_cast<unsigned>(s_manualDurationSec),
@@ -885,11 +1094,18 @@ static size_t composeIrrigationConfigJson(char* body, size_t bodySize, uint32_t 
       static_cast<unsigned>(s_autoMaxPulses),
       static_cast<unsigned>(s_timeIntervalMin),
       static_cast<unsigned>(s_timeRunDurationSec),
+      static_cast<unsigned>(s_sensorPollIntervalMin),
       static_cast<unsigned long>(timeNextStartSec),
       static_cast<unsigned long>(runRemainingSec),
       controlSnapshot.manualBlockedReason,
       controlPhaseToText(s_controlPhase),
       static_cast<unsigned long>(pendingElapsedSec),
+      autoPhase,
+      static_cast<unsigned long>(autoPhaseRemainingSec),
+      static_cast<unsigned>(s_autoUsedPulses),
+      static_cast<unsigned>(s_autoMaxPulses),
+      autoStartPlanned ? "true" : "false",
+      static_cast<unsigned long>(autoStartInSec),
       controlSnapshot.status);
 
   if (written <= 0) {
@@ -953,10 +1169,11 @@ static size_t composeNodesJson(char* body, size_t bodySize, uint32_t nowMs)
     macToString(node.mac, mac, sizeof(mac));
     resolveSensorName(node.nodeId, name);
     const uint32_t lastSeenSecAgo = static_cast<uint32_t>(nowMs - node.lastSeenMs) / 1000;
-    const bool sleepActive = node.sleepAcked &&
-                             node.sleepExpectedReportDeadlineMs != 0 &&
-                             (int32_t)(node.sleepExpectedReportDeadlineMs - nowMs) > 0;
-    const uint32_t nextContactSec = sleepActive
+    const bool hasExpectedContact =
+      node.sleepExpectedReportDeadlineMs != 0 &&
+      (int32_t)(node.sleepExpectedReportDeadlineMs - nowMs) > 0;
+    const bool sleepActive = hasExpectedContact;
+    const uint32_t nextContactSec = hasExpectedContact
       ? static_cast<uint32_t>(node.sleepExpectedReportDeadlineMs - nowMs) / 1000UL
       : 0;
 
@@ -1038,13 +1255,17 @@ static size_t composeSystemSummaryJson(char* body, size_t bodySize, uint32_t now
   uint8_t onlineCount = 0;
   uint8_t suspectCount = 0;
   uint8_t offlineCount = 0;
+  uint8_t onlineMoistureSensorCount = 0;
   uint32_t moistureSumPermille = 0;
 
   for (uint8_t i = 0; i < count; ++i) {
     const TelemetryHeadNodePresence& node = nodes[i];
     if (node.state == TELEMETRY_HEAD_NODE_ONLINE) {
       ++onlineCount;
-      moistureSumPermille += static_cast<uint32_t>(node.moisturePermille);
+      if (!node.isControl) {
+        ++onlineMoistureSensorCount;
+        moistureSumPermille += static_cast<uint32_t>(node.moisturePermille);
+      }
       continue;
     }
     if (node.state == TELEMETRY_HEAD_NODE_SUSPECT) {
@@ -1057,24 +1278,33 @@ static size_t composeSystemSummaryJson(char* body, size_t bodySize, uint32_t now
   }
 
   const uint32_t avgMoisturePermille =
-      (onlineCount > 0) ? (moistureSumPermille / static_cast<uint32_t>(onlineCount)) : 0;
-  const bool hasMoistureAvg = (onlineCount > 0);
+      (onlineMoistureSensorCount > 0) ? (moistureSumPermille / static_cast<uint32_t>(onlineMoistureSensorCount)) : 0;
+    const bool hasMoistureAvg = (onlineMoistureSensorCount > 0);
   const uint32_t pairingRemainingSec = (pairingHeadRemainingMs(nowMs) + 999UL) / 1000UL;
   const uint32_t uptimeSec = nowMs / 1000UL;
+  const AutoZoneSnapshot zones = computeAutoZones(nowMs, false);
   char avgMoisture[16] = "null";
+  char autoDryPermille[16] = "null";
+  char autoWetPermille[16] = "null";
   if (hasMoistureAvg) {
     (void)snprintf(avgMoisture, sizeof(avgMoisture), "%lu", static_cast<unsigned long>(avgMoisturePermille));
+  }
+  if (zones.hasValid) {
+    (void)snprintf(autoDryPermille, sizeof(autoDryPermille), "%u", static_cast<unsigned>(zones.dryPermille));
+    (void)snprintf(autoWetPermille, sizeof(autoWetPermille), "%u", static_cast<unsigned>(zones.wetPermille));
   }
 
   const int written = snprintf(
       body,
       bodySize,
-      "{\"onlineSensors\":%u,\"suspectSensors\":%u,\"offlineSensors\":%u,\"totalVisibleSensors\":%u,\"avgMoisturePermille\":%s,\"pairingOpen\":%s,\"pairingRemainingSec\":%lu,\"uptimeSec\":%lu,\"irrigationMode\":\"%s\",\"manualIrrigationActive\":%s}",
+      "{\"onlineSensors\":%u,\"suspectSensors\":%u,\"offlineSensors\":%u,\"totalVisibleSensors\":%u,\"avgMoisturePermille\":%s,\"autoDryPermille\":%s,\"autoWetPermille\":%s,\"pairingOpen\":%s,\"pairingRemainingSec\":%lu,\"uptimeSec\":%lu,\"irrigationMode\":\"%s\",\"manualIrrigationActive\":%s}",
       static_cast<unsigned>(onlineCount),
       static_cast<unsigned>(suspectCount),
       static_cast<unsigned>(offlineCount),
       static_cast<unsigned>(count),
       avgMoisture,
+      autoDryPermille,
+      autoWetPermille,
       pairingHeadIsOpen() ? "true" : "false",
       static_cast<unsigned long>(pairingRemainingSec),
       static_cast<unsigned long>(uptimeSec),
@@ -1219,7 +1449,10 @@ static void stopIrrigation(const char* reason)
   }
   s_manualIrrigationActive = false;
   s_timeCycleStartMs = 0;
+  s_timeStartupWindowMs = 0;
   s_requestedRunDurationSec = 0;
+  s_manualStartRequestedAtMs = 0;
+  s_manualRunConfirmedOnce = false;
   s_manualRunDeadlineMs = 0;
   markIrrigationSyncDirty();
   Serial.print("OBS: irrigation stopped");
@@ -1233,11 +1466,12 @@ static void stopIrrigation(const char* reason)
 
 static void startIrrigation(uint32_t nowMs, uint32_t durationSec, const char* reason)
 {
-  (void)nowMs;
   if (s_manualIrrigationActive) {
     return;
   }
   s_manualIrrigationActive = true;
+  s_manualStartRequestedAtMs = nowMs;
+  s_manualRunConfirmedOnce = false;
   s_requestedRunDurationSec = durationSec;
   s_manualRunDeadlineMs = 0;
   markIrrigationSyncDirty();
@@ -1254,10 +1488,31 @@ static void startIrrigation(uint32_t nowMs, uint32_t durationSec, const char* re
   Serial.println();
 }
 
+static void requestImmediateControlStart(uint32_t nowMs)
+{
+  if (s_pendingControlCmd.active || s_controlConfirmedIrrigationActive) {
+    return;
+  }
+  if (!hasControlReachablePresence(nowMs)) {
+    return;
+  }
+
+  s_controlPhase = CONTROL_CMD_PENDING_START;
+  beginPendingControlCommand(REMOTE_BUTTON_IRRIGATION_START, nowMs);
+  if (sendDesiredIrrigationState()) {
+    s_lastIrrigationSyncMs = nowMs;
+    s_irrigationSyncDirty = false;
+  }
+}
+
 static void irrigationAutomationTick(uint32_t nowMs)
 {
   bool autoKeepAwakeActive = false;
   if (s_irrigationMode == IRRIGATION_MODE_AUTO) {
+    if (s_autoCohortCollectActive) {
+      autoKeepAwakeActive = true;
+    }
+
     if (s_autoRunState == AUTO_RUN_PULSE_ACTIVE && s_autoPulseStartedAtMs != 0) {
       const uint32_t sincePulseStartMs = static_cast<uint32_t>(nowMs - s_autoPulseStartedAtMs);
       if (sincePulseStartMs <= AUTO_KEEP_AWAKE_PRIME_MS) {
@@ -1280,6 +1535,12 @@ static void irrigationAutomationTick(uint32_t nowMs)
     telemetryHeadSetSleepBaseOverrideMs(0, 0);
   }
 
+  if (s_irrigationMode != IRRIGATION_MODE_AUTO && s_autoCohortCollectActive) {
+    clearAutoCohortCollection();
+    telemetryHeadSetSleepBaseOverrideMs(0, 0);
+    telemetryHeadResendSleepPlansToOnlineNodes();
+  }
+
   if (s_autoRunState != AUTO_RUN_IDLE && s_irrigationMode != IRRIGATION_MODE_AUTO) {
     if (s_manualIrrigationActive) {
       stopIrrigation("AUTO canceled by mode change");
@@ -1292,7 +1553,7 @@ static void irrigationAutomationTick(uint32_t nowMs)
   if (s_manualIrrigationActive &&
       s_controlConfirmedIrrigationActive &&
       !s_pendingControlCmd.active &&
-      !hasControlOnlinePresence()) {
+      !hasControlRecentPresence()) {
     s_controlPhase = CONTROL_CMD_LOST;
     s_controlConfirmedIrrigationActive = false;
     s_manualRunDeadlineMs = 0;
@@ -1308,9 +1569,9 @@ static void irrigationAutomationTick(uint32_t nowMs)
       s_manualIrrigationActive &&
       !s_controlConfirmedIrrigationActive &&
       s_timeCycleStartMs != 0 &&
-      s_requestedRunDurationSec > 0) {
-    const uint32_t startupWindowMs = s_requestedRunDurationSec * 1000UL;
-    if (static_cast<uint32_t>(nowMs - s_timeCycleStartMs) >= startupWindowMs) {
+      s_requestedRunDurationSec > 0 &&
+      s_timeStartupWindowMs > 0) {
+    if (static_cast<uint32_t>(nowMs - s_timeCycleStartMs) >= s_timeStartupWindowMs) {
       if (s_pendingControlCmd.active || s_controlPhase == CONTROL_CMD_PENDING_START) {
         s_pendingControlCmd.active = false;
       }
@@ -1321,9 +1582,34 @@ static void irrigationAutomationTick(uint32_t nowMs)
     }
   }
 
+  if (s_irrigationMode == IRRIGATION_MODE_MANUAL &&
+      s_manualIrrigationActive &&
+      !s_controlConfirmedIrrigationActive &&
+      s_manualStartRequestedAtMs != 0) {
+    uint32_t confirmWindowMs = MANUAL_START_CONFIRM_TIMEOUT_MS;
+    if (s_requestedRunDurationSec > 0) {
+      const uint32_t requestedMs = s_requestedRunDurationSec * 1000UL;
+      if (requestedMs > confirmWindowMs) {
+        confirmWindowMs = requestedMs;
+      }
+    }
+    if (static_cast<uint32_t>(nowMs - s_manualStartRequestedAtMs) >= confirmWindowMs) {
+      if (s_pendingControlCmd.active || s_controlPhase == CONTROL_CMD_PENDING_START) {
+        s_pendingControlCmd.active = false;
+      }
+      s_controlPhase = CONTROL_CMD_IDLE;
+      s_controlConfirmedIrrigationActive = false;
+      stopIrrigation("MANUAL start timeout: no control confirmation");
+      Serial.println("OBS: MANUAL cycle canceled (control did not confirm start)");
+    }
+  }
+
   if (s_irrigationMode != IRRIGATION_MODE_AUTO &&
-      s_manualIrrigationActive && s_controlConfirmedIrrigationActive &&
+      s_manualIrrigationActive &&
       s_manualRunDeadlineMs != 0 && (int32_t)(nowMs - s_manualRunDeadlineMs) >= 0) {
+    // s_manualRunDeadlineMs is only set after control confirms RUN, so the
+    // deadline is authoritative even if s_controlConfirmedIrrigationActive was
+    // transiently cleared by a telemetry presence update racing ahead of this check.
     stopIrrigation("duration elapsed");
     s_controlPhase = CONTROL_CMD_PENDING_STOP;
     beginPendingControlCommand(REMOTE_BUTTON_IRRIGATION_STOP, nowMs);
@@ -1372,7 +1658,10 @@ static void irrigationAutomationTick(uint32_t nowMs)
           resetAutoPulseDeferLogState();
           s_autoCheckpointAtMs = 0;
           s_autoPulseStartedAtMs = nowMs;
+          telemetryHeadSetSleepBaseOverrideMs(AUTO_KEEP_AWAKE_BASE_SLEEP_MS, AUTO_KEEP_AWAKE_LEASE_MS);
           startIrrigation(nowMs, s_autoPulseIntervalSec, "AUTO pulse start");
+          telemetryHeadResendSleepPlansToOnlineNodes();
+          requestImmediateControlStart(nowMs);
           autoSmLog("Idle", "checkpoint", "PulseActive", "start", "START_OK", &waitZones);
         } else {
           s_autoIdleLastLogMs = nowMs;
@@ -1381,8 +1670,35 @@ static void irrigationAutomationTick(uint32_t nowMs)
         return;
       }
 
-      const AutoZoneSnapshot zones = computeAutoZones(nowMs, true);
+      if (!s_autoCohortCollectActive) {
+        const uint32_t latestSeenMs = latestAutoEligibleSeenMs();
+        if (latestSeenMs == 0 || static_cast<uint32_t>(nowMs - latestSeenMs) > AUTO_CHECKPOINT_WINDOW_MS) {
+          if (s_autoIdleLastLogMs == 0 || (int32_t)(nowMs - s_autoIdleLastLogMs) >= 30000) {
+            s_autoIdleLastLogMs = nowMs;
+            autoSmLog("Idle", "checkpoint", "Idle", "continue", "NO_FRESH_START_DATA");
+          }
+          return;
+        }
+
+        const uint32_t baselineSeenMs = (latestSeenMs > AUTO_COHORT_COLLECTION_MS)
+            ? (latestSeenMs - AUTO_COHORT_COLLECTION_MS)
+            : 0;
+        beginAutoCohortCollection(nowMs, baselineSeenMs);
+        return;
+      }
+
+      const AutoZoneSnapshot zones = computeAutoZonesSinceSeenMs(s_autoCohortBaselineSeenMs);
+      const bool cohortTimedOut = (int32_t)(nowMs - s_autoCohortDeadlineMs) >= 0;
+      const bool cohortComplete = zones.hasValid && zones.validCount >= s_autoCohortExpectedEligible;
+      if (!cohortTimedOut && !cohortComplete) {
+        return;
+      }
+
+      clearAutoCohortCollection();
+
       if (!zones.hasValid) {
+        telemetryHeadSetSleepBaseOverrideMs(0, 0);
+        telemetryHeadResendSleepPlansToOnlineNodes();
         if (s_autoIdleLastLogMs == 0 || (int32_t)(nowMs - s_autoIdleLastLogMs) >= 30000) {
           s_autoIdleLastLogMs = nowMs;
           autoSmLog("Idle", "checkpoint", "Idle", "continue", "NO_FRESH_START_DATA");
@@ -1392,6 +1708,8 @@ static void irrigationAutomationTick(uint32_t nowMs)
 
       const char* blockedReason = autoStartBlockedReason(nowMs);
       if (blockedReason) {
+        telemetryHeadSetSleepBaseOverrideMs(0, 0);
+        telemetryHeadResendSleepPlansToOnlineNodes();
         if (s_autoIdleLastLogMs == 0 || (int32_t)(nowMs - s_autoIdleLastLogMs) >= 30000) {
           s_autoIdleLastLogMs = nowMs;
           autoSmLog("Idle", "checkpoint", "Idle", "continue", blockedReason, &zones);
@@ -1407,9 +1725,14 @@ static void irrigationAutomationTick(uint32_t nowMs)
         resetAutoPulseDeferLogState();
         s_autoCheckpointAtMs = 0;
         s_autoPulseStartedAtMs = nowMs;
+        telemetryHeadSetSleepBaseOverrideMs(AUTO_KEEP_AWAKE_BASE_SLEEP_MS, AUTO_KEEP_AWAKE_LEASE_MS);
         startIrrigation(nowMs, s_autoPulseIntervalSec, "AUTO pulse start");
+        telemetryHeadResendSleepPlansToOnlineNodes();
+        requestImmediateControlStart(nowMs);
         autoSmLog("Idle", "checkpoint", "PulseActive", "start", "START_OK", &zones);
       } else {
+        telemetryHeadSetSleepBaseOverrideMs(0, 0);
+        telemetryHeadResendSleepPlansToOnlineNodes();
         if (s_autoIdleLastLogMs == 0 || (int32_t)(nowMs - s_autoIdleLastLogMs) >= 30000) {
           s_autoIdleLastLogMs = nowMs;
           autoSmLog("Idle", "checkpoint", "Idle", "continue", "NO_START_CONDITION", &zones);
@@ -1434,7 +1757,23 @@ static void irrigationAutomationTick(uint32_t nowMs)
       }
 
       if (s_autoCheckpointAtMs != 0 && (int32_t)(nowMs - s_autoCheckpointAtMs) >= 0) {
-        const AutoZoneSnapshot zones = computeAutoZones(nowMs, true);
+        if (!s_autoCohortCollectActive) {
+          const uint32_t latestSeenMs = latestAutoEligibleSeenMs();
+          const uint32_t baselineSeenMs = (latestSeenMs > AUTO_COHORT_COLLECTION_MS)
+              ? (latestSeenMs - AUTO_COHORT_COLLECTION_MS)
+              : 0;
+          beginAutoCohortCollection(nowMs, baselineSeenMs);
+          return;
+        }
+
+        const AutoZoneSnapshot zones = computeAutoZonesSinceSeenMs(s_autoCohortBaselineSeenMs);
+        const bool cohortTimedOut = (int32_t)(nowMs - s_autoCohortDeadlineMs) >= 0;
+        const bool cohortComplete = zones.hasValid && zones.validCount >= s_autoCohortExpectedEligible;
+        if (!cohortTimedOut && !cohortComplete) {
+          return;
+        }
+
+        clearAutoCohortCollection();
         s_autoCheckpointAtMs = 0;
         if (!zones.hasValid) {
           stopIrrigation("AUTO checkpoint no valid sensors");
@@ -1443,43 +1782,12 @@ static void irrigationAutomationTick(uint32_t nowMs)
           autoResetRun("ABORT_N_LT_MIN");
           return;
         }
-        const uint8_t eligibleOnlineCount = countAutoEligibleOnlineNodes();
-        const uint8_t minValidForStop = (eligibleOnlineCount >= AUTO_PULSE_STOP_MIN_VALID)
-            ? AUTO_PULSE_STOP_MIN_VALID
-            : AUTO_MIN_VALID_SENSORS;
-        if (zones.validCount < minValidForStop) {
-          const uint32_t retryAtMs = nowMs + AUTO_PULSE_CHECKPOINT_RETRY_MS;
-          if (s_manualRunDeadlineMs != 0 && (int32_t)(s_manualRunDeadlineMs - retryAtMs) > 0) {
-            s_autoCheckpointAtMs = retryAtMs;
-          }
-          const bool usedFallback = !zones.fromFreshWindow;
-          if (s_autoPulseDeferLastLogMs == 0 ||
-              usedFallback != s_autoPulseDeferLastUsedFallback ||
-              static_cast<uint32_t>(nowMs - s_autoPulseDeferLastLogMs) >= AUTO_PULSE_DEFER_LOG_THROTTLE_MS) {
-            s_autoPulseDeferLastLogMs = nowMs;
-            s_autoPulseDeferLastUsedFallback = usedFallback;
-            autoSmLog(
-                "PulseActive",
-                "checkpoint",
-                "PulseActive",
-                "continue",
-                usedFallback ? "STOP_DEFER_FALLBACK_LOW_N" : "STOP_DEFER_LOW_N",
-                &zones);
-          }
-          return;
-        }
         if (autoStopConditionMet(zones)) {
           stopIrrigation("AUTO stop at intra-pulse checkpoint");
           s_controlPhase = CONTROL_CMD_PENDING_STOP;
           beginPendingControlCommand(REMOTE_BUTTON_IRRIGATION_STOP, nowMs);
-          s_autoRunState = AUTO_RUN_IDLE;
-          resetAutoFallbackLogState();
-          resetAutoPulseDeferLogState();
-          s_autoUsedPulses = 0;
-          s_autoSoakDeadlineMs = 0;
-          s_autoPulseStartedAtMs = 0;
-          s_autoIdleLastLogMs = 0;
-          autoSmLog("PulseActive", "checkpoint", "Completed", "stop", "STOP_CONDITION_MET", &zones);
+          autoEnterWaitNextWake(nowMs);
+          autoSmLog("PulseActive", "checkpoint", "Idle", "stop", "STOP_CONDITION_MET_WAIT_NEXT_WAKE", &zones);
           return;
         }
       }
@@ -1509,20 +1817,31 @@ static void irrigationAutomationTick(uint32_t nowMs)
         return;
       }
 
-      const AutoZoneSnapshot zones = computeAutoZones(nowMs, true);
+      if (!s_autoCohortCollectActive) {
+        const uint32_t latestSeenMs = latestAutoEligibleSeenMs();
+        const uint32_t baselineSeenMs = (latestSeenMs > AUTO_COHORT_COLLECTION_MS)
+            ? (latestSeenMs - AUTO_COHORT_COLLECTION_MS)
+            : 0;
+        beginAutoCohortCollection(nowMs, baselineSeenMs);
+        return;
+      }
+
+      const AutoZoneSnapshot zones = computeAutoZonesSinceSeenMs(s_autoCohortBaselineSeenMs);
+      const bool cohortTimedOut = (int32_t)(nowMs - s_autoCohortDeadlineMs) >= 0;
+      const bool cohortComplete = zones.hasValid && zones.validCount >= s_autoCohortExpectedEligible;
+      if (!cohortTimedOut && !cohortComplete) {
+        return;
+      }
+
+      clearAutoCohortCollection();
       if (!zones.hasValid) {
         autoResetRun("ABORT_N_LT_MIN");
         return;
       }
 
       if (autoStopConditionMet(zones)) {
-        s_autoRunState = AUTO_RUN_IDLE;
-        resetAutoFallbackLogState();
-        s_autoUsedPulses = 0;
-        s_autoSoakDeadlineMs = 0;
-        s_autoCheckpointAtMs = 0;
-        s_autoIdleLastLogMs = 0;
-        autoSmLog("SoakWait", "checkpoint", "Completed", "stop", "STOP_CONDITION_MET", &zones);
+        autoEnterWaitNextWake(nowMs);
+        autoSmLog("SoakWait", "checkpoint", "Idle", "stop", "STOP_CONDITION_MET_WAIT_NEXT_WAKE", &zones);
         return;
       }
 
@@ -1542,6 +1861,11 @@ static void irrigationAutomationTick(uint32_t nowMs)
 
       const char* blockedReason = autoStartBlockedReason(nowMs);
       if (blockedReason) {
+        if (strcmp(blockedReason, "START_BLOCKED_CONTROL_UNREACHABLE") == 0) {
+          s_autoCheckpointAtMs = nowMs + CONTROL_STATUS_PROBE_INTERVAL_MS;
+          autoSmLog("SoakWait", "checkpoint", "SoakWait", "continue", "WAIT_CONTROL_REACHABLE", &zones);
+          return;
+        }
         autoResetRun(blockedReason);
         return;
       }
@@ -1553,7 +1877,10 @@ static void irrigationAutomationTick(uint32_t nowMs)
       s_autoSoakDeadlineMs = 0;
       s_autoCheckpointAtMs = 0;
       s_autoPulseStartedAtMs = nowMs;
+      telemetryHeadSetSleepBaseOverrideMs(AUTO_KEEP_AWAKE_BASE_SLEEP_MS, AUTO_KEEP_AWAKE_LEASE_MS);
       startIrrigation(nowMs, s_autoPulseIntervalSec, "AUTO next pulse");
+      telemetryHeadResendSleepPlansToOnlineNodes();
+      requestImmediateControlStart(nowMs);
       autoSmLog("SoakWait", "checkpoint", "PulseActive", "start", "START_OK", &zones);
       return;
     }
@@ -1578,15 +1905,31 @@ static void irrigationAutomationTick(uint32_t nowMs)
     }
 
     if (!s_manualIrrigationActive && (int32_t)(nowMs - s_timeNextStartMs) >= 0) {
-      if (!hasControlOnlinePresence()) {
-        s_timeNextStartMs = nowMs + intervalMs;
-        Serial.println("OBS: TIME cycle skipped (control offline)");
+      if (!hasControlRecentPresence()) {
+        s_timeNextStartMs = nowMs + TIME_MODE_RETRY_WHEN_CONTROL_UNREACHABLE_MS;
+        Serial.println("OBS: TIME cycle deferred (control offline)");
         return;
       }
 
       startIrrigation(nowMs, runSec, "TIME interval trigger");
+      s_controlPhase = CONTROL_CMD_PENDING_START;
+      requestImmediateControlStart(nowMs);
       s_timeCycleStartMs = nowMs;
       s_timeNextStartMs = nowMs + intervalMs;
+
+      const uint32_t sleepMs = controlSleepRemainingMs(nowMs);
+      s_timeStartupWindowMs = sleepMs + MANUAL_START_CONFIRM_TIMEOUT_MS;
+      if (runSec * 1000UL > s_timeStartupWindowMs) {
+        s_timeStartupWindowMs = runSec * 1000UL;
+      }
+
+      if (sleepMs > 0) {
+        Serial.print("OBS: TIME start queued, control wakes in ");
+        Serial.print((unsigned long)(sleepMs / 1000));
+        Serial.print("s, startup window ");
+        Serial.print((unsigned long)(s_timeStartupWindowMs / 1000));
+        Serial.println("s");
+      }
     }
   }
 }
@@ -1958,6 +2301,7 @@ static bool saveIrrigationConfigToNvs()
   blob.manualDurationSec = s_manualDurationSec;
   blob.timeIntervalMin = s_timeIntervalMin;
   blob.timeRunDurationSec = s_timeRunDurationSec;
+  blob.sensorPollIntervalMin = s_sensorPollIntervalMin;
   const size_t written = s_irrigationPrefs.putBytes(IRRIGATION_CONFIG_NVS_KEY, &blob, sizeof(blob));
   return written == sizeof(blob);
 }
@@ -1974,6 +2318,7 @@ static void loadIrrigationConfigFromNvs()
   s_manualDurationSec = MANUAL_DURATION_DEFAULT_SEC;
   s_timeIntervalMin = TIME_INTERVAL_DEFAULT_MIN;
   s_timeRunDurationSec = TIME_RUN_DEFAULT_SEC;
+  s_sensorPollIntervalMin = SENSOR_POLL_INTERVAL_DEFAULT_MIN;
   if (!s_irrigationPrefsReady) {
     return;
   }
@@ -2021,6 +2366,21 @@ static void loadIrrigationConfigFromNvs()
     return;
   }
 
+  if (version == 4 && read >= sizeof(IrrigationConfigNvsBlobV4)) {
+    const IrrigationConfigNvsBlobV4* blob = reinterpret_cast<const IrrigationConfigNvsBlobV4*>(raw);
+    s_autoStartPermille = blob->autoStartPermille;
+    s_autoStopPermille = blob->autoStopPermille;
+    s_autoWetTolerancePct = blob->autoWetTolerancePct;
+    s_autoPulseIntervalSec = blob->autoPulseIntervalSec;
+    s_autoSoakDelaySec = blob->autoSoakDelaySec;
+    s_autoMaxPulses = blob->autoMaxPulses;
+    s_manualDurationSec = blob->manualDurationSec;
+    s_timeIntervalMin = blob->timeIntervalMin;
+    s_timeRunDurationSec = blob->timeRunDurationSec;
+    normalizeIrrigationConfig();
+    return;
+  }
+
   if (version != IRRIGATION_CONFIG_NVS_VERSION || read < sizeof(IrrigationConfigNvsBlob)) {
     normalizeIrrigationConfig();
     return;
@@ -2036,6 +2396,7 @@ static void loadIrrigationConfigFromNvs()
   s_manualDurationSec = blob->manualDurationSec;
   s_timeIntervalMin = blob->timeIntervalMin;
   s_timeRunDurationSec = blob->timeRunDurationSec;
+  s_sensorPollIntervalMin = blob->sensorPollIntervalMin;
   normalizeIrrigationConfig();
 }
 
@@ -2221,7 +2582,7 @@ static void onSensorCalibrateApi()
 static void onIrrigationConfigGetApi()
 {
   const uint32_t nowMs = millis();
-  char body[640] = {0};
+  char body[1024] = {0};
   (void)composeIrrigationConfigJson(body, sizeof(body), nowMs);
   s_server.send(200, "application/json", body);
 }
@@ -2248,6 +2609,7 @@ static void onIrrigationConfigPostApi()
   uint16_t requestedAutoMaxPulses = s_autoMaxPulses;
   uint16_t requestedTimeIntervalMin = s_timeIntervalMin;
   uint16_t requestedTimeRunDurationSec = s_timeRunDurationSec;
+  uint16_t requestedSensorPollIntervalMin = s_sensorPollIntervalMin;
 
   if (s_server.hasArg("manualDurationSec") && !parseUint16Arg("manualDurationSec", &requestedManualDurationSec)) {
     s_server.send(400, "application/json", "{\"ok\":0,\"error\":\"invalid_manualDurationSec\"}");
@@ -2285,6 +2647,10 @@ static void onIrrigationConfigPostApi()
     s_server.send(400, "application/json", "{\"ok\":0,\"error\":\"invalid_timeRunDurationSec\"}");
     return;
   }
+  if (s_server.hasArg("sensorPollIntervalMin") && !parseUint16Arg("sensorPollIntervalMin", &requestedSensorPollIntervalMin)) {
+    s_server.send(400, "application/json", "{\"ok\":0,\"error\":\"invalid_sensorPollIntervalMin\"}");
+    return;
+  }
   if (s_server.hasArg("timeRunDurationMin")) {
     uint16_t legacyTimeRunDurationMin = 0;
     if (!parseUint16Arg("timeRunDurationMin", &legacyTimeRunDurationMin)) {
@@ -2307,6 +2673,7 @@ static void onIrrigationConfigPostApi()
   }
   requestedTimeIntervalMin = clampU16(requestedTimeIntervalMin, TIME_INTERVAL_MIN, TIME_INTERVAL_MAX);
   requestedTimeRunDurationSec = clampU16(requestedTimeRunDurationSec, TIME_RUN_MIN_SEC, TIME_RUN_MAX_SEC);
+  requestedSensorPollIntervalMin = clampU16(requestedSensorPollIntervalMin, SENSOR_POLL_INTERVAL_MIN, SENSOR_POLL_INTERVAL_MAX);
 
   s_irrigationMode = requestedMode;
   s_manualDurationSec = requestedManualDurationSec;
@@ -2318,6 +2685,9 @@ static void onIrrigationConfigPostApi()
   s_autoMaxPulses = requestedAutoMaxPulses;
   s_timeIntervalMin = requestedTimeIntervalMin;
   s_timeRunDurationSec = requestedTimeRunDurationSec;
+  s_sensorPollIntervalMin = requestedSensorPollIntervalMin;
+  applySensorPollIntervalToTelemetry();
+  telemetryHeadResendSleepPlansToOnlineNodes();
   if (s_irrigationMode == IRRIGATION_MODE_TIME) {
     s_timeNextStartMs = millis() + static_cast<uint32_t>(s_timeIntervalMin) * 60UL * 1000UL;
   } else {
@@ -2330,11 +2700,11 @@ static void onIrrigationConfigPostApi()
     return;
   }
 
-    char body[448] = {0};
+    char body[512] = {0};
   (void)snprintf(
       body,
       sizeof(body),
-      "{\"ok\":1,\"mode\":\"%s\",\"manualActive\":%s,\"manualDurationSec\":%u,\"autoStartPermille\":%u,\"autoStopPermille\":%u,\"autoWetTolerancePct\":%u,\"autoPulseIntervalSec\":%u,\"autoSoakDelaySec\":%u,\"autoMaxPulses\":%u,\"timeIntervalMin\":%u,\"timeRunDurationSec\":%u}",
+      "{\"ok\":1,\"mode\":\"%s\",\"manualActive\":%s,\"manualDurationSec\":%u,\"autoStartPermille\":%u,\"autoStopPermille\":%u,\"autoWetTolerancePct\":%u,\"autoPulseIntervalSec\":%u,\"autoSoakDelaySec\":%u,\"autoMaxPulses\":%u,\"timeIntervalMin\":%u,\"timeRunDurationSec\":%u,\"sensorPollIntervalMin\":%u}",
       irrigationModeToText(s_irrigationMode),
       s_manualIrrigationActive ? "true" : "false",
       static_cast<unsigned>(s_manualDurationSec),
@@ -2345,7 +2715,8 @@ static void onIrrigationConfigPostApi()
       static_cast<unsigned>(s_autoSoakDelaySec),
       static_cast<unsigned>(s_autoMaxPulses),
       static_cast<unsigned>(s_timeIntervalMin),
-      static_cast<unsigned>(s_timeRunDurationSec));
+      static_cast<unsigned>(s_timeRunDurationSec),
+      static_cast<unsigned>(s_sensorPollIntervalMin));
   s_server.send(200, "application/json", body);
 }
 
@@ -2425,22 +2796,37 @@ static void onIrrigationManualStopApi()
     return;
   }
 
-  stopIrrigation("manual stop API");
-  s_controlPhase = CONTROL_CMD_PENDING_STOP;
-  beginPendingControlCommand(REMOTE_BUTTON_IRRIGATION_STOP, millis());
-  const bool sentNow = sendDesiredIrrigationState();
-  if (sentNow) {
-    s_lastIrrigationSyncMs = millis();
-    s_irrigationSyncDirty = false;
+  const bool controlWasRunning = s_controlConfirmedIrrigationActive;
+
+  // Cancel any pending start command before stopping.
+  if (s_pendingControlCmd.active && s_pendingControlCmd.action == REMOTE_BUTTON_IRRIGATION_START) {
+    s_pendingControlCmd.active = false;
   }
 
-  Serial.println("OBS: manual irrigation stopped");
-  s_server.send(
-      200,
-      "application/json",
-      sentNow
-        ? "{\"ok\":1,\"manualActive\":false,\"syncPending\":0,\"pendingCommand\":1}"
-        : "{\"ok\":1,\"manualActive\":false,\"syncPending\":1,\"pendingCommand\":1}");
+  stopIrrigation("manual stop API");
+
+  if (controlWasRunning) {
+    s_controlPhase = CONTROL_CMD_PENDING_STOP;
+    beginPendingControlCommand(REMOTE_BUTTON_IRRIGATION_STOP, millis());
+    const bool sentNow = sendDesiredIrrigationState();
+    if (sentNow) {
+      s_lastIrrigationSyncMs = millis();
+      s_irrigationSyncDirty = false;
+    }
+    Serial.println("OBS: manual irrigation stopped (control stop pending)");
+    s_server.send(
+        200,
+        "application/json",
+        sentNow
+          ? "{\"ok\":1,\"manualActive\":false,\"pendingCommand\":1}"
+          : "{\"ok\":1,\"manualActive\":false,\"pendingCommand\":1}");
+  } else {
+    s_controlPhase = CONTROL_CMD_IDLE;
+    s_controlConfirmedIrrigationActive = false;
+    markIrrigationSyncDirty();
+    Serial.println("OBS: manual irrigation canceled (not yet running on control)");
+    s_server.send(200, "application/json", "{\"ok\":1,\"manualActive\":false,\"pendingCommand\":0}");
+  }
 }
 
 static void onNodesApi()
@@ -2508,12 +2894,20 @@ void headObservabilityTick()
           Serial.print("OBS: run deadline restored from telemetry presence sec=");
           Serial.println((unsigned long)s_requestedRunDurationSec);
         }
+        if (s_manualIrrigationActive) {
+          s_manualRunConfirmedOnce = true;
+        }
         s_controlConfirmedIrrigationActive = true;
         s_controlPhase = CONTROL_CMD_ACTIVE;
       } else if (s_controlPhase != CONTROL_CMD_PENDING_START && s_controlPhase != CONTROL_CMD_PENDING_STOP) {
         s_controlConfirmedIrrigationActive = false;
         if (s_controlPhase != CONTROL_CMD_LOST) {
           s_controlPhase = CONTROL_CMD_IDLE;
+        }
+        if (s_irrigationMode == IRRIGATION_MODE_MANUAL &&
+            s_manualIrrigationActive &&
+            s_manualRunConfirmedOnce) {
+          stopIrrigation("manual cycle completed (presence off)");
         }
       }
       break;
