@@ -2686,6 +2686,18 @@ async function loadStatsChart() {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     if (!data.ok) throw new Error('backend error');
+
+    // Flat format: data.r = [[nodeIdx, t, m, b, i], ...], data.nodes = [{id, ctrl, mac, name}]
+    if (Array.isArray(data.r) && Array.isArray(data.nodes)) {
+      data.nodes.forEach((node) => { node.records = []; });
+      for (const rec of data.r) {
+        const ni = rec[0];
+        if (ni < data.nodes.length) {
+          data.nodes[ni].records.push({ t: rec[1], m: rec[2], b: rec[3], i: rec[4] });
+        }
+      }
+    }
+
     const hasRecords = Array.isArray(data.nodes) && data.nodes.some((node) => Array.isArray(node.records) && node.records.length > 0);
     if (!hasRecords) {
       if (statsMoistureChart) { statsMoistureChart.destroy(); statsMoistureChart = null; }
