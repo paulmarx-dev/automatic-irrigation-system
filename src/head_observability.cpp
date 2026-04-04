@@ -524,7 +524,7 @@ static AutoZoneSnapshot computeAutoZonesSinceSeenMs(uint32_t minSeenMsExclusive)
     if (node.moisturePermille < AUTO_VALID_MOISTURE_MIN_PERMILLE) {
       continue;
     }
-    if (node.lastSeenMs <= minSeenMsExclusive) {
+    if ((int32_t)(node.lastSeenMs - minSeenMsExclusive) <= 0) {
       continue;
     }
     values[n++] = node.moisturePermille;
@@ -574,7 +574,7 @@ static uint32_t latestAutoEligibleSeenMs()
     if (node.moisturePermille < AUTO_VALID_MOISTURE_MIN_PERMILLE) {
       continue;
     }
-    if (node.lastSeenMs > latestSeenMs) {
+    if ((int32_t)(node.lastSeenMs - latestSeenMs) > 0) {
       latestSeenMs = node.lastSeenMs;
     }
   }
@@ -2126,7 +2126,6 @@ static void onStatsChartApi()
   uint8_t nodeCount = 0;
 
   const uint32_t nowMs = millis();
-  const uint32_t windowStartMs = (periodMs <= nowMs) ? (nowMs - periodMs) : 0;
   const size_t total = trackStorageSize();
 
   // Pass 1: collect unique nodes in window
@@ -2136,7 +2135,7 @@ static void onStatsChartApi()
     for (size_t i = 0; i < n; i++) {
       const TrackRecord& rec = chunkBuf[i];
       if ((rec.flags & TRACK_FL_DUPLICATE) != 0) continue;
-      if (rec.tsMs < windowStartMs) continue;
+      if (static_cast<uint32_t>(nowMs - rec.tsMs) > periodMs) continue;
       bool found = false;
       for (uint8_t k = 0; k < nodeCount; k++) {
         if (chartNodes[k].nodeId == rec.nodeId) { found = true; break; }
@@ -2186,7 +2185,7 @@ static void onStatsChartApi()
     for (size_t i = 0; i < n; i++) {
       const TrackRecord& rec = chunkBuf[i];
       if ((rec.flags & TRACK_FL_DUPLICATE) != 0) continue;
-      if (rec.tsMs < windowStartMs) continue;
+      if (static_cast<uint32_t>(nowMs - rec.tsMs) > periodMs) continue;
 
       uint8_t ni = 0;
       for (; ni < nodeCount; ni++) {

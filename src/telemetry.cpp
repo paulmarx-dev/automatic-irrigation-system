@@ -824,7 +824,7 @@ static NodeTelemetryState* getOrCreateNodeState(uint16_t nodeId, const uint8_t s
         memcpy(entry->mac, src_mac, 6);
         return entry;
       }
-      if (entry->lastSeenMs < oldestSlot->lastSeenMs) {
+      if ((int32_t)(entry->lastSeenMs - oldestSlot->lastSeenMs) < 0) {
         oldestSlot = entry;
       }
     } else if (!emptySlot) {
