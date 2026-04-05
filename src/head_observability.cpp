@@ -2038,20 +2038,26 @@ static void onTrackExportCsvApi()
   s_server.setContentLength(CONTENT_LENGTH_UNKNOWN);
   s_server.send(200, "text/csv; charset=utf-8", "");
 
-  char line[256] = {0};
-  (void)snprintf(line, sizeof(line), "# head_uptime_ms=%lu\n", static_cast<unsigned long>(millis()));
-  s_server.sendContent(line);
-  (void)snprintf(line, sizeof(line), "# total_records=%u\n", static_cast<unsigned>(total));
-  s_server.sendContent(line);
-  (void)snprintf(line, sizeof(line), "# offset=%u\n", static_cast<unsigned>(offset));
-  s_server.sendContent(line);
-  (void)snprintf(line, sizeof(line), "# limit=%u\n", static_cast<unsigned>(limit));
-  s_server.sendContent(line);
+  {
+    char hdr[128] = {0};
+    (void)snprintf(hdr, sizeof(hdr), "# head_uptime_ms=%lu\n", static_cast<unsigned long>(millis()));
+    s_server.sendContent(hdr);
+    (void)snprintf(hdr, sizeof(hdr), "# total_records=%u\n", static_cast<unsigned>(total));
+    s_server.sendContent(hdr);
+    (void)snprintf(hdr, sizeof(hdr), "# offset=%u\n", static_cast<unsigned>(offset));
+    s_server.sendContent(hdr);
+    (void)snprintf(hdr, sizeof(hdr), "# limit=%u\n", static_cast<unsigned>(limit));
+    s_server.sendContent(hdr);
+  }
   s_server.sendContent("seq,ts_ms,node_id,telemetry_seq,moisture_permille,moisture_raw_mv,battery_raw_mv,battery_est_mv,flags,mac\n");
 
-  static constexpr size_t CSV_CHUNK = 64;
-  TrackRecord buffer[CSV_CHUNK] = {};
+  static constexpr size_t CSV_CHUNK = 256;
+  static TrackRecord buffer[CSV_CHUNK];
+  static constexpr size_t SEND_BUF_CAP = 2048;
+  static char sendBuf[SEND_BUF_CAP + 1];
+  size_t sendBufLen = 0;
   size_t emitted = 0;
+  char line[160] = {0};
 
   while (emitted < limit) {
     const size_t chunkMax = ((limit - emitted) < CSV_CHUNK) ? (limit - emitted) : CSV_CHUNK;
@@ -2062,7 +2068,7 @@ static void onTrackExportCsvApi()
 
     for (size_t i = 0; i < copied; ++i) {
       const TrackRecord& rec = buffer[i];
-      (void)snprintf(
+      const int n = snprintf(
           line,
           sizeof(line),
           "%lu,%lu,%u,%u,%u,%u,%u,%u,%u,%02X:%02X:%02X:%02X:%02X:%02X\n",
@@ -2081,10 +2087,22 @@ static void onTrackExportCsvApi()
           rec.mac[3],
           rec.mac[4],
           rec.mac[5]);
-      s_server.sendContent(line);
+      const size_t lineLen = (n > 0 && n < (int)sizeof(line)) ? static_cast<size_t>(n) : strlen(line);
+      if (sendBufLen + lineLen > SEND_BUF_CAP) {
+        sendBuf[sendBufLen] = '\0';
+        s_server.sendContent(sendBuf);
+        sendBufLen = 0;
+      }
+      memcpy(sendBuf + sendBufLen, line, lineLen);
+      sendBufLen += lineLen;
     }
 
     emitted += copied;
+  }
+
+  if (sendBufLen > 0) {
+    sendBuf[sendBufLen] = '\0';
+    s_server.sendContent(sendBuf);
   }
 
   s_server.sendContent("");
