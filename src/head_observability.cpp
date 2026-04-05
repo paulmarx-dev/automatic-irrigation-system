@@ -194,6 +194,10 @@ static uint32_t s_autoCohortStartedAtMs = 0;
 static uint32_t s_autoCohortDeadlineMs = 0;
 static uint32_t s_autoCohortBaselineSeenMs = 0;
 static uint8_t s_autoCohortExpectedEligible = 0;
+// Cooldown prevents new IDLE cohort starts until the next natural sensor
+// wake cycle.  Without this, each keep-awake wake creates a feedback loop
+// (sensor wakes after 1.2 s → fresh data → new cohort → keep-awake again).
+static uint32_t s_autoIdleEvalCooldownUntilMs = 0;
 
 enum ControlCommandPhase : uint8_t {
   CONTROL_CMD_IDLE = 0,
@@ -688,6 +692,7 @@ static void autoResetRun(const char* reason)
   resetAutoFallbackLogState();
   resetAutoPulseDeferLogState();
   s_autoIdleLastLogMs = 0;
+  s_autoIdleEvalCooldownUntilMs = 0;
   s_autoWaitNextWakeSeenMs = 0;
   s_autoWaitNextWakeCollectUntilMs = 0;
   clearAutoCohortCollection();
@@ -705,6 +710,7 @@ static void autoEnterWaitNextWake(uint32_t nowMs)
   s_autoCheckpointAtMs = 0;
   s_autoPulseStartedAtMs = 0;
   s_autoIdleLastLogMs = 0;
+  s_autoIdleEvalCooldownUntilMs = 0;
   s_autoWaitNextWakeAfterLimit = true;
   s_autoWaitNextWakeIsTargetReached = true;
   s_autoWaitNextWakeSeenMs = latestAutoEligibleSeenMs();
@@ -1649,6 +1655,8 @@ static void irrigationAutomationTick(uint32_t nowMs)
         const char* blockedReason = autoStartBlockedReason(nowMs);
         if (blockedReason) {
           s_autoIdleLastLogMs = nowMs;
+          s_autoIdleEvalCooldownUntilMs = nowMs +
+              static_cast<uint32_t>(s_sensorPollIntervalMin) * 60UL * 1000UL;
           autoSmLog("Idle", "checkpoint", "Idle", "continue", blockedReason, &waitZones);
           return;
         }
@@ -1668,12 +1676,22 @@ static void irrigationAutomationTick(uint32_t nowMs)
           autoSmLog("Idle", "checkpoint", "PulseActive", "start", "START_OK", &waitZones);
         } else {
           s_autoIdleLastLogMs = nowMs;
+          s_autoIdleEvalCooldownUntilMs = nowMs +
+              static_cast<uint32_t>(s_sensorPollIntervalMin) * 60UL * 1000UL;
           autoSmLog("Idle", "checkpoint", "Idle", "continue", "NO_START_CONDITION", &waitZones);
         }
         return;
       }
 
       if (!s_autoCohortCollectActive) {
+        // Cooldown: skip if we recently evaluated and sensors haven't had
+        // time to complete a full natural sleep cycle yet.
+        if (s_autoIdleEvalCooldownUntilMs != 0 &&
+            (int32_t)(nowMs - s_autoIdleEvalCooldownUntilMs) < 0) {
+          return;
+        }
+        s_autoIdleEvalCooldownUntilMs = 0;
+
         const uint32_t latestSeenMs = latestAutoEligibleSeenMs();
         if (latestSeenMs == 0 || static_cast<uint32_t>(nowMs - latestSeenMs) > AUTO_CHECKPOINT_WINDOW_MS) {
           if (s_autoIdleLastLogMs == 0 || (int32_t)(nowMs - s_autoIdleLastLogMs) >= 30000) {
@@ -1699,9 +1717,14 @@ static void irrigationAutomationTick(uint32_t nowMs)
 
       clearAutoCohortCollection();
 
+      // Compute cooldown so the next evaluation waits for sensors to complete
+      // a full natural sleep cycle (= sensorPollInterval).
+      const uint32_t idleCooldownMs = static_cast<uint32_t>(s_sensorPollIntervalMin) * 60UL * 1000UL;
+
       if (!zones.hasValid) {
         telemetryHeadSetSleepBaseOverrideMs(0, 0);
         telemetryHeadResendSleepPlansToOnlineNodes();
+        s_autoIdleEvalCooldownUntilMs = nowMs + idleCooldownMs;
         if (s_autoIdleLastLogMs == 0 || (int32_t)(nowMs - s_autoIdleLastLogMs) >= 30000) {
           s_autoIdleLastLogMs = nowMs;
           autoSmLog("Idle", "checkpoint", "Idle", "continue", "NO_FRESH_START_DATA");
@@ -1713,6 +1736,7 @@ static void irrigationAutomationTick(uint32_t nowMs)
       if (blockedReason) {
         telemetryHeadSetSleepBaseOverrideMs(0, 0);
         telemetryHeadResendSleepPlansToOnlineNodes();
+        s_autoIdleEvalCooldownUntilMs = nowMs + idleCooldownMs;
         if (s_autoIdleLastLogMs == 0 || (int32_t)(nowMs - s_autoIdleLastLogMs) >= 30000) {
           s_autoIdleLastLogMs = nowMs;
           autoSmLog("Idle", "checkpoint", "Idle", "continue", blockedReason, &zones);
@@ -1736,6 +1760,7 @@ static void irrigationAutomationTick(uint32_t nowMs)
       } else {
         telemetryHeadSetSleepBaseOverrideMs(0, 0);
         telemetryHeadResendSleepPlansToOnlineNodes();
+        s_autoIdleEvalCooldownUntilMs = nowMs + idleCooldownMs;
         if (s_autoIdleLastLogMs == 0 || (int32_t)(nowMs - s_autoIdleLastLogMs) >= 30000) {
           s_autoIdleLastLogMs = nowMs;
           autoSmLog("Idle", "checkpoint", "Idle", "continue", "NO_START_CONDITION", &zones);
