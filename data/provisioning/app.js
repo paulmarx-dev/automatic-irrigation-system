@@ -32,6 +32,7 @@ const manualDurationHintEl = document.getElementById('manualDurationHint');
 const autoStartMoisturePctInputEl = document.getElementById('autoStartMoisturePctInput');
 const autoStopMoisturePctInputEl = document.getElementById('autoStopMoisturePctInput');
 const autoStatusHintEl = document.getElementById('autoStatusHint');
+const autoWakeHintEl = document.getElementById('autoWakeHint');
 const autoZoneStatsEl = document.getElementById('autoZoneStats');
 const autoDryAvgPctEl = document.getElementById('autoDryAvgPct');
 const autoWetAvgPctEl = document.getElementById('autoWetAvgPct');
@@ -110,12 +111,11 @@ let manualStartBlockedReason = 'control_not_paired';
 let manualRunRemainingSec = 0;
 let controlConfirmedState = 'idle';
 let controlPendingElapsedSec = 0;
-let localManualPendingCommand = 'none';
-let localManualPendingSinceMs = 0;
 let timeNextStartRemainingSec = 0;
 let timeRunRemainingSec = 0;
 let homeManualStatusResetTimer = 0;
 let manualDurationDirty = false;
+let manualCommandSentAtMs = 0;
 let persistedUnitName = '';
 let pendingUnitName = '';
 let unitNameInitialized = false;
@@ -146,9 +146,7 @@ const SENSOR_POLL_INTERVAL_MAX = 1440;
 const CAL_PROMPT_TIMEOUT_MS = 20000;
 const CAL_ERROR_HIDE_MS = 5000;
 const CAL_INFO_HIDE_MS = 5000;
-const MANUAL_PENDING_GUARD_SEC = 8;
 const POLL_INTERVAL_FAST_MS = 3000;
-const COUNTDOWN_RESYNC_THRESHOLD_SEC = 3;
 const NODE_STATE_UI_STABILIZE_MS = 6000;
 let latestSummaryUptimeSec = null;
 
@@ -548,21 +546,6 @@ function formatHoursValueFromMinutes(totalMinutes) {
   return hours.toFixed(2).replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1');
 }
 
-function blendIncreasingSeconds(localSec, serverSec, forceServer = false) {
-  const server = Math.max(0, Math.floor(Number(serverSec) || 0));
-  const local = Math.max(0, Math.floor(Number(localSec) || 0));
-  if (forceServer) {
-    return server;
-  }
-  if (server + 1 < local) {
-    return local - 1;
-  }
-  if (server > local + COUNTDOWN_RESYNC_THRESHOLD_SEC) {
-    return local + 1;
-  }
-  return Math.max(local, server);
-}
-
 function isControlIrrigationRunning() {
   return controlConfirmedState === 'active';
 }
@@ -700,11 +683,7 @@ function manualPendingStartLabel() {
 
 function manualStatusFromControlState() {
   if (controlConfirmedState === 'pending_start') {
-    const wakeEtaSec = getControlWakeEtaSec();
-    if (wakeEtaSec > 0) {
-      return `Start queued. Control wakes in ${formatHoursMinutesSeconds(wakeEtaSec)}.`;
-    }
-    return 'Start command sent. Waiting for confirmation.';
+    return 'Start queued. Waiting for control.';
   }
   if (controlConfirmedState === 'pending_stop') {
     return 'Stop command sent. Waiting for confirmation.';
@@ -903,16 +882,17 @@ function autoServiceStatusText() {
     return 'AUTO: target moisture reached, waiting for next sensor wave.';
   }
   if (latestAutoPhase === 'wait_next_wake') {
+    const doneLabel = maxPulses > 0 ? `${maxPulses}/${maxPulses} pulses done` : 'pulse limit reached';
     if (!sensorSnapshot.hasSensors) {
-      return 'AUTO: pulse limit reached, waiting for paired sensors to form the next synchronized wave.';
+      return `AUTO: ${doneLabel}, waiting for sensors.`;
     }
     if (sensorSnapshot.activeNow) {
-      return 'AUTO: pulse limit reached, sensors are online, waiting for the next synchronized wave decision.';
+      return `AUTO: ${doneLabel}, monitoring.`;
     }
     if (Number.isFinite(sensorSnapshot.nextWakeSec)) {
-      return `AUTO: pulse limit reached, next synchronized wave expected in ${formatHoursMinutesSeconds(sensorSnapshot.nextWakeSec)}.`;
+      return `AUTO: ${doneLabel}, next check in ${formatHoursMinutesSeconds(sensorSnapshot.nextWakeSec)}.`;
     }
-    return 'AUTO: pulse limit reached, waiting for telemetry from the next synchronized wave.';
+    return `AUTO: ${doneLabel}, waiting for next sensor wave.`;
   }
   if (controlStarting || controlRunning || isManualIrrigationActive) {
     return 'AUTO: irrigation state syncing with control.';
@@ -927,31 +907,31 @@ function updateControlAvailabilityStatus() {
     const wakeSec = getControlWakeEtaSec();
     if (wakeSec > 0) {
       setHomeControlLockoutStatus(
-        `Control status: sleeping, wakes in ${formatHoursMinutesSeconds(wakeSec)}. Manual start will be scheduled on wake.`,
+        `Control: sleeping, wakes in ${formatHoursMinutesSeconds(wakeSec)}. Start will be scheduled on wake.`,
         false,
       );
     } else {
-      setHomeControlLockoutStatus('Control status: online.', false);
+      setHomeControlLockoutStatus('Control: online.', false);
     }
     return;
   }
   if (controlAvailabilityStatus === 'battery_lockout') {
-    setHomeControlLockoutStatus('Control status: battery lockout. Watering blocked.', true);
+    setHomeControlLockoutStatus('Control: battery lockout. Watering blocked.', true);
     return;
   }
   if (controlAvailabilityStatus === 'offline') {
     const wakeSec = getControlWakeEtaSec();
     if (wakeSec > 0) {
       setHomeControlLockoutStatus(
-        `Control status: sleeping, wakes in ${formatHoursMinutesSeconds(wakeSec)}. Manual start will be scheduled on wake.`,
+        `Control: sleeping, wakes in ${formatHoursMinutesSeconds(wakeSec)}. Start will be scheduled on wake.`,
         false,
       );
     } else {
-      setHomeControlLockoutStatus('Control status: sleeping/offline. Manual start will be scheduled for next contact.', false);
+      setHomeControlLockoutStatus('Control: sleeping/offline. Start will be scheduled for next contact.', false);
     }
     return;
   }
-  setHomeControlLockoutStatus('Control status: not paired. Watering blocked.', true);
+  setHomeControlLockoutStatus('Control: not paired. Watering blocked.', true);
 }
 
 function setUnitConfigStatus(text, isError = false) {
@@ -1007,9 +987,13 @@ function renderHomeModeControls() {
   const inactiveLabel = selectedMode === 'OFF' ? 'Disabled' : 'Active';
   const actionLabel = selectedMode === 'OFF' ? 'Disable' : 'Activate';
 
-  if (isManualMode) {
+  if (isManualMode && !manualDurationDirty) {
     homeModeSaveBtnEl.hidden = true;
     homeModeSaveBtnEl.disabled = true;
+  } else if (isManualMode && manualDurationDirty) {
+    homeModeSaveBtnEl.hidden = false;
+    homeModeSaveBtnEl.disabled = false;
+    homeModeSaveBtnEl.textContent = 'Save duration';
   } else {
     homeModeSaveBtnEl.hidden = false;
     homeModeSaveBtnEl.disabled = !isDirty;
@@ -1021,7 +1005,7 @@ function renderHomeModeControls() {
       homeModeSaveBtnEl.textContent = inactiveLabel;
     }
   }
-  homeModeSaveBtnEl.classList.toggle('saved', isManualMode || !isDirty);
+  homeModeSaveBtnEl.classList.toggle('saved', (isManualMode && !manualDurationDirty) || !isDirty);
 
   if (homeModeStatusEl) {
     homeModeStatusEl.hidden = isManualMode;
@@ -1099,28 +1083,48 @@ function renderHomeModeControls() {
       const startPct = permilleToPercent(pendingAutoStartPermille);
       const stopPct = permilleToPercent(pendingAutoStopPermille);
       const moisturePct = latestAvgMoisturePermille !== null ? Math.round(latestAvgMoisturePermille / 10) : null;
-      const autoWakeEtaSec = getControlWakeEtaSec();
-      const autoWakeHint = autoWakeEtaSec > 0 ? ` Control wakes in ${formatHoursMinutesSeconds(autoWakeEtaSec)}.` : '';
       if (!isModeDirty && !isSettingsDirty && isPersistedAutoMode) {
         if (isControlIrrigationRunning()) {
-          const stopStr = moisturePct !== null ? `stops above ${stopPct}%.` : `stops above ${stopPct}%.`;
+          const stopStr = `stops above ${stopPct}%.`;
           autoStatusHintEl.textContent = moisturePct !== null
             ? `Watering now, ${stopStr} Moisture: ${moisturePct}%.`
             : `Watering now, ${stopStr}`;
         } else if (latestAutoPhase === 'pulse' || controlConfirmedState === 'pending_start') {
-          autoStatusHintEl.textContent = `AUTO pulse is waiting for control start.${autoWakeHint}`;
+          autoStatusHintEl.textContent = 'AUTO pulse is waiting for control start.';
         } else if (moisturePct !== null) {
           if (moisturePct <= startPct) {
-            autoStatusHintEl.textContent = `Moisture: ${moisturePct}% — starting irrigation.${autoWakeHint}`;
+            autoStatusHintEl.textContent = `Moisture: ${moisturePct}% — starting irrigation.`;
           } else {
-            autoStatusHintEl.textContent = `Moisture: ${moisturePct}% — watering starts below ${startPct}%.${autoWakeHint}`;
+            autoStatusHintEl.textContent = `Moisture: ${moisturePct}% — watering starts below ${startPct}%.`;
           }
         } else {
-          autoStatusHintEl.textContent = `Watering starts below ${startPct}%, stops above ${stopPct}%.${autoWakeHint}`;
+          autoStatusHintEl.textContent = `Watering starts below ${startPct}%, stops above ${stopPct}%.`;
         }
       } else {
         autoStatusHintEl.textContent = `Start below ${startPct}%, stop above ${stopPct}%.`;
       }
+    }
+  }
+  if (autoWakeHintEl) {
+    const showAutoWake = showAutoConfig && normalizeIrrigationMode(persistedIrrigationMode) === 'AUTO' && !isModeDirty;
+    if (showAutoWake) {
+      const parts = [];
+      const ctrlSec = getControlWakeEtaSec();
+      if (ctrlSec > 0) {
+        parts.push(`Control wakes in ${formatHoursMinutesSeconds(ctrlSec)}`);
+      }
+      const sensorSnap = getNextSensorWakeSnapshot();
+      if (sensorSnap.hasSensors && sensorSnap.nextWakeSec !== null && sensorSnap.nextWakeSec > 0) {
+        parts.push(`Sensors wake in ${formatHoursMinutesSeconds(sensorSnap.nextWakeSec)}`);
+      }
+      if (parts.length > 0) {
+        autoWakeHintEl.textContent = parts.join(' · ');
+        autoWakeHintEl.hidden = false;
+      } else {
+        autoWakeHintEl.hidden = true;
+      }
+    } else {
+      autoWakeHintEl.hidden = true;
     }
   }
   if (autoZoneStatsEl) {
@@ -1205,20 +1209,16 @@ function renderHomeModeControls() {
     timeScheduleHintEl.hidden = !showTimeConfig;
     if (showTimeConfig) {
       let statusText = '';
-      const timeWakeEtaSec = getControlWakeEtaSec();
-      const timeWakeHint = timeWakeEtaSec > 0 ? ` Control wakes in ${formatHoursMinutesSeconds(timeWakeEtaSec)}.` : '';
       const timeQueuedWaiting = isManualIrrigationActive && !isControlIrrigationRunning();
       if (!isModeDirty && !isSettingsDirty && isPersistedTimeMode) {
-        if (timeQueuedWaiting && timeWakeEtaSec > 0) {
-          statusText = `Watering queued. Control wakes in ${formatHoursMinutesSeconds(timeWakeEtaSec)}. Next cycle in ${formatHoursMinutesSeconds(timeNextStartRemainingSec)}.`;
-        } else if (timeQueuedWaiting) {
-          statusText = `Watering starting... Next cycle in ${formatHoursMinutesSeconds(timeNextStartRemainingSec)}.`;
+        if (timeQueuedWaiting) {
+          statusText = `Watering queued. Next cycle in ${formatHoursMinutesSeconds(timeNextStartRemainingSec)}.`;
         } else if (timeRunRemainingSec > 0) {
           statusText = `Watering now, ${formatHoursMinutesSeconds(timeRunRemainingSec)} left. Next cycle in ${formatHoursMinutesSeconds(timeNextStartRemainingSec)}.`;
         } else if (timeNextStartRemainingSec > 0) {
-          statusText = `Next watering in ${formatHoursMinutesSeconds(timeNextStartRemainingSec)}.${timeWakeHint}`;
+          statusText = `Next watering in ${formatHoursMinutesSeconds(timeNextStartRemainingSec)}.`;
         } else {
-          statusText = `Schedule active.${timeWakeHint}`;
+          statusText = 'Schedule active.';
         }
       } else if (!isModeDirty && !isSettingsDirty) {
         statusText = 'Schedule not active.';
@@ -1229,9 +1229,9 @@ function renderHomeModeControls() {
 }
 
 function applyIrrigationConfig(config, allowOverridePending = true) {
-  const nowMs = Date.now();
   const prevManualActive = isManualIrrigationActive;
   const prevControlState = controlConfirmedState;
+  const prevAutoPhase = latestAutoPhase;
   const mode = normalizeIrrigationMode(config && config.mode);
   persistedIrrigationMode = mode;
   persistedManualDurationSec = readConfigNumber(config && config.manualDurationSec, persistedManualDurationSec, MANUAL_DURATION_MIN_SEC, MANUAL_DURATION_MAX_SEC);
@@ -1285,61 +1285,47 @@ function applyIrrigationConfig(config, allowOverridePending = true) {
   const serverPendingElapsedSec = readConfigNumber(config && config.pendingElapsedSec, controlPendingElapsedSec, 0, 3600);
   const serverManualRunRemainingSec = readConfigNumber(config && config.runRemainingSec, manualRunRemainingSec, 0, MANUAL_DURATION_MAX_SEC);
 
-  let resolvedConfirmedState = serverConfirmedState;
-  let resolvedPendingElapsedSec = serverPendingElapsedSec;
-  const localPendingElapsedSec = localManualPendingSinceMs > 0
-    ? Math.max(0, Math.floor((nowMs - localManualPendingSinceMs) / 1000))
-    : 0;
-  const withinPendingGuard = localPendingElapsedSec <= MANUAL_PENDING_GUARD_SEC;
-
-  if (localManualPendingCommand === 'start') {
-    if (serverConfirmedState === 'idle' && !serverManualActive && withinPendingGuard) {
-      resolvedConfirmedState = 'pending_start';
-      resolvedPendingElapsedSec = Math.max(serverPendingElapsedSec, localPendingElapsedSec);
+  // Server is the sole authority for irrigation state.
+  // After a manual start/stop POST, stale SSE snapshots (composed before the
+  // POST arrived at the ESP32) may linger in the TCP buffer for 1-2 seconds.
+  // Suppress SSE state updates for a brief self-expiring window so those
+  // stale snapshots cannot revert the optimistic UI to idle.
+  const MANUAL_COMMAND_GUARD_MS = 3000;
+  const withinCommandGuard = manualCommandSentAtMs > 0 &&
+      (Date.now() - manualCommandSentAtMs) < MANUAL_COMMAND_GUARD_MS;
+  if (!withinCommandGuard) {
+    if (config && typeof config.manualActive !== 'undefined') {
+      isManualIrrigationActive = serverManualActive;
     }
-    if (serverManualActive || serverConfirmedState === 'active' || serverConfirmedState === 'pending_stop' || serverConfirmedState === 'lost' || !withinPendingGuard) {
-      localManualPendingCommand = 'none';
-      localManualPendingSinceMs = 0;
-    }
-  } else if (localManualPendingCommand === 'stop') {
-    if (serverManualActive && serverConfirmedState !== 'pending_stop' && withinPendingGuard) {
-      resolvedConfirmedState = 'pending_stop';
-      resolvedPendingElapsedSec = Math.max(serverPendingElapsedSec, localPendingElapsedSec);
-    }
-    if (!serverManualActive || serverConfirmedState === 'lost' || !withinPendingGuard) {
-      localManualPendingCommand = 'none';
-      localManualPendingSinceMs = 0;
-    }
-  }
-
-  const effectiveManualActive = serverManualActive || resolvedConfirmedState === 'active';
-  if (config && typeof config.manualActive !== 'undefined') {
-    isManualIrrigationActive = effectiveManualActive;
+    controlConfirmedState = serverConfirmedState;
   }
   controlAvailabilityStatus = String(config && config.control && config.control.status ? config.control.status : 'not_paired').toLowerCase();
   manualStartBlockedReason = String(config && config.manualBlockedReason ? config.manualBlockedReason : 'control_not_paired').toLowerCase();
-  const controlStateChanged = resolvedConfirmedState !== prevControlState;
+  const controlStateChanged = serverConfirmedState !== prevControlState;
   const manualStateChanged = isManualIrrigationActive !== prevManualActive;
 
-  manualRunRemainingSec = Math.max(0, Math.floor(Number(serverManualRunRemainingSec) || 0));
-  controlConfirmedState = resolvedConfirmedState;
-  controlPendingElapsedSec = blendIncreasingSeconds(
-    controlPendingElapsedSec,
-    resolvedPendingElapsedSec,
-    controlStateChanged,
-  );
-  // TIME schedule countdowns should follow a single authoritative source
-  // from backend snapshots to avoid visual oscillation.
-  timeRunRemainingSec = Math.max(0, Math.floor(Number(serverTimeRunRemainingSec) || 0));
-  timeNextStartRemainingSec = Math.max(0, Math.floor(Number(serverTimeNextStartSec) || 0));
+  // Countdown values: accept server value only on state transitions.
+  // Between transitions the local 1-second interval is the sole ticker.
+  if (manualStateChanged || controlStateChanged) {
+    manualRunRemainingSec = Math.max(0, Math.floor(Number(serverManualRunRemainingSec) || 0));
+  }
+  if (controlStateChanged) {
+    controlPendingElapsedSec = Math.max(0, Math.floor(Number(serverPendingElapsedSec) || 0));
+  }
+  if (manualStateChanged || controlStateChanged) {
+    timeRunRemainingSec = Math.max(0, Math.floor(Number(serverTimeRunRemainingSec) || 0));
+    timeNextStartRemainingSec = Math.max(0, Math.floor(Number(serverTimeNextStartSec) || 0));
+  }
   latestAutoPhase = String(autoStatus && autoStatus.phase ? autoStatus.phase : 'idle').toLowerCase();
   const serverAutoPhaseRemainingSec = Math.max(0, Math.floor(Number(autoStatus && autoStatus.phaseRemainingSec) || 0));
   latestAutoPulseIndex = Math.max(0, Math.floor(Number(autoStatus && autoStatus.pulseIndex) || 0));
   latestAutoMaxPulses = Math.max(0, Math.floor(Number(autoStatus && autoStatus.maxPulses) || 0));
   latestAutoStartPlanned = Boolean(autoStatus && autoStatus.startPlanned);
   const serverAutoStartInSec = Math.max(0, Math.floor(Number(autoStatus && autoStatus.startInSec) || 0));
-  latestAutoPhaseRemainingSec = Math.max(0, Math.floor(Number(serverAutoPhaseRemainingSec) || 0));
-  latestAutoStartInSec = Math.max(0, Math.floor(Number(serverAutoStartInSec) || 0));
+  if (latestAutoPhase !== prevAutoPhase) {
+    latestAutoPhaseRemainingSec = Math.max(0, Math.floor(Number(serverAutoPhaseRemainingSec) || 0));
+    latestAutoStartInSec = Math.max(0, Math.floor(Number(serverAutoStartInSec) || 0));
+  }
   if (!isManualIrrigationActive) {
     manualRunRemainingSec = 0;
   }
@@ -1423,13 +1409,16 @@ function applyUnitStatus(status, allowOverridePending = true) {
 }
 
 async function saveIrrigationConfig() {
-  const mode = normalizeIrrigationMode(pendingIrrigationMode);
+  // The MANUAL tab only edits duration; it must never switch the server mode.
+  // Pressing "Save duration" stores the new value while keeping the active mode
+  // (e.g. AUTO) untouched.
+  const isManualDurationSave =
+    normalizeIrrigationMode(pendingIrrigationMode) === 'MANUAL' && manualDurationDirty;
+  const mode = isManualDurationSave
+    ? normalizeIrrigationMode(persistedIrrigationMode)
+    : normalizeIrrigationMode(pendingIrrigationMode);
 
-  if (mode === 'MANUAL') {
-    return;
-  }
-
-  if (pendingAutoStopPermille <= pendingAutoStartPermille) {
+  if (mode !== 'MANUAL' && pendingAutoStopPermille <= pendingAutoStartPermille) {
     setHomeModeStatus('Auto stop moisture must be above auto start moisture.', true);
     return;
   }
@@ -1450,6 +1439,7 @@ async function saveIrrigationConfig() {
     });
     persistedIrrigationMode = mode;
     persistedManualDurationSec = pendingManualDurationSec;
+    manualDurationDirty = false;
     persistedAutoStartPermille = pendingAutoStartPermille;
     persistedAutoStopPermille = pendingAutoStopPermille;
     persistedAutoWetTolerancePct = pendingAutoWetTolerancePct;
@@ -1695,34 +1685,32 @@ async function startManualIrrigation() {
     return;
   }
 
+  manualCommandSentAtMs = Date.now();
   try {
     await postForm('/api/irrigation/manual/start', { durationSec: pendingManualDurationSec });
     persistedManualDurationSec = pendingManualDurationSec;
     manualDurationDirty = false;
-    localManualPendingCommand = 'start';
-    localManualPendingSinceMs = Date.now();
     controlConfirmedState = 'pending_start';
+    isManualIrrigationActive = true;
     controlPendingElapsedSec = 0;
     renderHomeModeControls();
     await tick();
     setHomeManualStatus(manualStatusFromControlState(), false, 5000);
   } catch (error) {
+    manualCommandSentAtMs = 0;
     setHomeManualStatus(`Watering start failed: ${error.message}`, true);
   }
 }
 
 async function stopManualIrrigation() {
   const wasConfirmedRunning = controlConfirmedState === 'active';
+  manualCommandSentAtMs = Date.now();
   try {
     await postForm('/api/irrigation/manual/stop', {});
     if (wasConfirmedRunning) {
-      localManualPendingCommand = 'stop';
-      localManualPendingSinceMs = Date.now();
       controlConfirmedState = 'pending_stop';
       controlPendingElapsedSec = 0;
     } else {
-      localManualPendingCommand = 'none';
-      localManualPendingSinceMs = 0;
       controlConfirmedState = 'idle';
       isManualIrrigationActive = false;
       manualRunRemainingSec = 0;
@@ -1731,6 +1719,7 @@ async function stopManualIrrigation() {
     await tick();
     setHomeManualStatus(manualStatusFromControlState(), false, 5000);
   } catch (error) {
+    manualCommandSentAtMs = 0;
     setHomeManualStatus(`Watering stop failed: ${error.message}`, true);
   }
 }
@@ -2115,10 +2104,22 @@ function applyDashboardSnapshot(snapshot, allowOverridePending = true) {
   // that might have been shown while the head was rebooting.
   clearStaleFetchErrorsFromFreshSnapshot();
 
-  // Merge incoming nodes with the locally-decremented nextContactSec to avoid
-  // visible jumps: if the node is already sleeping and the locally-tracked
-  // countdown is within 5 seconds of the server value, keep the local value so
-  // the per-second setInterval tick stays smooth.
+  // Merge nodes: preserve locally-ticked nextContactSec for sleeping nodes
+  // unless server reports a significantly different value (new sleep cycle).
+  if (Array.isArray(latestNodes) && latestNodes.length > 0) {
+    const oldByMac = {};
+    for (const n of latestNodes) {
+      if (n && n.mac) oldByMac[n.mac] = n;
+    }
+    for (const n of nodes) {
+      const old = n && n.mac ? oldByMac[n.mac] : null;
+      if (old && n.sleepActive && old.sleepActive
+          && typeof old.nextContactSec === 'number' && typeof n.nextContactSec === 'number'
+          && Math.abs(n.nextContactSec - old.nextContactSec) <= 5) {
+        n.nextContactSec = old.nextContactSec;
+      }
+    }
+  }
   latestNodes = nodes;
 
   if (webStatus) {
@@ -2575,6 +2576,58 @@ setInterval(() => {
   if (pairingRemainingSec > 0) {
     pairingRemainingSec -= 1;
     renderPairingBannerState(pairingRemainingSec > 0);
+  }
+
+  // Local per-second countdown for sleeping node ETA so the UI stays smooth
+  // between server snapshots.
+  if (Array.isArray(latestNodes)) {
+    for (const node of latestNodes) {
+      if (node && node.sleepActive && typeof node.nextContactSec === 'number' && node.nextContactSec > 0) {
+        node.nextContactSec = Math.max(0, node.nextContactSec - 1);
+      }
+    }
+  }
+
+  // Tick manual/time countdown values locally between snapshots.
+  let countdownDirty = false;
+  if (isManualIrrigationActive && controlConfirmedState === 'active' && manualRunRemainingSec > 0) {
+    manualRunRemainingSec = Math.max(0, manualRunRemainingSec - 1);
+    countdownDirty = true;
+    if (manualRunRemainingSec === 0) {
+      // Duration expired locally — transition UI immediately.
+      // The backend fires stopIrrigation around the same moment.
+      isManualIrrigationActive = false;
+      controlConfirmedState = 'idle';
+      // Confirm server-side state; retry in case the first poll is too early.
+      setTimeout(() => tick(), 1500);
+      setTimeout(() => tick(), 5000);
+    }
+  }
+  if (controlConfirmedState === 'pending_start' || controlConfirmedState === 'pending_stop') {
+    controlPendingElapsedSec += 1;
+    countdownDirty = true;
+  }
+  if (timeRunRemainingSec > 0) {
+    timeRunRemainingSec = Math.max(0, timeRunRemainingSec - 1);
+    countdownDirty = true;
+    if (timeRunRemainingSec === 0) {
+      setTimeout(() => tick(), 2000);
+    }
+  }
+  if (timeNextStartRemainingSec > 0) {
+    timeNextStartRemainingSec = Math.max(0, timeNextStartRemainingSec - 1);
+    countdownDirty = true;
+  }
+  if (latestAutoPhaseRemainingSec > 0) {
+    latestAutoPhaseRemainingSec = Math.max(0, latestAutoPhaseRemainingSec - 1);
+    countdownDirty = true;
+  }
+  if (latestAutoStartInSec > 0) {
+    latestAutoStartInSec = Math.max(0, latestAutoStartInSec - 1);
+    countdownDirty = true;
+  }
+  if (countdownDirty) {
+    renderHomeModeControls();
   }
 
   reconcileCalibrationState();
