@@ -171,6 +171,7 @@ static void serveFile(const char* path, const char* contentType)
     return;
   }
 
+  s_server->sendHeader("Cache-Control", "no-cache, must-revalidate");
   s_server->streamFile(file, contentType);
   file.close();
 }
