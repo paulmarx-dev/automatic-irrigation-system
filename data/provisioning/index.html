@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Irrigation Console</title>
+  <link rel="stylesheet" href="/provisioning/style.css" />
+</head>
+<body>
+  <main class="wrap">
+    <div class="topbar">
+      <h1>Irrigation Console</h1>
+      <div class="transport-indicator-wrap">
+        <button
+          type="button"
+          id="transportIndicatorBtn"
+          class="transport-indicator"
+          aria-label="Open transport status"
+          aria-expanded="false"
+          aria-controls="transportPopover"
+        ></button>
+        <div id="transportPopover" class="transport-popover" role="status" hidden>
+          <p><span>Transport</span><strong id="transportPopoverTransport">-</strong></p>
+          <p><span>Status</span><strong id="transportPopoverStatus">-</strong></p>
+          <p><span>Last update</span><strong id="transportPopoverLastUpdate">-</strong></p>
+          <p><span>Poll interval</span><strong id="transportPopoverPollInterval">-</strong></p>
+          <p><span>Reconnects</span><strong id="transportPopoverReconnects">0</strong></p>
+        </div>
+      </div>
+    </div>
+    <p class="sub">AP-only local web access for status and control.</p>
+
+    <nav class="tabs" aria-label="Main sections">
+      <button type="button" class="tab-btn active" data-tab="home">Home</button>
+      <button type="button" class="tab-btn" data-tab="stats">Stats</button>
+      <button type="button" class="tab-btn" data-tab="sensors">Units</button>
+      <button type="button" class="tab-btn" data-tab="unit">This Unit</button>
+    </nav>
+
+    <section class="card tab-panel active" id="tabHome" data-panel="home">
+      <h2>Home</h2>
+      <div class="home-grid">
+        <p class="home-item"><span>Units online</span><strong id="homeOnline">-</strong></p>
+        <p class="home-item"><span>Average moisture</span><strong id="homeMoisture">-</strong></p>
+        <p class="home-item"><span>Pairing</span><strong id="homePairing">-</strong></p>
+        <p class="home-item"><span>Uptime</span><strong id="homeUptime">-</strong></p>
+      </div>
+      <form id="homeModeForm" class="home-mode-form">
+        <p class="home-mode-title">Irrigation mode</p>
+        <div class="home-mode-options">
+          <label><input type="radio" name="irrigationMode" value="AUTO" /> Auto</label>
+          <label><input type="radio" name="irrigationMode" value="TIME" /> Time</label>
+          <label><input type="radio" name="irrigationMode" value="OFF" /> OFF</label>
+          <label><input type="radio" name="irrigationMode" value="MANUAL" /> Manual</label>
+        </div>
+        <div id="homeAutoConfig" hidden>
+          <label>
+            Start watering below (%)
+            <input id="autoStartMoisturePctInput" type="number" min="0" max="100" step="1" />
+          </label>
+          <label>
+            Stop watering above (%)
+            <input id="autoStopMoisturePctInput" type="number" min="0" max="100" step="1" />
+          </label>
+          <p id="autoStatusHint" class="home-mode-status" hidden></p>
+          <p id="autoWakeHint" class="home-mode-status" hidden></p>
+          <p class="home-mode-status auto-zone-stats" id="autoZoneStats" hidden>
+            <span>Dry avg: <strong id="autoDryAvgPct">--</strong></span>
+            <span>Wet avg: <strong id="autoWetAvgPct">--</strong></span>
+          </p>
+          <div class="auto-advanced-group">
+            <button
+              type="button"
+              id="autoAdvancedToggleBtn"
+              class="auto-advanced-toggle"
+              aria-expanded="false"
+              aria-controls="autoAdvancedPanel"
+            >
+              <span>Advanced settings</span>
+              <span class="auto-advanced-chevron" aria-hidden="true">▾</span>
+            </button>
+            <div id="autoAdvancedPanel" class="auto-advanced-panel" hidden>
+              <label>
+                Pulse interval sec
+                <input id="autoPulseIntervalSecInput" type="number" min="1" max="3600" step="1" />
+              </label>
+              <label>
+                Wet tolerance %
+                <input id="autoWetTolerancePctInput" type="number" min="0" max="100" step="1" />
+              </label>
+              <label>
+                Soak delay sec
+                <input id="autoSoakDelaySecInput" type="number" min="1" max="3600" step="1" />
+              </label>
+              <label>
+                Max pulses
+                <input id="autoMaxPulsesInput" type="number" min="1" max="20" step="1" />
+              </label>
+              <p id="autoServiceStatus" class="home-mode-status auto-service-live" hidden>AUTO: -</p>
+            </div>
+          </div>
+        </div>
+        <div id="homeManualConfig" hidden>
+          <label>
+             Watering duration (seconds)
+            <input id="manualDurationSecInput" type="number" min="0" max="600" step="1" inputmode="numeric" autocomplete="off" />
+          </label>
+          <p id="manualDurationHint" class="home-mode-status" hidden></p>
+        </div>
+        <div id="homeTimeConfig" hidden>
+          <label>
+            Water for (minutes)
+            <input id="timeRunDurationMinInput" type="text" inputmode="decimal" autocomplete="off" />
+          </label>
+          <p id="timeRunDurationHint" class="home-mode-status" hidden></p>
+          <label>
+            Every (hours)
+            <input id="timeIntervalMinInput" type="text" inputmode="decimal" autocomplete="off" />
+          </label>
+          <p id="timeIntervalHint" class="home-mode-status" hidden></p>
+          <p id="timeScheduleHint" class="home-mode-status" hidden></p>
+        </div>
+        <div class="home-mode-actions">
+          <button type="button" id="homeModeSaveBtn" disabled>Active</button>
+        </div>
+        <p id="homeModeStatus" class="home-mode-status">Config synced.</p>
+        <div class="home-manual-actions" hidden>
+          <button type="button" id="manualStartBtn" disabled>Start watering</button>
+          <button type="button" id="manualStopBtn" class="ghost" disabled>Stop watering</button>
+        </div>
+        <p id="homeManualStatus" class="home-mode-status">Manual watering inactive.</p>
+        <p id="homeControlLockoutStatus" class="home-mode-status">Control status: unknown.</p>
+      </form>
+    </section>
+
+    <section class="card tab-panel" id="tabStats" data-panel="stats">
+      <h2>Stats</h2>
+      <div class="stats-period-bar" role="group" aria-label="Period">
+        <button type="button" class="stats-period-btn" data-period="1h">1h</button>
+        <button type="button" class="stats-period-btn active" data-period="24h">24h</button>
+        <button type="button" class="stats-period-btn" data-period="7d">7d</button>
+        <button type="button" class="stats-period-btn" data-period="30d">30d</button>
+        <button type="button" id="statsRefreshBtn" class="stats-refresh-btn" title="Refresh" aria-label="Refresh stats">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M17.65 6.35A7.95 7.95 0 0 0 12 4a8 8 0 1 0 7.75 10h-2.1A6 6 0 1 1 12 6c1.3 0 2.5.42 3.46 1.14L13 10h7V3l-2.35 3.35z" />
+          </svg>
+        </button>
+      </div>
+      <div class="stats-chart-card">
+        <div class="stats-chart-header">
+          <span class="stats-chart-title">Moisture</span>
+          <span id="statsLoadingIndicator" class="stats-loading" hidden>Loading…</span>
+        </div>
+        <div class="stats-chart-wrap">
+          <canvas id="statsMoistureChart"></canvas>
+          <div id="statsMoistureOverlay" class="stats-chart-overlay" hidden></div>
+        </div>
+      </div>
+      <div class="stats-chart-card">
+        <div class="stats-chart-header">
+          <span class="stats-chart-title">Battery</span>
+        </div>
+        <div class="stats-chart-wrap">
+          <canvas id="statsBatteryChart"></canvas>
+          <div id="statsBatteryOverlay" class="stats-chart-overlay" hidden></div>
+        </div>
+      </div>
+      <div class="home-export-actions">
+        <button type="button" id="trackExportCsvBtn" class="ghost">Export track CSV</button>
+      </div>
+      <p id="trackExportStatus" class="home-mode-status">Track export is ready.</p>
+    </section>
+
+    <section class="card tab-panel" id="tabSensors" data-panel="sensors">
+      <h2>Units</h2>
+      <div id="calibrationBanner" class="calibration-banner" hidden></div>
+      <div id="nodes" class="sensor-list">Loading...</div>
+      <p id="pairingBanner" class="pairing-banner" hidden>Pairing window is open (120s).</p>
+      <div class="sensor-topbar">
+        <button type="button" id="addSensorBtn">Add new</button>
+        <button type="button" id="closePairingBtn" class="ghost">Close pairing</button>
+      </div>
+      <div class="sensor-settings-panel">
+        <p class="sensor-settings-title">Sensor poll interval min</p>
+        <div class="sensor-settings-row">
+          <input id="sensorPollIntervalMinInput" type="number" min="1" max="1440" step="1" />
+          <button type="button" id="sensorPollIntervalSaveBtn" class="ghost" disabled>Saved</button>
+        </div>
+        <p id="sensorPollIntervalStatus" class="home-mode-status sensor-poll-live" hidden>Next sensor online: -</p>
+      </div>
+    </section>
+
+    <section class="card tab-panel" id="tabUnit" data-panel="unit">
+      <h2>This Unit</h2>
+      <div class="unit-grid">
+        <p class="unit-item"><span>AP SSID</span><strong id="unitApSsid">-</strong></p>
+        <p class="unit-item"><span>Firmware</span><strong id="unitFirmware">-</strong></p>
+        <p class="unit-item"><span>Uptime</span><strong id="unitUptime">-</strong></p>
+        <p class="unit-item"><span>AP password</span><strong id="unitPasswordState">-</strong></p>
+      </div>
+
+      <form id="unitConfigForm" class="unit-form">
+        <label>
+          Unit name
+          <input id="unitNameInput" type="text" maxlength="31" autocomplete="off" />
+        </label>
+
+        <button type="button" id="unitNameSaveBtn" disabled>Saved</button>
+
+        <label>
+          AP password (8-63 chars)
+          <input id="unitPasswordInput" type="password" minlength="8" maxlength="63" autocomplete="new-password" />
+        </label>
+
+        <button type="button" id="unitPasswordSaveBtn" disabled>Set password</button>
+        <p id="unitConfigStatus" class="unit-config-status">Config synced.</p>
+      </form>
+
+      <section class="danger-zone" aria-label="Danger zone">
+        <h3>Danger Zone</h3>
+        <p class="danger-note">Factory reset clears pairing and restores AP name/password to defaults.</p>
+        <label>
+          Type RESET to confirm
+          <input id="factoryResetConfirmInput" type="text" autocomplete="off" />
+        </label>
+        <button type="button" id="factoryResetBtn" class="danger-btn" disabled>Factory reset</button>
+        <p id="factoryResetStatus" class="danger-status">No pending action.</p>
+      </section>
+
+      <pre id="webStatus" hidden>Loading...</pre>
+    </section>
+  </main>
+
+  <script src="/provisioning/chart.js"></script>
+  <script src="/provisioning/app.js"></script>
+
+</body>
+</html>

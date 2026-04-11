@@ -7,7 +7,7 @@
 #endif
 
 #ifndef LED_ACTIVE_HIGH
-  #if defined(DEVICE_ROLE_SENSOR)
+  #if defined(DEVICE_ROLE_SENSOR) || defined(DEVICE_ROLE_CONTROL)
     #define LED_ACTIVE_HIGH 0
   #else
     #define LED_ACTIVE_HIGH 1
@@ -26,16 +26,6 @@
   #define RGB_LED_BRIGHTNESS 32
 #endif
 
-static const uint8_t SYS_ID = 0x10;
-
-/*
-  Test MACs for Milestone 1.
-  MAC scheme: 02:SYS:TYPE:HEAD:NODEH:NODEL
-*/
-static const uint8_t MAC_HEAD[6]    = {0x02, 0x10, 0x01, 0x01, 0x00, 0x01};
-static const uint8_t MAC_SENSOR1[6] = {0x02, 0x10, 0x03, 0x01, 0x00, 0x01};
-static const uint8_t MAC_CONTROL1[6]= {0x02, 0x10, 0x02, 0x01, 0x00, 0x01};
-
 /*
   Fixed ESPNOW channel for the whole system.
 */
@@ -44,24 +34,101 @@ static constexpr uint32_t PAIRING_HEAD_OPEN_MS = 120000;
 static constexpr uint32_t PAIRING_NODE_JOIN_MS = 60000;
 
 /*
+  Head-side battery status thresholds (estimated battery voltage in mV).
+  <= NEEDS_REPLACEMENT: hard replacement warning
+  <= CRITICAL: low battery warning
+  >  CRITICAL: OK
+*/
+static constexpr uint16_t BATTERY_NEEDS_REPLACEMENT_MV = 3200;
+static constexpr uint16_t BATTERY_CRITICAL_MV = 3500;
+
+/*
+  Telemetry scheduling defaults (scalable up to 8 sensors).
+  - base interval: nominal period per node
+  - jitter: random spread to avoid repeated collisions
+  - phase spread: deterministic initial offset by nodeId slot
+*/
+static constexpr uint8_t TELEMETRY_SCHEDULE_MAX_NODES = 8;
+static constexpr uint32_t TELEMETRY_BASE_INTERVAL_MS = 5000;
+static constexpr uint32_t TELEMETRY_INTERVAL_JITTER_MS = 1500;
+static constexpr uint32_t TELEMETRY_PHASE_SPREAD_MS = 2400;
+static constexpr uint32_t TELEMETRY_FIRST_SEND_MIN_DELAY_MS = 200;
+static constexpr uint32_t TELEMETRY_FIRST_SEND_JITTER_MS = 800;
+
+/*
+  Control-unit safety limits.
+  - max run cap: hard stop for motor if no fresh authoritative command arrives
+  - boot sync window: time budget for CONTROL to ask HEAD for desired irrigation state
+*/
+static constexpr uint32_t CONTROL_MOTOR_MAX_RUN_CAP_MS = 120000;
+static constexpr uint32_t CONTROL_HEAD_SYNC_BOOT_WINDOW_MS = 5000;
+static constexpr uint32_t CONTROL_HEAD_SYNC_RETRY_MS = 700;
+
+/*
+  Control-unit irrigation battery lockout thresholds for 1S Li-ion/LiPo.
+  - STOP_NOW: if battery stays below this while irrigating, force stop
+  - BLOCK_START: below this, prevent new irrigation starts
+  - RESUME_OK: require recovery above this before allowing starts again
+  - CONFIRM_MS: debounce time for entering/leaving lockout states
+*/
+static constexpr uint16_t CONTROL_BATT_STOP_NOW_MV = 3350;
+static constexpr uint16_t CONTROL_BATT_BLOCK_START_MV = 3500;
+static constexpr uint16_t CONTROL_BATT_RESUME_OK_MV = 3650;
+static constexpr uint32_t CONTROL_BATT_LOCKOUT_CONFIRM_MS = 2500;
+
+/*
+  Battery policy helpers.
+  <= EXTERNAL_POWER_MAX: battery probe is considered invalid/externally powered
+  (e.g. USB without battery), so power-saving lockouts/special battery modes must
+  not trigger from this reading.
+*/
+static constexpr uint16_t BATTERY_EXTERNAL_POWER_MAX_MV = 2000;
+static constexpr uint16_t BATTERY_HYSTERESIS_MV = 150;
+
+/*
+  Sensor critical-battery fail-safe.
+  SENSOR can enter eternal deep sleep after N consecutive telemetry sends below
+  threshold (unless external-power reading is detected).
+*/
+static constexpr uint16_t SENSOR_CRITICAL_SLEEP_MV = 3250;
+static constexpr uint8_t SENSOR_CRITICAL_SLEEP_TELEMETRY_COUNT = 3;
+
+/*
+  Control sleep tiers decided by HEAD.
+*/
+static constexpr uint8_t CONTROL_SLEEP_TRANSITION_COUNT = 3;
+static constexpr uint16_t CONTROL_SLEEP_TIER1_THRESHOLD_MV = 3500;
+static constexpr uint16_t CONTROL_SLEEP_TIER2_THRESHOLD_MV = 3300;
+static constexpr uint32_t CONTROL_SLEEP_TIER1_DURATION_MS = 15UL * 60UL * 1000UL;
+static constexpr uint32_t CONTROL_SLEEP_TIER2_DURATION_MS = 45UL * 60UL * 1000UL;
+
+/*
   Protocol version (will be used later in all messages).
 */
 static constexpr uint8_t PROTOCOL_VERSION = 1;
 
-// *************************************************************************************
-// MAC generation functions
-// *************************************************************************************
-enum NodeType : uint8_t {
-  TYPE_HEAD    = 0x01,
-  TYPE_CONTROL = 0x02,
-  TYPE_SENSOR  = 0x03
-};
+/*
+  Sleep coordination defaults (current iteration scope).
+  HEAD issues 60s base sleep with slot+jitter spread.
+*/
+static constexpr uint32_t SLEEP_BASE_DURATION_MS = 60000;
+static constexpr uint8_t SLEEP_SLOT_MAX_UNITS = 9;
+static constexpr uint32_t SLEEP_SLOT_WIDTH_MS = 180;
+static constexpr uint32_t SLEEP_SLOT_MICRO_JITTER_MS = 30;
+static constexpr uint32_t SLEEP_PLAN_VALID_WINDOW_MS = 5000;
+static constexpr uint32_t SLEEP_EXPECTED_WAKE_GRACE_MS = 15000;
 
-static inline void makeMac(uint8_t out[6], NodeType type, uint8_t headId, uint16_t nodeId) {
-  out[0] = 0x02;
-  out[1] = SYS_ID;
-  out[2] = static_cast<uint8_t>(type);
-  out[3] = headId;
-  out[4] = static_cast<uint8_t>(nodeId >> 8);
-  out[5] = static_cast<uint8_t>(nodeId & 0xFF);
-}
+/*
+  Node-side sleep handshake timing.
+*/
+static constexpr uint32_t WAIT_ACK_ACK_TIMEOUT_MS = 1200;
+static constexpr uint8_t SLEEP_ACK_RETRY_MAX = 3;
+static constexpr uint32_t SLEEP_ACK_RETRY_MIN_MS = 150;
+static constexpr uint32_t SLEEP_ACK_RETRY_JITTER_MS = 200;
+
+/*
+  Node sleep mode defaults.
+  0=off, 1=light sleep, 5=deep sleep.
+*/
+static constexpr uint8_t SENSOR_SLEEP_MODE_DEFAULT = 5;
+static constexpr uint8_t CONTROL_SLEEP_MODE_DEFAULT = 5;

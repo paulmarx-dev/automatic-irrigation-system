@@ -49,6 +49,12 @@
 			"problemMatcher": []
 		},
 		{
+			"label": "PIO UploadFS Head",
+			"type": "shell",
+			"command": "source ~/.zprofile && platformio run --target uploadfs --environment head_c6_wroom1",
+			"problemMatcher": []
+		},
+		{
 			"label": "PIO Upload Control",
 			"type": "shell",
 			"command": "source ~/.zprofile && platformio run --target upload --environment control_c3_mini",
@@ -60,6 +66,15 @@
 			"dependsOn": [
 				"PIO Upload Head",
 				"PIO Monitor Head"
+			],
+			"problemMatcher": []
+		},
+		{
+			"label": "PIO Upload+FS Head",
+			"dependsOrder": "sequence",
+			"dependsOn": [
+				"PIO Upload Head",
+				"PIO UploadFS Head"
 			],
 			"problemMatcher": []
 		},

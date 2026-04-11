@@ -23,3 +23,4 @@ void sensorsResetMoistureCalibrationToDefault();
 void sensorsSetMoistureCalibration(int32_t dryMv, int32_t wetMv);
 void sensorsGetMoistureCalibration(int32_t* outDryMv, int32_t* outWetMv);
 SensorMeasurement measureSensors();
+SensorMeasurement measureBatteryOnly();

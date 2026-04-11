@@ -7,9 +7,12 @@
 #include "pairing_nvs.h"
 #include "cal_nvs.h"
 #include "telemetry.h"
+#include "protocol.h"
+#include "sensor_remote_control.h"
 #include "leds.h"
 #include "button.h"
 #include "app_log.h"
+#include "sleep_logic.h"
 
 #if defined(DEVICE_ROLE_SENSOR)
 
@@ -58,6 +61,8 @@ static uint32_t s_calibrationNextSampleMs = 0;
 static uint16_t s_calibrationSamples[CAL_MEDIAN_SAMPLES] = {0};
 static int32_t s_calibrationDryMv = 0;
 static int32_t s_calibrationWetMv = 0;
+static bool s_remoteCalibrateStartPending = false;
+static bool s_remoteMeasureWetPending = false;
 
 static void onRecv(const uint8_t* src_mac, const uint8_t* data, int len)
 {
@@ -309,6 +314,28 @@ static void calibrationTick(uint32_t now, bool rawShortPress, const PressArbEven
 	}
 }
 
+bool sensorHandleRemoteButtonAction(uint8_t action, uint32_t nowMs)
+{
+	(void)nowMs;
+	if (action == REMOTE_BUTTON_CALIBRATE_START) {
+		if (s_calibrationActive) {
+			return false;
+		}
+		s_remoteCalibrateStartPending = true;
+		return true;
+	}
+
+	if (action == REMOTE_BUTTON_CALIBRATE_MEASURE_WET) {
+		if (!s_calibrationActive || s_calibrationState != CAL_STATE_PROMPT_WET) {
+			return false;
+		}
+		s_remoteMeasureWetPending = true;
+		return true;
+	}
+
+	return false;
+}
+
 
 
 
@@ -333,9 +360,9 @@ void setup() {
     Serial.println();
     Serial.println("SENSOR: Pairing 2.0 always-open");
 
-    printMac("SENSOR custom MAC: ", MAC_SENSOR1);
+	Serial.println("SENSOR: using factory STA MAC");
 
-    if (!espnowInit(ESPNOW_CHANNEL, MAC_SENSOR1, onRecv, onSend)) {
+	if (!espnowInit(ESPNOW_CHANNEL, onRecv, onSend)) {
         Serial.println("espnowInit() failed");
         while (true) { delay(1000); }
     }
@@ -352,11 +379,12 @@ void setup() {
 	}
 
 	uint8_t restoredHeadMac[6] = {0};
-	if (pairingNvsLoadNode(restoredHeadMac)) {
-		pairingNodeRestorePairedHead(restoredHeadMac);
+	uint16_t restoredNodeId = 0;
+	if (pairingNvsLoadNode(ROLE_SENSOR, restoredHeadMac, &restoredNodeId)) {
+		pairingNodeRestorePairedHead(restoredHeadMac, restoredNodeId);
 		(void)espnowEnsurePeer(restoredHeadMac, ESPNOW_CHANNEL, false);
 		s_autoJoinTriggered = true;
-		Serial.println("PAIRING(NODE): restored paired head from NVS");
+		Serial.printf("PAIRING(NODE): restored pair from NVS nodeId=%u\n", (unsigned)restoredNodeId);
 	}
 	logStartupCommon("SENSOR", true, pairingNodeIsPaired());
 	telemetryInit();
@@ -393,7 +421,17 @@ void loop() {
 	bool joinModeActive = pairingNodeIsInJoinMode();
 	const bool rawShortPress = buttonConsumeShortPress();
 	const bool rawLongPress = buttonConsumeLongPress();
-	const PressArbEvents pressEvents = processMultipressArbitration(rawShortPress, now);
+	PressArbEvents pressEvents = processMultipressArbitration(rawShortPress, now);
+
+	if (s_remoteCalibrateStartPending) {
+		s_remoteCalibrateStartPending = false;
+		pressEvents.triple = true;
+	}
+
+	if (s_remoteMeasureWetPending) {
+		s_remoteMeasureWetPending = false;
+		pressEvents.single = true;
+	}
 
 	if (!pairStateInitialized) {
 		wasPaired = isPaired;
@@ -431,13 +469,14 @@ void loop() {
 
 	if (!wasPaired && isPaired) {
 		uint8_t headMac[6] = {0};
+		const uint16_t nodeId = pairingNodeId();
 		if (pairingNodeHeadMac(headMac)) {
-			if (!pairingNvsSaveNode(headMac)) {
+			if (!pairingNvsSaveNode(ROLE_SENSOR, headMac, nodeId)) {
 				Serial.println("PAIRING(NODE): NVS save failed");
 			}
 		}
 		Serial.println("PAIRING(NODE): join success");
-		ledsTriggerOnce(LED_MODE_SUCCESS_ONCE);
+		ledsTriggerOnce(LED_MODE_SUCCESS_DOUBLE);
 	}
 	wasPaired = isPaired;
 
@@ -487,7 +526,21 @@ void loop() {
 		latestMeasurement = measureSensors();
 		haveMeasurement = true;
 	}
+
+	sleepLogicSetDebugNoSleep(buttonIsDebugEnabled());
+	sleepLogicSetServiceMode(pairingNodeIsInJoinMode() || s_calibrationActive);
+	sleepLogicSetIrrigationActive(false);
 	telemetryTickSensor(haveMeasurement ? &latestMeasurement : nullptr, haveMeasurement, now);
+
+	uint32_t sleepMs = 0;
+	bool deepSleep = false;
+	if (sleepLogicShouldEnterSleep(now, &sleepMs, &deepSleep)) {
+		Serial.print("SLEEP: entering ");
+		Serial.print(deepSleep ? "deep" : "light");
+		Serial.print(" sleepMs=");
+		Serial.println((unsigned long)sleepMs);
+		sleepLogicEnterSleep(sleepMs, deepSleep);
+	}
 }
 
 #endif

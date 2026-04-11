@@ -4,6 +4,8 @@
 #include <WiFi.h>
 #include "pairing.h"
 #include "telemetry.h"
+#include "head_observability.h"
+#include "head_wifi_provisioning.h"
 #include "leds.h"
 #include "button.h"
 #include "app_log.h"
@@ -15,6 +17,7 @@ static const uint32_t MULTIPRESS_WINDOW_MS = 1400;
 
 struct HeadPressEvents {
   bool single;
+  bool triple;
   bool debug;
 };
 
@@ -29,7 +32,7 @@ static void resetHeadMultipress()
 
 static HeadPressEvents processHeadMultipress(bool shortPress, uint32_t now)
 {
-  HeadPressEvents events{false, false};
+  HeadPressEvents events{false, false, false};
 
   if (shortPress) {
     if (s_headPressCount < 255) {
@@ -47,6 +50,8 @@ static HeadPressEvents processHeadMultipress(bool shortPress, uint32_t now)
 
   if (s_headPressCount >= 5) {
     events.debug = true;
+  } else if (s_headPressCount == 3) {
+    events.triple = true;
   } else if (s_headPressCount == 1) {
     events.single = true;
   }
@@ -77,14 +82,6 @@ static void onSend(const uint8_t* dst_mac, bool success)
     (void)success;
 }
 
-static void printMac(const char* label, const uint8_t mac[6])
-{
-    char buf[18] = {0};
-    macToString(mac, buf, sizeof(buf));
-    Serial.print(label);
-    Serial.println(buf);
-}
-
 
 
 void setup() {
@@ -100,9 +97,9 @@ void setup() {
   Serial.println();
     Serial.println("HEAD: Pairing 2.0 always-open");
 
-    printMac("HEAD custom MAC: ", MAC_HEAD);
+    Serial.println("HEAD: using factory STA MAC");
 
-  if (!espnowInit(ESPNOW_CHANNEL, MAC_HEAD, onRecv, onSend)) {
+  if (!espnowInit(ESPNOW_CHANNEL, onRecv, onSend)) {
       Serial.println("espnowInit() failed");
       while (true) { delay(1000); }
   }
@@ -111,6 +108,7 @@ void setup() {
     pairingHeadSetOpen(false);
     logStartupCommon("HEAD", true, pairingHeadHasPairedNode());
     telemetryInit();
+    headObservabilityInit();
     ledsInit(LED_DEFAULT_CONFIG.pin, LED_DEFAULT_CONFIG.activeHigh);
     buttonInit(BUTTON_HEAD_CONFIG.pin, BUTTON_HEAD_CONFIG.activeLow, BUTTON_HEAD_CONFIG.usePullup);
     ledsSetBaseMode(LED_MODE_IDLE);
@@ -125,16 +123,7 @@ void loop() {
     const uint32_t now = millis();
     buttonTick(now);
   const bool rawShortPress = buttonConsumeShortPress();
-    bool shortPressConsumedForClose = false;
-    if (rawShortPress && pairingHeadIsOpen()) {
-      pairingHeadSetOpen(false);
-      resetHeadMultipress();
-      shortPressConsumedForClose = true;
-      Serial.println("PAIRING(HEAD): pairing window closed by user");
-      ledsTriggerOnce(LED_MODE_ERROR_ONCE);
-    }
-    const bool shortPressForArb = rawShortPress && !shortPressConsumedForClose;
-    const HeadPressEvents pressEvents = processHeadMultipress(shortPressForArb, now);
+    const HeadPressEvents pressEvents = processHeadMultipress(rawShortPress, now);
 
     static bool lastOpenState = false;
     pairingHeadTick(now);
@@ -142,7 +131,22 @@ void loop() {
     if (buttonConsumeLongPress()) {
       Serial.println("PAIRING(HEAD): factory reset requested");
       pairingHeadFactoryReset();
+      headProvisioningFactoryReset();
+      telemetryHeadClearPresence();
       ledsTriggerOnce(LED_MODE_FACTORY_RESET_ONCE);
+    }
+
+    if (pressEvents.triple) {
+      if (pairingHeadIsOpen()) {
+        Serial.println("PAIRING(HEAD): factory reset requested by triple press");
+        pairingHeadFactoryReset();
+        headProvisioningFactoryReset();
+        telemetryHeadClearPresence();
+        ledsTriggerOnce(LED_MODE_SUCCESS_ONCE);
+      } else {
+        Serial.println("PAIRING(HEAD): triple press ignored (pairing window closed)");
+        ledsTriggerOnce(LED_MODE_ERROR_ONCE);
+      }
     }
 
     if (pressEvents.single) {
@@ -173,7 +177,7 @@ void loop() {
       } else {
         ledsSetBaseMode(LED_MODE_OFF);
       }
-      ledsTriggerOnce(LED_MODE_SUCCESS_DOUBLE);
+      ledsTriggerOnce(LED_MODE_SUCCESS_ONCE);
       Serial.println("PAIRING(HEAD): pair success indication");
     }
 
@@ -186,6 +190,8 @@ void loop() {
     lastOpenState = isOpen;
 
     ledsTick(now);
+    telemetryTickHead(now);
+    headObservabilityTick();
     pairingTick();
     delay(10);
 }

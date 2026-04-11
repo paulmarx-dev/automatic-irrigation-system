@@ -1,5 +1,9 @@
 # Pairing Process (Current Behavior)
 
+Update 2026-03-15:
+- No functional changes to pairing protocol in this cycle.
+- Web/UI changes were transport/status-layer only (SSE/fallback/recovery behavior).
+
 This document describes the implemented pairing/rebind flow for `head_c6_wroom1` and `sensor_c3_mini`.
 
 ## Scope

@@ -38,7 +38,6 @@ typedef void (*EspNowSendCb)(const uint8_t* dst_mac,
   Initialize ESP-NOW layer.
 */
 bool espnowInit(uint8_t channel,
-                const uint8_t* custom_sta_mac,
                 EspNowRecvCb recv_cb,
                 EspNowSendCb send_cb);
 
@@ -71,3 +70,4 @@ bool espnowEnsurePeer(const uint8_t peer_mac[6], uint8_t channel, bool encrypt =
   Returns true if the peer does not exist or was removed successfully.
 */
 bool espnowRemovePeer(const uint8_t peer_mac[6]);
+

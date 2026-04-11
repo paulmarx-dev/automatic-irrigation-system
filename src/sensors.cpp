@@ -114,3 +114,18 @@ SensorMeasurement measureSensors() {
 
     return measurement;
 }
+
+SensorMeasurement measureBatteryOnly() {
+    SensorMeasurement measurement{};
+
+    measurement.batteryRawMv = readBatteryMilliVoltsAtAdcPin();
+    measurement.batteryEstMv = computeBatteryEstimatedMvFromRaw(measurement.batteryRawMv);
+    measurement.batteryPinVoltage = measurement.batteryRawMv / 1000.0f;
+    measurement.batteryEstimatedVoltage = measurement.batteryEstMv / 1000.0f;
+
+    measurement.moistureRawMv = 0;
+    measurement.moisturePermille = 0;
+    measurement.moisturePercentage = 0.0f;
+
+    return measurement;
+}

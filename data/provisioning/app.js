@@ -1,0 +1,3057 @@
+const webStatusEl = document.getElementById('webStatus');
+const nodesEl = document.getElementById('nodes');
+const addSensorBtn = document.getElementById('addSensorBtn');
+const closePairingBtn = document.getElementById('closePairingBtn');
+const pairingBannerEl = document.getElementById('pairingBanner');
+const calibrationBannerEl = document.getElementById('calibrationBanner');
+const transportIndicatorBtnEl = document.getElementById('transportIndicatorBtn');
+const transportPopoverEl = document.getElementById('transportPopover');
+const transportPopoverTransportEl = document.getElementById('transportPopoverTransport');
+const transportPopoverStatusEl = document.getElementById('transportPopoverStatus');
+const transportPopoverLastUpdateEl = document.getElementById('transportPopoverLastUpdate');
+const transportPopoverPollIntervalEl = document.getElementById('transportPopoverPollInterval');
+const transportPopoverReconnectsEl = document.getElementById('transportPopoverReconnects');
+const tabsEl = document.querySelector('.tabs');
+const tabButtons = Array.from(document.querySelectorAll('.tab-btn'));
+const tabPanels = Array.from(document.querySelectorAll('.tab-panel'));
+const homeOnlineEl = document.getElementById('homeOnline');
+const homeMoistureEl = document.getElementById('homeMoisture');
+const homePairingEl = document.getElementById('homePairing');
+const homeUptimeEl = document.getElementById('homeUptime');
+const homeModeFormEl = document.getElementById('homeModeForm');
+const homeModeSaveBtnEl = document.getElementById('homeModeSaveBtn');
+const homeModeStatusEl = document.getElementById('homeModeStatus');
+const homeManualActionsEl = document.querySelector('.home-manual-actions');
+const homeAutoConfigEl = document.getElementById('homeAutoConfig');
+const homeManualConfigEl = document.getElementById('homeManualConfig');
+const homeTimeConfigEl = document.getElementById('homeTimeConfig');
+const manualStartBtnEl = document.getElementById('manualStartBtn');
+const manualStopBtnEl = document.getElementById('manualStopBtn');
+const manualDurationSecInputEl = document.getElementById('manualDurationSecInput');
+const manualDurationHintEl = document.getElementById('manualDurationHint');
+const autoStartMoisturePctInputEl = document.getElementById('autoStartMoisturePctInput');
+const autoStopMoisturePctInputEl = document.getElementById('autoStopMoisturePctInput');
+const autoStatusHintEl = document.getElementById('autoStatusHint');
+const autoWakeHintEl = document.getElementById('autoWakeHint');
+const autoZoneStatsEl = document.getElementById('autoZoneStats');
+const autoDryAvgPctEl = document.getElementById('autoDryAvgPct');
+const autoWetAvgPctEl = document.getElementById('autoWetAvgPct');
+const autoAdvancedToggleBtnEl = document.getElementById('autoAdvancedToggleBtn');
+const autoAdvancedPanelEl = document.getElementById('autoAdvancedPanel');
+const autoWetTolerancePctInputEl = document.getElementById('autoWetTolerancePctInput');
+const autoPulseIntervalSecInputEl = document.getElementById('autoPulseIntervalSecInput');
+const autoSoakDelaySecInputEl = document.getElementById('autoSoakDelaySecInput');
+const autoMaxPulsesInputEl = document.getElementById('autoMaxPulsesInput');
+const sensorPollIntervalMinInputEl = document.getElementById('sensorPollIntervalMinInput');
+const sensorPollIntervalSaveBtnEl = document.getElementById('sensorPollIntervalSaveBtn');
+const sensorPollIntervalStatusEl = document.getElementById('sensorPollIntervalStatus');
+const autoServiceStatusEl = document.getElementById('autoServiceStatus');
+const timeIntervalMinInputEl = document.getElementById('timeIntervalMinInput');
+const timeRunDurationMinInputEl = document.getElementById('timeRunDurationMinInput');
+const timeRunDurationHintEl = document.getElementById('timeRunDurationHint');
+const timeIntervalHintEl = document.getElementById('timeIntervalHint');
+const timeScheduleHintEl = document.getElementById('timeScheduleHint');
+const homeManualStatusEl = document.getElementById('homeManualStatus');
+const homeControlLockoutStatusEl = document.getElementById('homeControlLockoutStatus');
+const trackExportCsvBtnEl = document.getElementById('trackExportCsvBtn');
+const trackExportStatusEl = document.getElementById('trackExportStatus');
+const unitApSsidEl = document.getElementById('unitApSsid');
+const unitFirmwareEl = document.getElementById('unitFirmware');
+const unitUptimeEl = document.getElementById('unitUptime');
+const unitPasswordStateEl = document.getElementById('unitPasswordState');
+const unitConfigFormEl = document.getElementById('unitConfigForm');
+const unitNameInputEl = document.getElementById('unitNameInput');
+const unitNameSaveBtnEl = document.getElementById('unitNameSaveBtn');
+const unitPasswordInputEl = document.getElementById('unitPasswordInput');
+const unitPasswordSaveBtnEl = document.getElementById('unitPasswordSaveBtn');
+const unitConfigStatusEl = document.getElementById('unitConfigStatus');
+const factoryResetConfirmInputEl = document.getElementById('factoryResetConfirmInput');
+const factoryResetBtnEl = document.getElementById('factoryResetBtn');
+const factoryResetStatusEl = document.getElementById('factoryResetStatus');
+const calibrationStateByNode = new Map();
+let latestNodes = [];
+let activeCalibration = null;
+let pairingRemainingSec = 0;
+let persistedIrrigationMode = 'AUTO';
+let pendingIrrigationMode = 'AUTO';
+let persistedManualDurationSec = 120;
+let pendingManualDurationSec = 120;
+let persistedAutoStartPermille = 350;
+let pendingAutoStartPermille = 350;
+let persistedAutoStopPermille = 450;
+let pendingAutoStopPermille = 450;
+let persistedAutoWetTolerancePct = 5;
+let pendingAutoWetTolerancePct = 5;
+let persistedAutoPulseIntervalSec = 120;
+let pendingAutoPulseIntervalSec = 120;
+let persistedAutoSoakDelaySec = 120;
+let pendingAutoSoakDelaySec = 120;
+let persistedAutoMaxPulses = 3;
+let pendingAutoMaxPulses = 3;
+let persistedSensorPollIntervalMin = 1;
+let pendingSensorPollIntervalMin = 1;
+let isAutoAdvancedExpanded = false;
+let latestAvgMoisturePermille = null;
+let latestAutoDryPermille = null;
+let latestAutoWetPermille = null;
+let latestAutoPhase = 'idle';
+let latestAutoPhaseRemainingSec = 0;
+let latestAutoPulseIndex = 0;
+let latestAutoMaxPulses = 0;
+let latestAutoStartPlanned = false;
+let latestAutoStartInSec = 0;
+let persistedTimeIntervalMin = 360;
+let pendingTimeIntervalMin = 360;
+let persistedTimeRunDurationSec = 300;
+let pendingTimeRunDurationSec = 300;
+let isManualIrrigationActive = false;
+let isControlLowBatteryLockoutActive = false;
+let controlAvailabilityStatus = 'not_paired';
+let manualStartBlockedReason = 'control_not_paired';
+let manualRunRemainingSec = 0;
+let controlConfirmedState = 'idle';
+let controlPendingElapsedSec = 0;
+let timeNextStartRemainingSec = 0;
+let timeRunRemainingSec = 0;
+let homeManualStatusResetTimer = 0;
+let manualDurationDirty = false;
+let manualCommandSentAtMs = 0;
+let persistedUnitName = '';
+let pendingUnitName = '';
+let unitNameInitialized = false;
+let irrigationEventsSource = null;
+let irrigationEventsReconnectTimer = 0;
+let tickIntervalId = 0;
+let activeTickIntervalMs = 0;
+let transportStatus = 'reconnect';
+let transportLastUpdateMs = 0;
+let transportReconnectAttempts = 0;
+const uiNodeStateCache = new Map();
+const MANUAL_DURATION_MIN_SEC = 0;
+const MANUAL_DURATION_MAX_SEC = 600;
+const TIME_INTERVAL_MIN = 5;
+const TIME_INTERVAL_MAX = 1440;
+const TIME_RUN_MIN_SEC = 0;
+const TIME_RUN_MAX_SEC = 600;
+const AUTO_WET_TOLERANCE_MIN_PCT = 0;
+const AUTO_WET_TOLERANCE_MAX_PCT = 100;
+const AUTO_PULSE_INTERVAL_MIN_SEC = 1;
+const AUTO_PULSE_INTERVAL_MAX_SEC = 3600;
+const AUTO_SOAK_DELAY_MIN_SEC = 1;
+const AUTO_SOAK_DELAY_MAX_SEC = 3600;
+const AUTO_MAX_PULSES_MIN = 1;
+const AUTO_MAX_PULSES_MAX = 20;
+const SENSOR_POLL_INTERVAL_MIN = 1;
+const SENSOR_POLL_INTERVAL_MAX = 1440;
+const CAL_PROMPT_TIMEOUT_MS = 20000;
+const CAL_ERROR_HIDE_MS = 5000;
+const CAL_INFO_HIDE_MS = 5000;
+const POLL_INTERVAL_FAST_MS = 3000;
+const NODE_STATE_UI_STABILIZE_MS = 6000;
+let latestSummaryUptimeSec = null;
+
+function nodeUiCacheKey(node) {
+  const idPart = String(node && typeof node.nodeId !== 'undefined' ? node.nodeId : 'na');
+  const macPart = String(node && node.mac ? node.mac : 'na').toUpperCase();
+  return `${idPart}:${macPart}`;
+}
+
+function getStableNodeState(node) {
+  const rawState = String(node && node.state ? node.state : 'UNKNOWN').toUpperCase();
+  const key = nodeUiCacheKey(node);
+  const nowMs = Date.now();
+  const cached = uiNodeStateCache.get(key);
+
+  if (!cached) {
+    uiNodeStateCache.set(key, {
+      rawState,
+      rawSinceMs: nowMs,
+      displayState: rawState,
+    });
+    return rawState;
+  }
+
+  if (cached.rawState !== rawState) {
+    cached.rawState = rawState;
+    cached.rawSinceMs = nowMs;
+  }
+
+  if (cached.displayState === rawState) {
+    return rawState;
+  }
+
+  const currentDisplay = String(cached.displayState || 'UNKNOWN').toUpperCase();
+  const reversiblePair =
+    (currentDisplay === 'ONLINE' && rawState === 'SUSPECT')
+    || (currentDisplay === 'SUSPECT' && rawState === 'ONLINE');
+
+  if (reversiblePair && (nowMs - cached.rawSinceMs) < NODE_STATE_UI_STABILIZE_MS) {
+    return currentDisplay;
+  }
+
+  cached.displayState = rawState;
+  return rawState;
+}
+
+function transportStatusLabel(status) {
+  if (status === 'live') {
+    return 'Live SSE';
+  }
+  if (status === 'fallback') {
+    return 'Fallback polling';
+  }
+  if (status === 'reconnect') {
+    return 'Reconnecting';
+  }
+  return 'Offline/error';
+}
+
+function transportTypeLabel(status) {
+  if (status === 'live' || status === 'reconnect') {
+    return 'SSE';
+  }
+  if (status === 'fallback') {
+    return 'Polling fallback';
+  }
+  return 'Unavailable';
+}
+
+function formatLastUpdateAge() {
+  if (!transportLastUpdateMs) {
+    return '-';
+  }
+  const ageSec = Math.max(0, Math.floor((Date.now() - transportLastUpdateMs) / 1000));
+  return `${ageSec}s ago`;
+}
+
+function updateTransportPopover() {
+  if (transportPopoverTransportEl) {
+    transportPopoverTransportEl.textContent = transportTypeLabel(transportStatus);
+  }
+  if (transportPopoverStatusEl) {
+    transportPopoverStatusEl.textContent = transportStatusLabel(transportStatus);
+  }
+  if (transportPopoverLastUpdateEl) {
+    transportPopoverLastUpdateEl.textContent = formatLastUpdateAge();
+  }
+  if (transportPopoverPollIntervalEl) {
+    transportPopoverPollIntervalEl.textContent = activeTickIntervalMs > 0 ? `${Math.floor(activeTickIntervalMs / 1000)}s` : '-';
+  }
+  if (transportPopoverReconnectsEl) {
+    transportPopoverReconnectsEl.textContent = String(transportReconnectAttempts);
+  }
+}
+
+function setTransportStatus(nextStatus) {
+  const allowed = nextStatus === 'live'
+    || nextStatus === 'fallback'
+    || nextStatus === 'reconnect'
+    || nextStatus === 'offline';
+  if (!allowed) {
+    return;
+  }
+  transportStatus = nextStatus;
+
+  if (transportIndicatorBtnEl) {
+    transportIndicatorBtnEl.classList.remove('status-live', 'status-fallback', 'status-reconnect', 'status-offline');
+    transportIndicatorBtnEl.classList.add(`status-${nextStatus}`);
+    transportIndicatorBtnEl.setAttribute('aria-label', `Transport status: ${transportStatusLabel(nextStatus)}`);
+  }
+
+  updateTransportPopover();
+}
+
+function markTransportDataUpdate() {
+  transportLastUpdateMs = Date.now();
+  updateTransportPopover();
+}
+
+function openTransportPopover() {
+  if (!transportPopoverEl || !transportIndicatorBtnEl) {
+    return;
+  }
+  transportPopoverEl.hidden = false;
+  transportIndicatorBtnEl.setAttribute('aria-expanded', 'true');
+  updateTransportPopover();
+}
+
+function closeTransportPopover() {
+  if (!transportPopoverEl || !transportIndicatorBtnEl) {
+    return;
+  }
+  transportPopoverEl.hidden = true;
+  transportIndicatorBtnEl.setAttribute('aria-expanded', 'false');
+}
+
+function toggleTransportPopover() {
+  if (!transportPopoverEl) {
+    return;
+  }
+  if (transportPopoverEl.hidden) {
+    openTransportPopover();
+  } else {
+    closeTransportPopover();
+  }
+}
+
+function render(el, data) {
+  if (!el) {
+    return;
+  }
+  el.textContent = JSON.stringify(data, null, 2);
+}
+
+function formatBatteryVolts(mv) {
+  if (!Number.isFinite(mv) || mv <= 0) return 'N/A';
+  return `${(mv / 1000).toFixed(2)}V`;
+}
+
+function formatMoisture(permille) {
+  if (!Number.isFinite(permille)) return 'N/A';
+  return `${(permille / 10).toFixed(1)}%`;
+}
+
+function formatDuration(totalSec) {
+  if (!Number.isFinite(totalSec) || totalSec < 0) {
+    return '-';
+  }
+  const seconds = Math.floor(totalSec);
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  if (hours > 0) {
+    return `${hours}h ${minutes}m`;
+  }
+  return `${minutes}m`;
+}
+
+function normalizeIrrigationMode(mode) {
+  const normalized = String(mode || '').toUpperCase();
+  if (normalized === 'AUTO' || normalized === 'MANUAL' || normalized === 'TIME' || normalized === 'OFF') {
+    return normalized;
+  }
+  return 'AUTO';
+}
+
+function clampNumber(value, minValue, maxValue) {
+  if (!Number.isFinite(value)) {
+    return minValue;
+  }
+  return Math.min(maxValue, Math.max(minValue, Math.round(value)));
+}
+
+function percentToPermille(percent) {
+  return clampNumber(Number(percent) * 10, 0, 1000);
+}
+
+function permilleToPercent(permille) {
+  return clampNumber(Number(permille) / 10, 0, 100);
+}
+
+function readConfigNumber(value, fallback, minValue, maxValue) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return clampNumber(fallback, minValue, maxValue);
+  }
+  return clampNumber(numeric, minValue, maxValue);
+}
+
+function formatMinutesSeconds(totalSeconds) {
+  const seconds = Math.max(0, Math.floor(Number(totalSeconds) || 0));
+  const minutes = Math.floor(seconds / 60);
+  const secondsRemainder = seconds % 60;
+  return `${minutes}m ${secondsRemainder}s`;
+}
+
+function formatClockMmSs(totalSeconds) {
+  const seconds = Math.max(0, Math.floor(Number(totalSeconds) || 0));
+  const minutes = Math.floor(seconds / 60);
+  const secondsRemainder = seconds % 60;
+  return `${String(minutes).padStart(2, '0')}:${String(secondsRemainder).padStart(2, '0')}`;
+}
+
+function formatHoursMinutes(totalMinutes) {
+  const normalizedMinutes = Math.max(0, Math.floor(Number(totalMinutes) || 0));
+  const hours = Math.floor(normalizedMinutes / 60);
+  const minutes = normalizedMinutes % 60;
+  return `${hours}h ${minutes}m`;
+}
+
+function formatHoursMinutesSeconds(totalSeconds) {
+  const sec = Math.max(0, Math.floor(Number(totalSeconds) || 0));
+  const hours = Math.floor(sec / 3600);
+  const minutes = Math.floor((sec % 3600) / 60);
+  const seconds = sec % 60;
+  if (hours > 0) {
+    return `${hours}h ${minutes}m ${seconds}s`;
+  }
+  return `${minutes}m ${seconds}s`;
+}
+
+function formatLastSeenSecAgo(totalSeconds) {
+  if (!Number.isFinite(Number(totalSeconds)) || Number(totalSeconds) < 0) {
+    return '-';
+  }
+  const sec = Math.floor(Number(totalSeconds));
+  const hours = Math.floor(sec / 3600);
+  const minutes = Math.floor((sec % 3600) / 60);
+  const seconds = sec % 60;
+  return `${hours}h ${minutes}m ${seconds}s`;
+}
+
+function isManualStartBlocked(reason) {
+  const normalized = String(reason || '').toLowerCase();
+  return normalized === 'control_battery_lockout' || normalized === 'control_not_paired';
+}
+
+function buildNodeStateView(node) {
+  const state = String(node && node.state ? node.state : 'UNKNOWN').toUpperCase();
+  const sleepActive = Boolean(node && node.sleepActive);
+  const nextContactSec = Math.max(0, Math.floor(Number(node && node.nextContactSec) || 0));
+  const sleepingByEta = nextContactSec > 0;
+  const sleeping = sleepActive || sleepingByEta;
+
+  if (sleeping) {
+    const badgeText = state === 'SUSPECT' ? 'SLEEP*' : 'SLEEP';
+    const notePrefix = state === 'SUSPECT' ? 'Late telemetry; ' : '';
+    const wakeLine = nextContactSec > 0
+      ? `${notePrefix}Expected wake/contact in ${formatHoursMinutesSeconds(nextContactSec)}.`
+      : `${notePrefix}Expected wake/contact soon (awaiting ETA).`;
+    return {
+      badgeText,
+      badgeClass: 'state-sleep',
+      sleepActive: true,
+      nextContactSec,
+      note: state === 'SUSPECT' ? 'Node is sleeping; timing estimate may lag briefly.' : '',
+      wakeLine,
+    };
+  }
+
+  if (state === 'ONLINE') {
+    return {
+      badgeText: 'ONLINE',
+      badgeClass: 'state-online',
+      sleepActive: false,
+      nextContactSec: 0,
+      note: '',
+      wakeLine: 'Expected wake/contact: active now.',
+    };
+  }
+
+  if (state === 'SUSPECT') {
+    return {
+      badgeText: 'SUSPECT',
+      badgeClass: 'state-suspect',
+      sleepActive: false,
+      nextContactSec: 0,
+      note: 'No recent telemetry yet.',
+      wakeLine: 'Expected wake/contact: waiting for telemetry.',
+    };
+  }
+
+  if (state === 'OFFLINE') {
+    return {
+      badgeText: 'OFFLINE',
+      badgeClass: 'state-offline',
+      sleepActive: false,
+      nextContactSec: 0,
+      note: 'No telemetry for an extended period.',
+      wakeLine: 'Expected wake/contact: unknown while offline.',
+    };
+  }
+
+  return {
+    badgeText: 'UNKNOWN',
+    badgeClass: 'state-unknown',
+    sleepActive: false,
+    nextContactSec: 0,
+    note: '',
+    wakeLine: 'Expected wake/contact: waiting for telemetry.',
+  };
+}
+
+function formatMinutesValueFromSeconds(totalSeconds) {
+  const normalizedSec = Math.max(MANUAL_DURATION_MIN_SEC, Math.min(MANUAL_DURATION_MAX_SEC, Number(totalSeconds) || 0));
+  const minutes = normalizedSec / 60;
+  if (Number.isInteger(minutes)) {
+    return String(minutes);
+  }
+  return minutes.toFixed(2).replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1');
+}
+
+function formatSecondsInputValue(totalSeconds) {
+  return String(clampNumber(Number(totalSeconds), MANUAL_DURATION_MIN_SEC, MANUAL_DURATION_MAX_SEC));
+}
+
+function parseMinutesToSeconds(inputValue, fallbackSeconds = 0) {
+  const normalizedInput = String(inputValue ?? '').trim().replace(',', '.');
+  if (normalizedInput.length === 0) {
+    return clampNumber(fallbackSeconds, MANUAL_DURATION_MIN_SEC, MANUAL_DURATION_MAX_SEC);
+  }
+
+  const parsedMinutes = Number.parseFloat(normalizedInput);
+  if (!Number.isFinite(parsedMinutes)) {
+    return clampNumber(fallbackSeconds, MANUAL_DURATION_MIN_SEC, MANUAL_DURATION_MAX_SEC);
+  }
+
+  const clampedMinutes = Math.min(MANUAL_DURATION_MAX_SEC / 60, Math.max(MANUAL_DURATION_MIN_SEC / 60, parsedMinutes));
+  const roundedSeconds = Math.round(clampedMinutes * 60);
+  return clampNumber(roundedSeconds, MANUAL_DURATION_MIN_SEC, MANUAL_DURATION_MAX_SEC);
+}
+
+function parseSecondsInput(inputValue, fallbackSeconds = 0) {
+  const normalizedInput = String(inputValue ?? '').trim();
+  if (normalizedInput.length === 0) {
+    return clampNumber(fallbackSeconds, MANUAL_DURATION_MIN_SEC, MANUAL_DURATION_MAX_SEC);
+  }
+
+  const parsedSeconds = Number.parseInt(normalizedInput, 10);
+  if (!Number.isFinite(parsedSeconds)) {
+    return clampNumber(fallbackSeconds, MANUAL_DURATION_MIN_SEC, MANUAL_DURATION_MAX_SEC);
+  }
+
+  return clampNumber(parsedSeconds, MANUAL_DURATION_MIN_SEC, MANUAL_DURATION_MAX_SEC);
+}
+
+function parseLocalizedDecimal(inputValue) {
+  const normalizedInput = String(inputValue ?? '').trim().replace(',', '.');
+  if (normalizedInput.length === 0) {
+    return Number.NaN;
+  }
+  return Number.parseFloat(normalizedInput);
+}
+
+function parseHoursToMinutes(inputValue, fallbackMinutes = 0) {
+  const parsedHours = parseLocalizedDecimal(inputValue);
+  if (!Number.isFinite(parsedHours)) {
+    return clampNumber(fallbackMinutes, TIME_INTERVAL_MIN, TIME_INTERVAL_MAX);
+  }
+  const clampedHours = Math.min(TIME_INTERVAL_MAX / 60, Math.max(TIME_INTERVAL_MIN / 60, parsedHours));
+  return clampNumber(Math.round(clampedHours * 60), TIME_INTERVAL_MIN, TIME_INTERVAL_MAX);
+}
+
+function parseMinutesToRoundedSeconds(inputValue, fallbackSeconds = 0) {
+  const parsedMinutes = parseLocalizedDecimal(inputValue);
+  if (!Number.isFinite(parsedMinutes)) {
+    return clampNumber(fallbackSeconds, TIME_RUN_MIN_SEC, TIME_RUN_MAX_SEC);
+  }
+  const clampedMinutes = Math.min(TIME_RUN_MAX_SEC / 60, Math.max(TIME_RUN_MIN_SEC / 60, parsedMinutes));
+  return clampNumber(Math.round(clampedMinutes * 60), TIME_RUN_MIN_SEC, TIME_RUN_MAX_SEC);
+}
+
+function formatHoursValueFromMinutes(totalMinutes) {
+  const hours = Math.max(TIME_INTERVAL_MIN, Math.min(TIME_INTERVAL_MAX, Number(totalMinutes) || 0)) / 60;
+  if (Number.isInteger(hours)) {
+    return String(hours);
+  }
+  return hours.toFixed(2).replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1');
+}
+
+function isControlIrrigationRunning() {
+  return controlConfirmedState === 'active';
+}
+
+function isHomeModeDirty() {
+  const selectedMode = normalizeIrrigationMode(pendingIrrigationMode);
+  return isModeSelectionDirty() || isModeSettingsDirty(selectedMode);
+}
+
+function isSensorPollDirty() {
+  return pendingSensorPollIntervalMin !== persistedSensorPollIntervalMin;
+}
+
+function shouldLockPendingFromSnapshot() {
+  // Sensor poll interval is edited in Sensors tab with its own Apply button,
+  // but incoming snapshots must not clobber pending value while user edits it.
+  return isHomeModeDirty() || isSensorPollDirty();
+}
+
+function isModeSelectionDirty() {
+  return normalizeIrrigationMode(pendingIrrigationMode) !== normalizeIrrigationMode(persistedIrrigationMode);
+}
+
+function isModeSettingsDirty(mode) {
+  const normalizedMode = normalizeIrrigationMode(mode);
+  if (normalizedMode === 'AUTO') {
+    return pendingAutoStartPermille !== persistedAutoStartPermille
+      || pendingAutoStopPermille !== persistedAutoStopPermille
+      || pendingAutoWetTolerancePct !== persistedAutoWetTolerancePct
+      || pendingAutoPulseIntervalSec !== persistedAutoPulseIntervalSec
+      || pendingAutoSoakDelaySec !== persistedAutoSoakDelaySec
+      || pendingAutoMaxPulses !== persistedAutoMaxPulses
+      || pendingSensorPollIntervalMin !== persistedSensorPollIntervalMin;
+  }
+  if (normalizedMode === 'TIME') {
+    return pendingTimeIntervalMin !== persistedTimeIntervalMin
+      || pendingTimeRunDurationSec !== persistedTimeRunDurationSec;
+  }
+  return false;
+}
+
+function setHomeModeStatus(text, isError = false) {
+  if (!homeModeStatusEl) {
+    return;
+  }
+  homeModeStatusEl.textContent = text;
+  homeModeStatusEl.classList.toggle('error', isError);
+}
+
+function clearStaleHomeModeFetchError() {
+  if (!homeModeStatusEl || !homeModeStatusEl.classList.contains('error')) {
+    return;
+  }
+
+  const currentText = String(homeModeStatusEl.textContent || '');
+  if (!currentText.startsWith('Config fetch error:')) {
+    return;
+  }
+
+  setHomeModeStatus(homeModeStatusText(), false);
+}
+
+function clearStaleManualFetchError() {
+  if (!homeManualStatusEl || !homeManualStatusEl.classList.contains('error')) {
+    return;
+  }
+
+  const currentText = String(homeManualStatusEl.textContent || '');
+  if (!currentText.startsWith('Manual control unavailable:')) {
+    return;
+  }
+
+  setHomeManualStatus(manualStatusFromControlState(), false);
+}
+
+function clearStaleControlAvailabilityFetchError() {
+  if (!homeControlLockoutStatusEl || !homeControlLockoutStatusEl.classList.contains('error')) {
+    return;
+  }
+
+  const currentText = String(homeControlLockoutStatusEl.textContent || '');
+  if (!currentText.startsWith('Control availability unavailable:')) {
+    return;
+  }
+
+  updateControlAvailabilityStatus();
+}
+
+function clearStaleFetchErrorsFromFreshSnapshot() {
+  clearStaleHomeModeFetchError();
+  clearStaleManualFetchError();
+  clearStaleControlAvailabilityFetchError();
+}
+
+function homeModeStatusText() {
+  const selectedMode = normalizeIrrigationMode(pendingIrrigationMode);
+  if (isModeSettingsDirty(selectedMode)) {
+    return 'Unsaved changes.';
+  }
+  if (isModeSelectionDirty()) {
+    return '';
+  }
+  return 'Config synced.';
+}
+
+function setHomeManualStatus(text, isError = false, resetAfterMs = 0) {
+  if (!homeManualStatusEl) {
+    return;
+  }
+  if (homeManualStatusResetTimer && resetAfterMs === 0 && !isError) {
+    return;
+  }
+  if (homeManualStatusResetTimer) {
+    clearTimeout(homeManualStatusResetTimer);
+    homeManualStatusResetTimer = 0;
+  }
+  homeManualStatusEl.textContent = text;
+  homeManualStatusEl.classList.toggle('error', isError);
+  if (resetAfterMs > 0) {
+    homeManualStatusResetTimer = setTimeout(() => {
+      homeManualStatusEl.textContent = manualStatusFromControlState();
+      homeManualStatusEl.classList.remove('error');
+      homeManualStatusResetTimer = 0;
+    }, resetAfterMs);
+  }
+}
+
+function manualPendingStartLabel() {
+  const wakeEtaSec = getControlWakeEtaSec();
+  if (wakeEtaSec > 0) {
+    return `Queued · ${formatHoursMinutesSeconds(wakeEtaSec)}`;
+  }
+  return 'Starting...';
+}
+
+function manualStatusFromControlState() {
+  if (controlConfirmedState === 'pending_start') {
+    return 'Start queued. Waiting for control.';
+  }
+  if (controlConfirmedState === 'pending_stop') {
+    return 'Stop command sent. Waiting for confirmation.';
+  }
+  if (controlConfirmedState === 'lost') {
+    return 'Control lost. Watering forced OFF in UI.';
+  }
+  if (isControlIrrigationRunning()) {
+    return `Watering in progress (${formatClockMmSs(manualRunRemainingSec)})`;
+  }
+  return 'Manual watering inactive.';
+}
+
+function setHomeControlLockoutStatus(text, isError = false) {
+  if (!homeControlLockoutStatusEl) {
+    return;
+  }
+  homeControlLockoutStatusEl.textContent = text;
+  homeControlLockoutStatusEl.classList.toggle('error', isError);
+}
+
+function setTrackExportStatus(text, isError = false) {
+  if (!trackExportStatusEl) {
+    return;
+  }
+  trackExportStatusEl.textContent = text;
+  trackExportStatusEl.classList.toggle('error', isError);
+}
+
+function buildTrackExportFileName() {
+  const now = new Date();
+  const pad = (value) => String(value).padStart(2, '0');
+  const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+  const uptimePart = Number.isFinite(latestSummaryUptimeSec) ? `_uptime${Math.floor(latestSummaryUptimeSec)}s` : '';
+  return `track_export_${stamp}${uptimePart}.csv`;
+}
+
+async function exportTrackCsv() {
+  if (trackExportCsvBtnEl) {
+    trackExportCsvBtnEl.disabled = true;
+  }
+  setTrackExportStatus('Preparing CSV export...', false);
+
+  try {
+    const response = await fetch('/api/track/export.csv', {
+      method: 'GET',
+      cache: 'no-store',
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const blob = await response.blob();
+    const fileName = buildTrackExportFileName();
+    const blobUrl = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = blobUrl;
+    anchor.download = fileName;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(blobUrl);
+
+    setTrackExportStatus(`CSV exported: ${fileName}`, false);
+  } catch (error) {
+    setTrackExportStatus(`CSV export failed: ${error.message}`, true);
+  } finally {
+    if (trackExportCsvBtnEl) {
+      trackExportCsvBtnEl.disabled = false;
+    }
+  }
+}
+
+function getControlWakeEtaSec() {
+  const controlNode = Array.isArray(latestNodes)
+    ? latestNodes.find(n => String(n.role || '').toUpperCase() === 'CONTROL')
+    : null;
+  if (!controlNode || !controlNode.sleepActive) {
+    return 0;
+  }
+  return Math.max(0, Math.floor(Number(controlNode.nextContactSec) || 0));
+}
+
+function getNextSensorWakeSnapshot() {
+  const sensorNodes = Array.isArray(latestNodes)
+    ? latestNodes.filter((node) => String(node && node.role ? node.role : 'SENSOR').toUpperCase() === 'SENSOR')
+    : [];
+
+  if (sensorNodes.length === 0) {
+    return {
+      hasSensors: false,
+      activeNow: false,
+      nextWakeSec: null,
+    };
+  }
+
+  const activeNow = sensorNodes.some((node) => {
+    const state = String(node && node.state ? node.state : '').toUpperCase();
+    return state === 'ONLINE' && !node.sleepActive;
+  });
+
+  const nextWakeSecList = sensorNodes
+    .filter((node) => Boolean(node && node.sleepActive))
+    .map((node) => Math.max(0, Math.floor(Number(node && node.nextContactSec) || 0)))
+    .filter((value) => Number.isFinite(value));
+
+  return {
+    hasSensors: true,
+    activeNow,
+    nextWakeSec: nextWakeSecList.length > 0 ? Math.min(...nextWakeSecList) : null,
+  };
+}
+
+function nextSensorPollStatusText() {
+  const sensorSnapshot = getNextSensorWakeSnapshot();
+  const sensorNodes = Array.isArray(latestNodes)
+    ? latestNodes.filter((node) => String(node && node.role ? node.role : 'SENSOR').toUpperCase() === 'SENSOR')
+    : [];
+
+  if (!sensorSnapshot.hasSensors || sensorNodes.length === 0) {
+    return 'Next sensor online: waiting for paired sensors.';
+  }
+
+  const irrigationCadenceActive =
+    isManualIrrigationActive
+    || controlConfirmedState === 'active'
+    || controlConfirmedState === 'pending_start'
+    || controlConfirmedState === 'pending_stop';
+
+  if (sensorSnapshot.activeNow) {
+    return irrigationCadenceActive
+      ? 'Next sensor online: active now (cadence currently controlled by head during irrigation).'
+      : 'Next sensor online: active now.';
+  }
+
+  if (Number.isFinite(sensorSnapshot.nextWakeSec)) {
+    const nextWakeSec = sensorSnapshot.nextWakeSec;
+    return irrigationCadenceActive
+      ? `Next sensor online in ${formatHoursMinutesSeconds(nextWakeSec)} (cadence currently controlled by head during irrigation).`
+      : `Next sensor online in ${formatHoursMinutesSeconds(nextWakeSec)}.`;
+  }
+
+  return irrigationCadenceActive
+    ? 'Next sensor online: waiting for telemetry (cadence currently controlled by head during irrigation).'
+    : 'Next sensor online: waiting for telemetry.';
+}
+
+function autoServiceStatusText() {
+  if (normalizeIrrigationMode(persistedIrrigationMode) !== 'AUTO') {
+    return 'AUTO: not active.';
+  }
+
+  const remaining = Math.max(0, Math.floor(Number(latestAutoPhaseRemainingSec) || 0));
+  const pulseIndex = Math.max(0, Math.floor(Number(latestAutoPulseIndex) || 0));
+  const maxPulses = Math.max(0, Math.floor(Number(latestAutoMaxPulses) || 0));
+  const sensorSnapshot = getNextSensorWakeSnapshot();
+  const controlStarting = controlConfirmedState === 'pending_start';
+  const controlRunning = isControlIrrigationRunning();
+
+  if (latestAutoPhase === 'pulse') {
+    if (controlStarting || !controlRunning) {
+      const wakeEtaSec = getControlWakeEtaSec();
+      if (wakeEtaSec > 0) {
+        return `AUTO: pulse ${pulseIndex}/${maxPulses}, waiting for control wake (${formatHoursMinutesSeconds(wakeEtaSec)}).`;
+      }
+      if (remaining > 0) {
+        return `AUTO: pulse ${pulseIndex}/${maxPulses}, waiting for control start, ${formatHoursMinutesSeconds(remaining)} left.`;
+      }
+      return `AUTO: pulse ${pulseIndex}/${maxPulses}, waiting for control confirmation.`;
+    }
+    return `AUTO: pulse ${pulseIndex}/${maxPulses}, watering, ${formatHoursMinutesSeconds(remaining)} left.`;
+  }
+  if (latestAutoPhase === 'soak') {
+    return `AUTO: pulse ${pulseIndex}/${maxPulses}, soak, ${formatHoursMinutesSeconds(remaining)} left.`;
+  }
+  if (latestAutoPhase === 'soak_collect') {
+    return `AUTO: pulse ${pulseIndex}/${maxPulses}, soak decision in ${formatHoursMinutesSeconds(remaining)}.`;
+  }
+  if (latestAutoPhase === 'collect') {
+    if (latestAutoStartPlanned) {
+      return `AUTO: watering planned, starts in ${formatHoursMinutesSeconds(latestAutoStartInSec)}.`;
+    }
+    return `AUTO: synchronized sensor collection, decision in ${formatHoursMinutesSeconds(remaining)}.`;
+  }
+  if (latestAutoPhase === 'target_reached') {
+    if (!sensorSnapshot.hasSensors) {
+      return 'AUTO: target moisture reached, waiting for sensors.';
+    }
+    if (sensorSnapshot.activeNow) {
+      return 'AUTO: target moisture reached, monitoring.';
+    }
+    if (Number.isFinite(sensorSnapshot.nextWakeSec)) {
+      return `AUTO: target moisture reached, next check in ${formatHoursMinutesSeconds(sensorSnapshot.nextWakeSec)}.`;
+    }
+    return 'AUTO: target moisture reached, waiting for next sensor wave.';
+  }
+  if (latestAutoPhase === 'wait_next_wake') {
+    const doneLabel = maxPulses > 0 ? `${maxPulses}/${maxPulses} pulses done` : 'pulse limit reached';
+    if (!sensorSnapshot.hasSensors) {
+      return `AUTO: ${doneLabel}, waiting for sensors.`;
+    }
+    if (sensorSnapshot.activeNow) {
+      return `AUTO: ${doneLabel}, monitoring.`;
+    }
+    if (Number.isFinite(sensorSnapshot.nextWakeSec)) {
+      return `AUTO: ${doneLabel}, next check in ${formatHoursMinutesSeconds(sensorSnapshot.nextWakeSec)}.`;
+    }
+    return `AUTO: ${doneLabel}, waiting for next sensor wave.`;
+  }
+  if (controlStarting || controlRunning || isManualIrrigationActive) {
+    return 'AUTO: irrigation state syncing with control.';
+  }
+  return 'AUTO: no watering scheduled.';
+}
+
+function updateControlAvailabilityStatus() {
+  isControlLowBatteryLockoutActive = controlAvailabilityStatus === 'battery_lockout';
+
+  if (controlAvailabilityStatus === 'online') {
+    const wakeSec = getControlWakeEtaSec();
+    if (wakeSec > 0) {
+      setHomeControlLockoutStatus(
+        `Control: sleeping, wakes in ${formatHoursMinutesSeconds(wakeSec)}. Start will be scheduled on wake.`,
+        false,
+      );
+    } else {
+      setHomeControlLockoutStatus('Control: online.', false);
+    }
+    return;
+  }
+  if (controlAvailabilityStatus === 'battery_lockout') {
+    setHomeControlLockoutStatus('Control: battery lockout. Watering blocked.', true);
+    return;
+  }
+  if (controlAvailabilityStatus === 'offline') {
+    const wakeSec = getControlWakeEtaSec();
+    if (wakeSec > 0) {
+      setHomeControlLockoutStatus(
+        `Control: sleeping, wakes in ${formatHoursMinutesSeconds(wakeSec)}. Start will be scheduled on wake.`,
+        false,
+      );
+    } else {
+      setHomeControlLockoutStatus('Control: sleeping/offline. Start will be scheduled for next contact.', false);
+    }
+    return;
+  }
+  setHomeControlLockoutStatus('Control: not paired. Watering blocked.', true);
+}
+
+function setUnitConfigStatus(text, isError = false) {
+  if (!unitConfigStatusEl) {
+    return;
+  }
+  unitConfigStatusEl.textContent = text;
+  unitConfigStatusEl.classList.toggle('error', isError);
+}
+
+function setFactoryResetStatus(text, isError = false) {
+  if (!factoryResetStatusEl) {
+    return;
+  }
+  factoryResetStatusEl.textContent = text;
+  factoryResetStatusEl.classList.toggle('error', isError);
+}
+
+function renderHomeModeControls() {
+  if (!homeModeFormEl || !homeModeSaveBtnEl) {
+    return;
+  }
+
+  pendingManualDurationSec = clampNumber(pendingManualDurationSec, MANUAL_DURATION_MIN_SEC, MANUAL_DURATION_MAX_SEC);
+  pendingAutoStartPermille = clampNumber(pendingAutoStartPermille, 0, 1000);
+  pendingAutoStopPermille = clampNumber(pendingAutoStopPermille, 0, 1000);
+  pendingAutoWetTolerancePct = clampNumber(pendingAutoWetTolerancePct, AUTO_WET_TOLERANCE_MIN_PCT, AUTO_WET_TOLERANCE_MAX_PCT);
+  pendingAutoPulseIntervalSec = clampNumber(pendingAutoPulseIntervalSec, AUTO_PULSE_INTERVAL_MIN_SEC, AUTO_PULSE_INTERVAL_MAX_SEC);
+  pendingAutoSoakDelaySec = clampNumber(pendingAutoSoakDelaySec, AUTO_SOAK_DELAY_MIN_SEC, AUTO_SOAK_DELAY_MAX_SEC);
+  pendingAutoMaxPulses = clampNumber(pendingAutoMaxPulses, AUTO_MAX_PULSES_MIN, AUTO_MAX_PULSES_MAX);
+  pendingSensorPollIntervalMin = clampNumber(pendingSensorPollIntervalMin, SENSOR_POLL_INTERVAL_MIN, SENSOR_POLL_INTERVAL_MAX);
+  if (pendingAutoStopPermille <= pendingAutoStartPermille) {
+    pendingAutoStopPermille = Math.min(1000, pendingAutoStartPermille + 50);
+  }
+  pendingTimeIntervalMin = clampNumber(pendingTimeIntervalMin, TIME_INTERVAL_MIN, TIME_INTERVAL_MAX);
+  pendingTimeRunDurationSec = clampNumber(pendingTimeRunDurationSec, TIME_RUN_MIN_SEC, TIME_RUN_MAX_SEC);
+
+  const selectedMode = normalizeIrrigationMode(pendingIrrigationMode);
+  const isModeDirty = isModeSelectionDirty();
+  const isSettingsDirty = isModeSettingsDirty(selectedMode);
+  const radios = homeModeFormEl.querySelectorAll('input[name="irrigationMode"]');
+  radios.forEach((radio) => {
+    radio.checked = radio.value === selectedMode;
+    const wrapper = radio.closest('label');
+    if (wrapper) {
+      wrapper.classList.toggle('selected', radio.value === selectedMode);
+      wrapper.classList.toggle('persisted', radio.value === normalizeIrrigationMode(persistedIrrigationMode));
+    }
+  });
+
+  const isDirty = isModeDirty || isSettingsDirty;
+  const isManualMode = selectedMode === 'MANUAL';
+  const inactiveLabel = selectedMode === 'OFF' ? 'Disabled' : 'Active';
+  const actionLabel = selectedMode === 'OFF' ? 'Disable' : 'Activate';
+
+  if (isManualMode && !manualDurationDirty) {
+    homeModeSaveBtnEl.hidden = true;
+    homeModeSaveBtnEl.disabled = true;
+  } else if (isManualMode && manualDurationDirty) {
+    homeModeSaveBtnEl.hidden = false;
+    homeModeSaveBtnEl.disabled = false;
+    homeModeSaveBtnEl.textContent = 'Save duration';
+  } else {
+    homeModeSaveBtnEl.hidden = false;
+    homeModeSaveBtnEl.disabled = !isDirty;
+    if (isModeDirty) {
+      homeModeSaveBtnEl.textContent = actionLabel;
+    } else if (isSettingsDirty) {
+      homeModeSaveBtnEl.textContent = 'Save settings';
+    } else {
+      homeModeSaveBtnEl.textContent = inactiveLabel;
+    }
+  }
+  homeModeSaveBtnEl.classList.toggle('saved', (isManualMode && !manualDurationDirty) || !isDirty);
+
+  if (homeModeStatusEl) {
+    homeModeStatusEl.hidden = isManualMode;
+  }
+
+  const showManualActions = selectedMode === 'MANUAL';
+  const showAutoConfig = selectedMode === 'AUTO';
+  const showManualConfig = selectedMode === 'MANUAL';
+  const showTimeConfig = selectedMode === 'TIME';
+
+  if (homeAutoConfigEl) {
+    homeAutoConfigEl.hidden = !showAutoConfig;
+  }
+
+  if (homeManualConfigEl) {
+    homeManualConfigEl.hidden = !showManualConfig;
+  }
+
+  if (homeTimeConfigEl) {
+    homeTimeConfigEl.hidden = !showTimeConfig;
+  }
+
+  if (homeManualActionsEl) {
+    homeManualActionsEl.hidden = !showManualActions;
+  }
+
+  if (manualStartBtnEl && manualStopBtnEl) {
+    const secondsLeft = Math.max(0, Math.floor(manualRunRemainingSec));
+    const isStartBlocked = isManualStartBlocked(manualStartBlockedReason);
+    const isPendingStart = controlConfirmedState === 'pending_start';
+    const isPendingStop = controlConfirmedState === 'pending_stop';
+
+    manualStartBtnEl.disabled = !showManualActions || isManualIrrigationActive || isStartBlocked || isPendingStart || isPendingStop;
+    manualStartBtnEl.textContent = isPendingStart
+      ? manualPendingStartLabel()
+      : (isManualIrrigationActive
+        ? `Watering ${formatClockMmSs(secondsLeft)}`
+        : 'Start watering');
+    manualStartBtnEl.classList.toggle('watering-active', isManualIrrigationActive);
+    manualStartBtnEl.classList.toggle('is-pending', isPendingStart);
+
+    manualStopBtnEl.disabled = !showManualActions || (!isManualIrrigationActive && !isPendingStart) || isPendingStop;
+    manualStopBtnEl.textContent = isPendingStop
+      ? `Stopping... ${Math.max(0, Math.floor(controlPendingElapsedSec))}s`
+      : (isPendingStart ? 'Cancel' : 'Stop watering');
+    manualStopBtnEl.classList.toggle('is-pending', isPendingStop);
+  }
+
+  if (showManualActions && homeManualStatusEl) {
+    if (homeManualStatusResetTimer) {
+      clearTimeout(homeManualStatusResetTimer);
+      homeManualStatusResetTimer = 0;
+    }
+    homeManualStatusEl.textContent = manualStatusFromControlState();
+    homeManualStatusEl.classList.toggle('error', controlConfirmedState === 'lost');
+  }
+
+  if (manualDurationSecInputEl && document.activeElement !== manualDurationSecInputEl) {
+    manualDurationSecInputEl.value = formatSecondsInputValue(pendingManualDurationSec);
+  }
+  if (manualDurationHintEl) {
+    manualDurationHintEl.hidden = false;
+    manualDurationHintEl.textContent = `Duration: ${Math.max(0, Math.floor(pendingManualDurationSec))}s`;
+  }
+  if (autoStartMoisturePctInputEl && document.activeElement !== autoStartMoisturePctInputEl) {
+    autoStartMoisturePctInputEl.value = String(permilleToPercent(pendingAutoStartPermille));
+  }
+  if (autoStopMoisturePctInputEl && document.activeElement !== autoStopMoisturePctInputEl) {
+    autoStopMoisturePctInputEl.value = String(permilleToPercent(pendingAutoStopPermille));
+  }
+  if (autoStatusHintEl) {
+    autoStatusHintEl.hidden = !showAutoConfig;
+    if (showAutoConfig) {
+      const isPersistedAutoMode = normalizeIrrigationMode(persistedIrrigationMode) === 'AUTO';
+      const startPct = permilleToPercent(pendingAutoStartPermille);
+      const stopPct = permilleToPercent(pendingAutoStopPermille);
+      const moisturePct = latestAvgMoisturePermille !== null ? Math.round(latestAvgMoisturePermille / 10) : null;
+      if (!isModeDirty && !isSettingsDirty && isPersistedAutoMode) {
+        if (isControlIrrigationRunning()) {
+          const stopStr = `stops above ${stopPct}%.`;
+          autoStatusHintEl.textContent = moisturePct !== null
+            ? `Watering now, ${stopStr} Moisture: ${moisturePct}%.`
+            : `Watering now, ${stopStr}`;
+        } else if (latestAutoPhase === 'pulse' || controlConfirmedState === 'pending_start') {
+          autoStatusHintEl.textContent = 'AUTO pulse is waiting for control start.';
+        } else if (moisturePct !== null) {
+          if (moisturePct <= startPct) {
+            autoStatusHintEl.textContent = `Moisture: ${moisturePct}% — starting irrigation.`;
+          } else {
+            autoStatusHintEl.textContent = `Moisture: ${moisturePct}% — watering starts below ${startPct}%.`;
+          }
+        } else {
+          autoStatusHintEl.textContent = `Watering starts below ${startPct}%, stops above ${stopPct}%.`;
+        }
+      } else {
+        autoStatusHintEl.textContent = `Start below ${startPct}%, stop above ${stopPct}%.`;
+      }
+    }
+  }
+  if (autoWakeHintEl) {
+    const showAutoWake = showAutoConfig && normalizeIrrigationMode(persistedIrrigationMode) === 'AUTO' && !isModeDirty;
+    if (showAutoWake) {
+      const parts = [];
+      const ctrlSec = getControlWakeEtaSec();
+      if (ctrlSec > 0) {
+        parts.push(`Control wakes in ${formatHoursMinutesSeconds(ctrlSec)}`);
+      }
+      const sensorSnap = getNextSensorWakeSnapshot();
+      if (sensorSnap.hasSensors && sensorSnap.nextWakeSec !== null && sensorSnap.nextWakeSec > 0) {
+        parts.push(`Sensors wake in ${formatHoursMinutesSeconds(sensorSnap.nextWakeSec)}`);
+      }
+      if (parts.length > 0) {
+        autoWakeHintEl.textContent = parts.join(' · ');
+        autoWakeHintEl.hidden = false;
+      } else {
+        autoWakeHintEl.hidden = true;
+      }
+    } else {
+      autoWakeHintEl.hidden = true;
+    }
+  }
+  if (autoZoneStatsEl) {
+    autoZoneStatsEl.hidden = !showAutoConfig;
+  }
+  if (autoDryAvgPctEl) {
+    autoDryAvgPctEl.textContent = latestAutoDryPermille !== null
+      ? formatMoisture(latestAutoDryPermille)
+      : '--';
+  }
+  if (autoWetAvgPctEl) {
+    autoWetAvgPctEl.textContent = latestAutoWetPermille !== null
+      ? formatMoisture(latestAutoWetPermille)
+      : '--';
+  }
+  if (autoAdvancedToggleBtnEl) {
+    autoAdvancedToggleBtnEl.hidden = !showAutoConfig;
+    autoAdvancedToggleBtnEl.setAttribute('aria-expanded', showAutoConfig && isAutoAdvancedExpanded ? 'true' : 'false');
+  }
+  if (autoAdvancedPanelEl) {
+    autoAdvancedPanelEl.hidden = !showAutoConfig || !isAutoAdvancedExpanded;
+  }
+  if (autoWetTolerancePctInputEl && document.activeElement !== autoWetTolerancePctInputEl) {
+    autoWetTolerancePctInputEl.value = String(Math.round(pendingAutoWetTolerancePct));
+  }
+  if (autoPulseIntervalSecInputEl && document.activeElement !== autoPulseIntervalSecInputEl) {
+    autoPulseIntervalSecInputEl.value = String(Math.round(pendingAutoPulseIntervalSec));
+  }
+  if (autoSoakDelaySecInputEl && document.activeElement !== autoSoakDelaySecInputEl) {
+    autoSoakDelaySecInputEl.value = String(Math.round(pendingAutoSoakDelaySec));
+  }
+  if (autoMaxPulsesInputEl && document.activeElement !== autoMaxPulsesInputEl) {
+    autoMaxPulsesInputEl.value = String(Math.round(pendingAutoMaxPulses));
+  }
+  if (sensorPollIntervalMinInputEl && document.activeElement !== sensorPollIntervalMinInputEl) {
+    sensorPollIntervalMinInputEl.value = String(Math.round(pendingSensorPollIntervalMin));
+  }
+  if (sensorPollIntervalSaveBtnEl) {
+    const isSensorPollDirty = pendingSensorPollIntervalMin !== persistedSensorPollIntervalMin;
+    sensorPollIntervalSaveBtnEl.disabled = !isSensorPollDirty;
+    sensorPollIntervalSaveBtnEl.textContent = isSensorPollDirty ? 'Apply' : 'Saved';
+  }
+  if (sensorPollIntervalStatusEl) {
+    sensorPollIntervalStatusEl.hidden = false;
+    sensorPollIntervalStatusEl.textContent = nextSensorPollStatusText();
+    sensorPollIntervalStatusEl.classList.remove('error');
+  }
+  if (autoServiceStatusEl) {
+    autoServiceStatusEl.hidden = !showAutoConfig;
+    if (showAutoConfig) {
+      autoServiceStatusEl.textContent = autoServiceStatusText();
+    }
+  }
+  if (timeIntervalMinInputEl && document.activeElement !== timeIntervalMinInputEl) {
+    timeIntervalMinInputEl.value = formatHoursValueFromMinutes(pendingTimeIntervalMin);
+    timeIntervalMinInputEl.classList.remove('input-warning');
+  }
+  if (timeRunDurationMinInputEl && document.activeElement !== timeRunDurationMinInputEl) {
+    timeRunDurationMinInputEl.value = formatMinutesValueFromSeconds(pendingTimeRunDurationSec);
+  }
+  if (timeRunDurationHintEl) {
+    timeRunDurationHintEl.hidden = !showTimeConfig;
+    if (showTimeConfig) {
+      timeRunDurationHintEl.textContent = `Duration: ${formatMinutesSeconds(pendingTimeRunDurationSec)}`;
+    }
+  }
+  if (timeIntervalHintEl) {
+    timeIntervalHintEl.hidden = !showTimeConfig;
+    if (showTimeConfig) {
+      const isIntervalWarning = timeIntervalMinInputEl && timeIntervalMinInputEl.classList.contains('input-warning');
+      if (isIntervalWarning) {
+        timeIntervalHintEl.textContent = `Minimum interval: 5 min (0.083 h)`;
+        timeIntervalHintEl.classList.add('error');
+      } else {
+        timeIntervalHintEl.textContent = `Interval: ${formatHoursMinutes(pendingTimeIntervalMin)}`;
+        timeIntervalHintEl.classList.remove('error');
+      }
+    }
+  }
+  if (timeScheduleHintEl) {
+    const isPersistedTimeMode = normalizeIrrigationMode(persistedIrrigationMode) === 'TIME';
+    timeScheduleHintEl.hidden = !showTimeConfig;
+    if (showTimeConfig) {
+      let statusText = '';
+      const timeQueuedWaiting = isManualIrrigationActive && !isControlIrrigationRunning();
+      if (!isModeDirty && !isSettingsDirty && isPersistedTimeMode) {
+        if (timeQueuedWaiting) {
+          statusText = `Watering queued. Next cycle in ${formatHoursMinutesSeconds(timeNextStartRemainingSec)}.`;
+        } else if (timeRunRemainingSec > 0) {
+          statusText = `Watering now, ${formatHoursMinutesSeconds(timeRunRemainingSec)} left. Next cycle in ${formatHoursMinutesSeconds(timeNextStartRemainingSec)}.`;
+        } else if (timeNextStartRemainingSec > 0) {
+          statusText = `Next watering in ${formatHoursMinutesSeconds(timeNextStartRemainingSec)}.`;
+        } else {
+          statusText = 'Schedule active.';
+        }
+      } else if (!isModeDirty && !isSettingsDirty) {
+        statusText = 'Schedule not active.';
+      }
+      timeScheduleHintEl.textContent = statusText;
+    }
+  }
+}
+
+function applyIrrigationConfig(config, allowOverridePending = true) {
+  const prevManualActive = isManualIrrigationActive;
+  const prevControlState = controlConfirmedState;
+  const prevAutoPhase = latestAutoPhase;
+  const mode = normalizeIrrigationMode(config && config.mode);
+  persistedIrrigationMode = mode;
+  persistedManualDurationSec = readConfigNumber(config && config.manualDurationSec, persistedManualDurationSec, MANUAL_DURATION_MIN_SEC, MANUAL_DURATION_MAX_SEC);
+  persistedAutoStartPermille = readConfigNumber(config && config.autoStartPermille, persistedAutoStartPermille, 0, 1000);
+  persistedAutoStopPermille = readConfigNumber(config && config.autoStopPermille, persistedAutoStopPermille, 0, 1000);
+  persistedAutoWetTolerancePct = readConfigNumber(
+    config && config.autoWetTolerancePct,
+    persistedAutoWetTolerancePct,
+    AUTO_WET_TOLERANCE_MIN_PCT,
+    AUTO_WET_TOLERANCE_MAX_PCT,
+  );
+  persistedAutoPulseIntervalSec = readConfigNumber(
+    config && config.autoPulseIntervalSec,
+    persistedAutoPulseIntervalSec,
+    AUTO_PULSE_INTERVAL_MIN_SEC,
+    AUTO_PULSE_INTERVAL_MAX_SEC,
+  );
+  persistedAutoSoakDelaySec = readConfigNumber(
+    config && config.autoSoakDelaySec,
+    persistedAutoSoakDelaySec,
+    AUTO_SOAK_DELAY_MIN_SEC,
+    AUTO_SOAK_DELAY_MAX_SEC,
+  );
+  persistedAutoMaxPulses = readConfigNumber(
+    config && config.autoMaxPulses,
+    persistedAutoMaxPulses,
+    AUTO_MAX_PULSES_MIN,
+    AUTO_MAX_PULSES_MAX,
+  );
+  persistedSensorPollIntervalMin = readConfigNumber(
+    config && config.sensorPollIntervalMin,
+    persistedSensorPollIntervalMin,
+    SENSOR_POLL_INTERVAL_MIN,
+    SENSOR_POLL_INTERVAL_MAX,
+  );
+  if (persistedAutoStopPermille <= persistedAutoStartPermille) {
+    persistedAutoStopPermille = Math.min(1000, persistedAutoStartPermille + 50);
+  }
+  persistedTimeIntervalMin = readConfigNumber(config && config.timeIntervalMin, persistedTimeIntervalMin, TIME_INTERVAL_MIN, TIME_INTERVAL_MAX);
+  persistedTimeRunDurationSec = readConfigNumber(
+    config && (typeof config.timeRunDurationSec !== 'undefined' ? config.timeRunDurationSec : Number(config.timeRunDurationMin) * 60),
+    persistedTimeRunDurationSec,
+    TIME_RUN_MIN_SEC,
+    TIME_RUN_MAX_SEC,
+  );
+  const serverTimeNextStartSec = readConfigNumber(config && config.timeNextStartSec, 0, 0, TIME_INTERVAL_MAX * 60);
+  const serverTimeRunRemainingSec = readConfigNumber(config && config.runRemainingSec, 0, 0, TIME_RUN_MAX_SEC);
+  const autoStatus = config && config.auto ? config.auto : null;
+  const serverManualActive = Boolean(config && config.manualActive);
+  const serverConfirmedState = String(config && config.confirmedState ? config.confirmedState : 'idle').toLowerCase();
+  const serverPendingElapsedSec = readConfigNumber(config && config.pendingElapsedSec, controlPendingElapsedSec, 0, 3600);
+  const serverManualRunRemainingSec = readConfigNumber(config && config.runRemainingSec, manualRunRemainingSec, 0, MANUAL_DURATION_MAX_SEC);
+
+  // Server is the sole authority for irrigation state.
+  // After a manual start/stop POST, stale SSE snapshots (composed before the
+  // POST arrived at the ESP32) may linger in the TCP buffer for 1-2 seconds.
+  // Suppress SSE state updates for a brief self-expiring window so those
+  // stale snapshots cannot revert the optimistic UI to idle.
+  const MANUAL_COMMAND_GUARD_MS = 3000;
+  const withinCommandGuard = manualCommandSentAtMs > 0 &&
+      (Date.now() - manualCommandSentAtMs) < MANUAL_COMMAND_GUARD_MS;
+  if (!withinCommandGuard) {
+    if (config && typeof config.manualActive !== 'undefined') {
+      isManualIrrigationActive = serverManualActive;
+    }
+    controlConfirmedState = serverConfirmedState;
+  }
+  controlAvailabilityStatus = String(config && config.control && config.control.status ? config.control.status : 'not_paired').toLowerCase();
+  manualStartBlockedReason = String(config && config.manualBlockedReason ? config.manualBlockedReason : 'control_not_paired').toLowerCase();
+  const controlStateChanged = serverConfirmedState !== prevControlState;
+  const manualStateChanged = isManualIrrigationActive !== prevManualActive;
+
+  // Countdown values: accept server value only on state transitions.
+  // Between transitions the local 1-second interval is the sole ticker.
+  if (manualStateChanged || controlStateChanged) {
+    manualRunRemainingSec = Math.max(0, Math.floor(Number(serverManualRunRemainingSec) || 0));
+  }
+  if (controlStateChanged) {
+    controlPendingElapsedSec = Math.max(0, Math.floor(Number(serverPendingElapsedSec) || 0));
+  }
+  if (manualStateChanged || controlStateChanged) {
+    timeRunRemainingSec = Math.max(0, Math.floor(Number(serverTimeRunRemainingSec) || 0));
+    timeNextStartRemainingSec = Math.max(0, Math.floor(Number(serverTimeNextStartSec) || 0));
+  }
+  latestAutoPhase = String(autoStatus && autoStatus.phase ? autoStatus.phase : 'idle').toLowerCase();
+  const serverAutoPhaseRemainingSec = Math.max(0, Math.floor(Number(autoStatus && autoStatus.phaseRemainingSec) || 0));
+  latestAutoPulseIndex = Math.max(0, Math.floor(Number(autoStatus && autoStatus.pulseIndex) || 0));
+  latestAutoMaxPulses = Math.max(0, Math.floor(Number(autoStatus && autoStatus.maxPulses) || 0));
+  latestAutoStartPlanned = Boolean(autoStatus && autoStatus.startPlanned);
+  const serverAutoStartInSec = Math.max(0, Math.floor(Number(autoStatus && autoStatus.startInSec) || 0));
+  if (latestAutoPhase !== prevAutoPhase) {
+    latestAutoPhaseRemainingSec = Math.max(0, Math.floor(Number(serverAutoPhaseRemainingSec) || 0));
+    latestAutoStartInSec = Math.max(0, Math.floor(Number(serverAutoStartInSec) || 0));
+  }
+  if (!isManualIrrigationActive) {
+    manualRunRemainingSec = 0;
+  }
+  if (allowOverridePending) {
+    pendingIrrigationMode = mode;
+    if (!manualDurationDirty) {
+      pendingManualDurationSec = persistedManualDurationSec;
+    }
+    pendingAutoStartPermille = persistedAutoStartPermille;
+    pendingAutoStopPermille = persistedAutoStopPermille;
+    pendingAutoWetTolerancePct = persistedAutoWetTolerancePct;
+    pendingAutoPulseIntervalSec = persistedAutoPulseIntervalSec;
+    pendingAutoSoakDelaySec = persistedAutoSoakDelaySec;
+    pendingAutoMaxPulses = persistedAutoMaxPulses;
+    pendingSensorPollIntervalMin = persistedSensorPollIntervalMin;
+    pendingTimeIntervalMin = persistedTimeIntervalMin;
+    pendingTimeRunDurationSec = persistedTimeRunDurationSec;
+  }
+
+  updateControlAvailabilityStatus();
+  renderHomeModeControls();
+  setHomeManualStatus(manualStatusFromControlState(), controlConfirmedState === 'lost');
+}
+
+function renderUnitConfigControls() {
+  if (unitNameSaveBtnEl) {
+    const normalizedPending = String(pendingUnitName || '').trim();
+    const normalizedPersisted = String(persistedUnitName || '').trim();
+    const isDirty = normalizedPending.length > 0 && normalizedPending !== normalizedPersisted;
+    unitNameSaveBtnEl.disabled = !isDirty;
+    unitNameSaveBtnEl.textContent = isDirty ? 'Save name' : 'Saved';
+  }
+
+  if (unitPasswordSaveBtnEl && unitPasswordInputEl) {
+    const value = String(unitPasswordInputEl.value || '').trim();
+    const validLength = value.length >= 8 && value.length <= 63;
+    unitPasswordSaveBtnEl.disabled = !validLength;
+    unitPasswordSaveBtnEl.textContent = 'Set password';
+  }
+
+  if (factoryResetBtnEl && factoryResetConfirmInputEl) {
+    const confirmText = String(factoryResetConfirmInputEl.value || '').trim().toUpperCase();
+    factoryResetBtnEl.disabled = confirmText !== 'RESET';
+  }
+}
+
+function applyUnitStatus(status, allowOverridePending = true) {
+  if (!status) {
+    return;
+  }
+
+  const apSsid = String(status.apSsid || '-');
+  const firmwareVersion = String(status.firmwareVersion || '-');
+  const uptimeSec = Number(status.uptimeSec);
+  const unitName = String(status.unitName || '').trim();
+  const passwordSet = Boolean(status.apPasswordSet);
+
+  if (unitApSsidEl) {
+    unitApSsidEl.textContent = apSsid;
+  }
+  if (unitFirmwareEl) {
+    unitFirmwareEl.textContent = firmwareVersion;
+  }
+  if (unitUptimeEl) {
+    unitUptimeEl.textContent = formatDuration(Number.isFinite(uptimeSec) ? uptimeSec : 0);
+  }
+  if (unitPasswordStateEl) {
+    unitPasswordStateEl.textContent = passwordSet ? 'Set' : 'Open (no password)';
+  }
+
+  persistedUnitName = unitName;
+  if (allowOverridePending || !unitNameSaveBtnEl || unitNameSaveBtnEl.disabled || !unitNameInitialized) {
+    pendingUnitName = unitName;
+    if (unitNameInputEl) {
+      unitNameInputEl.value = unitName;
+    }
+    unitNameInitialized = true;
+  }
+
+  renderUnitConfigControls();
+}
+
+async function saveIrrigationConfig() {
+  // The MANUAL tab only edits duration; it must never switch the server mode.
+  // Pressing "Save duration" stores the new value while keeping the active mode
+  // (e.g. AUTO) untouched.
+  const isManualDurationSave =
+    normalizeIrrigationMode(pendingIrrigationMode) === 'MANUAL' && manualDurationDirty;
+  const mode = isManualDurationSave
+    ? normalizeIrrigationMode(persistedIrrigationMode)
+    : normalizeIrrigationMode(pendingIrrigationMode);
+
+  if (mode !== 'MANUAL' && pendingAutoStopPermille <= pendingAutoStartPermille) {
+    setHomeModeStatus('Auto stop moisture must be above auto start moisture.', true);
+    return;
+  }
+
+  try {
+    await postForm('/api/irrigation/config', {
+      mode,
+      manualDurationSec: pendingManualDurationSec,
+      autoStartPermille: pendingAutoStartPermille,
+      autoStopPermille: pendingAutoStopPermille,
+      autoWetTolerancePct: pendingAutoWetTolerancePct,
+      autoPulseIntervalSec: pendingAutoPulseIntervalSec,
+      autoSoakDelaySec: pendingAutoSoakDelaySec,
+      autoMaxPulses: pendingAutoMaxPulses,
+      sensorPollIntervalMin: pendingSensorPollIntervalMin,
+      timeIntervalMin: pendingTimeIntervalMin,
+      timeRunDurationSec: pendingTimeRunDurationSec,
+    });
+    persistedIrrigationMode = mode;
+    persistedManualDurationSec = pendingManualDurationSec;
+    manualDurationDirty = false;
+    persistedAutoStartPermille = pendingAutoStartPermille;
+    persistedAutoStopPermille = pendingAutoStopPermille;
+    persistedAutoWetTolerancePct = pendingAutoWetTolerancePct;
+    persistedAutoPulseIntervalSec = pendingAutoPulseIntervalSec;
+    persistedAutoSoakDelaySec = pendingAutoSoakDelaySec;
+    persistedAutoMaxPulses = pendingAutoMaxPulses;
+    persistedSensorPollIntervalMin = pendingSensorPollIntervalMin;
+    persistedTimeIntervalMin = pendingTimeIntervalMin;
+    persistedTimeRunDurationSec = pendingTimeRunDurationSec;
+    renderHomeModeControls();
+    setHomeModeStatus('Config saved.', false);
+  } catch (error) {
+    setHomeModeStatus(`Save failed: ${error.message}`, true);
+  }
+}
+
+async function saveSensorPollIntervalConfig() {
+  try {
+    await postForm('/api/irrigation/config', {
+      mode: normalizeIrrigationMode(persistedIrrigationMode),
+      manualDurationSec: persistedManualDurationSec,
+      autoStartPermille: persistedAutoStartPermille,
+      autoStopPermille: persistedAutoStopPermille,
+      autoWetTolerancePct: persistedAutoWetTolerancePct,
+      autoPulseIntervalSec: persistedAutoPulseIntervalSec,
+      autoSoakDelaySec: persistedAutoSoakDelaySec,
+      autoMaxPulses: persistedAutoMaxPulses,
+      sensorPollIntervalMin: pendingSensorPollIntervalMin,
+      timeIntervalMin: persistedTimeIntervalMin,
+      timeRunDurationSec: persistedTimeRunDurationSec,
+    });
+
+    persistedSensorPollIntervalMin = pendingSensorPollIntervalMin;
+    renderHomeModeControls();
+    await tick();
+  } catch (error) {
+    if (sensorPollIntervalStatusEl) {
+      sensorPollIntervalStatusEl.hidden = false;
+      sensorPollIntervalStatusEl.textContent = `Apply failed: ${error.message}`;
+      sensorPollIntervalStatusEl.classList.add('error');
+    }
+  }
+}
+
+async function saveUnitName() {
+  const name = String(pendingUnitName || '').trim();
+  if (!name) {
+    setUnitConfigStatus('Unit name cannot be empty.', true);
+    return;
+  }
+
+  try {
+    await postForm('/api/unit/rename', { name });
+    persistedUnitName = name;
+    renderUnitConfigControls();
+    setUnitConfigStatus('Name saved. Reconnect if AP restarts.', false);
+  } catch (error) {
+    setUnitConfigStatus(`Name save failed: ${error.message}`, true);
+  }
+}
+
+async function saveUnitPassword() {
+  if (!unitPasswordInputEl) {
+    return;
+  }
+
+  const password = String(unitPasswordInputEl.value || '').trim();
+  if (password.length < 8 || password.length > 63) {
+    setUnitConfigStatus('Password must be 8-63 characters.', true);
+    return;
+  }
+
+  try {
+    await postForm('/api/unit/password', { password });
+    unitPasswordInputEl.value = '';
+    renderUnitConfigControls();
+    setUnitConfigStatus('Password saved. Reconnect if AP restarts.', false);
+  } catch (error) {
+    setUnitConfigStatus(`Password save failed: ${error.message}`, true);
+  }
+}
+
+async function runFactoryReset() {
+  if (!factoryResetConfirmInputEl) {
+    return;
+  }
+
+  const confirmText = String(factoryResetConfirmInputEl.value || '').trim().toUpperCase();
+  if (confirmText !== 'RESET') {
+    setFactoryResetStatus('Type RESET to enable factory reset.', true);
+    renderUnitConfigControls();
+    return;
+  }
+
+  const confirmed = window.confirm('Factory reset will clear pairing and restore AP defaults. Continue?');
+  if (!confirmed) {
+    return;
+  }
+
+  try {
+    await postForm('/api/unit/factory-reset', { confirm: 'RESET' });
+    factoryResetConfirmInputEl.value = '';
+    renderUnitConfigControls();
+    setFactoryResetStatus('Factory reset sent. Device may reboot/restart AP.', false);
+    setUnitConfigStatus('Factory reset applied. Reconnect to default AP if needed.', false);
+    await tick();
+  } catch (error) {
+    setFactoryResetStatus(`Factory reset failed: ${error.message}`, true);
+  }
+}
+
+function setActiveTab(tabName) {
+  tabButtons.forEach((button) => {
+    button.classList.toggle('active', button.dataset.tab === tabName);
+  });
+  tabPanels.forEach((panel) => {
+    panel.classList.toggle('active', panel.dataset.panel === tabName);
+  });
+}
+
+function renderHomeSummary(summary) {
+  if (!summary) {
+    if (homeOnlineEl) homeOnlineEl.textContent = '-';
+    if (homeMoistureEl) homeMoistureEl.textContent = '-';
+    if (homePairingEl) homePairingEl.textContent = '-';
+    if (homeUptimeEl) homeUptimeEl.textContent = '-';
+    latestAvgMoisturePermille = null;
+    latestAutoDryPermille = null;
+    latestAutoWetPermille = null;
+    return;
+  }
+
+  const online = Number.isFinite(Number(summary.onlineSensors)) ? Number(summary.onlineSensors) : 0;
+  const total = Number.isFinite(Number(summary.totalVisibleSensors)) ? Number(summary.totalVisibleSensors) : 0;
+  const avgMoisturePermille = summary.avgMoisturePermille;
+  latestAvgMoisturePermille = Number.isFinite(Number(avgMoisturePermille)) ? Number(avgMoisturePermille) : null;
+  const serverDry = Number.isFinite(Number(summary.autoDryPermille)) ? Number(summary.autoDryPermille) : null;
+  const serverWet = Number.isFinite(Number(summary.autoWetPermille)) ? Number(summary.autoWetPermille) : null;
+  if (serverDry !== null) latestAutoDryPermille = serverDry;
+  if (serverWet !== null) latestAutoWetPermille = serverWet;
+  const pairingOpen = Boolean(summary.pairingOpen);
+  const pairingSec = Number(summary.pairingRemainingSec);
+  const uptimeSec = Number(summary.uptimeSec);
+  latestSummaryUptimeSec = Number.isFinite(uptimeSec) ? uptimeSec : null;
+
+  if (homeOnlineEl) {
+    homeOnlineEl.textContent = `${online}/${total}`;
+  }
+  if (homeMoistureEl) {
+    homeMoistureEl.textContent = Number.isFinite(Number(avgMoisturePermille))
+      ? formatMoisture(Number(avgMoisturePermille))
+      : 'N/A';
+  }
+  if (homePairingEl) {
+    homePairingEl.textContent = pairingOpen
+      ? `Open (${Math.max(0, Math.floor(Number.isFinite(pairingSec) ? pairingSec : 0))}s)`
+      : 'Closed';
+  }
+  if (homeUptimeEl) {
+    homeUptimeEl.textContent = formatDuration(Number.isFinite(uptimeSec) ? uptimeSec : 0);
+  }
+}
+
+async function postForm(url, payload) {
+  const body = new URLSearchParams();
+  Object.entries(payload || {}).forEach(([key, value]) => {
+    body.set(key, String(value));
+  });
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+    body: body.toString(),
+  });
+  if (!response.ok) {
+    const error = new Error(`${url} -> HTTP ${response.status}`);
+    error.status = response.status;
+    throw error;
+  }
+}
+
+async function renameSensor(nodeId) {
+  const nextName = window.prompt(`Rename unit ${nodeId}:`);
+  if (!nextName) {
+    return;
+  }
+
+  try {
+    await postForm('/api/sensors/rename', { nodeId, name: nextName.trim() });
+    await tick();
+  } catch (error) {
+    if (error.status === 404) {
+      window.alert('Rename endpoint is not implemented on firmware yet.');
+      return;
+    }
+    window.alert(`Rename failed: ${error.message}`);
+  }
+}
+
+async function unpairSensor(nodeId) {
+  const ok = window.confirm(`Unpair unit ${nodeId}?`);
+  if (!ok) {
+    return;
+  }
+
+  try {
+    await postForm('/api/sensors/unpair', { nodeId });
+    await tick();
+  } catch (error) {
+    if (error.status === 404) {
+      window.alert('Unpair endpoint is not implemented on firmware yet.');
+      return;
+    }
+    window.alert(`Unpair failed: ${error.message}`);
+  }
+}
+
+async function openPairingWindow() {
+  try {
+    await postForm('/api/pairing/open', {});
+    await tick();
+  } catch (error) {
+    window.alert(`Open pairing failed: ${error.message}`);
+  }
+}
+
+async function closePairingWindow() {
+  try {
+    await postForm('/api/pairing/close', {});
+    await tick();
+  } catch (error) {
+    window.alert(`Close pairing failed: ${error.message}`);
+  }
+}
+
+async function startManualIrrigation() {
+  if (isManualStartBlocked(manualStartBlockedReason)) {
+    if (manualStartBlockedReason === 'control_battery_lockout') {
+      setHomeManualStatus('Watering blocked: control battery lockout is active.', true, 5000);
+    } else {
+      setHomeManualStatus('Watering blocked: control is not paired.', true, 5000);
+    }
+    return;
+  }
+
+  manualCommandSentAtMs = Date.now();
+  try {
+    await postForm('/api/irrigation/manual/start', { durationSec: pendingManualDurationSec });
+    persistedManualDurationSec = pendingManualDurationSec;
+    manualDurationDirty = false;
+    controlConfirmedState = 'pending_start';
+    isManualIrrigationActive = true;
+    controlPendingElapsedSec = 0;
+    renderHomeModeControls();
+    await tick();
+    setHomeManualStatus(manualStatusFromControlState(), false, 5000);
+  } catch (error) {
+    manualCommandSentAtMs = 0;
+    setHomeManualStatus(`Watering start failed: ${error.message}`, true);
+  }
+}
+
+async function stopManualIrrigation() {
+  const wasConfirmedRunning = controlConfirmedState === 'active';
+  manualCommandSentAtMs = Date.now();
+  try {
+    await postForm('/api/irrigation/manual/stop', {});
+    if (wasConfirmedRunning) {
+      controlConfirmedState = 'pending_stop';
+      controlPendingElapsedSec = 0;
+    } else {
+      controlConfirmedState = 'idle';
+      isManualIrrigationActive = false;
+      manualRunRemainingSec = 0;
+    }
+    renderHomeModeControls();
+    await tick();
+    setHomeManualStatus(manualStatusFromControlState(), false, 5000);
+  } catch (error) {
+    manualCommandSentAtMs = 0;
+    setHomeManualStatus(`Watering stop failed: ${error.message}`, true);
+  }
+}
+
+async function triggerRemoteCalibration(nodeId, step) {
+  await postForm('/api/sensors/calibrate', { nodeId, step });
+}
+
+function calibrationStateFor(nodeId) {
+  return calibrationStateByNode.get(String(nodeId)) || 'idle';
+}
+
+function resetCalibrationState(nodeId) {
+  calibrationStateByNode.delete(String(nodeId));
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+function renderCalibrationBanner() {
+  if (!calibrationBannerEl) {
+    return;
+  }
+
+  if (!activeCalibration) {
+    calibrationBannerEl.hidden = true;
+    calibrationBannerEl.classList.remove('error');
+    calibrationBannerEl.innerHTML = '';
+    return;
+  }
+
+  const now = Date.now();
+  let noteText = activeCalibration.note || '';
+  if (activeCalibration.phase === 'measure_wet' && activeCalibration.deadlineMs > now) {
+    const leftSec = Math.max(0, Math.ceil((activeCalibration.deadlineMs - now) / 1000));
+    noteText = `${noteText} (${leftSec}s left)`;
+  }
+
+  const title = activeCalibration.title || `Sensor ${activeCalibration.nodeId}`;
+  const stepsHtml = activeCalibration.steps
+    .map((step) => `<li class="calibration-step ${escapeHtml(step.state)}">${escapeHtml(step.text)}</li>`)
+    .join('');
+  const noteHtml = noteText ? `<p class="calibration-note">${escapeHtml(noteText)}</p>` : '';
+
+  calibrationBannerEl.classList.toggle('error', activeCalibration.status === 'error');
+  calibrationBannerEl.innerHTML = `
+    <p class="calibration-title">Calibration · ${escapeHtml(title)}</p>
+    <ul class="calibration-steps">${stepsHtml}</ul>
+    ${noteHtml}
+  `;
+  calibrationBannerEl.hidden = false;
+}
+
+function placeCalibrationBanner() {
+  if (!calibrationBannerEl) {
+    return;
+  }
+
+  if (!activeCalibration) {
+    return;
+  }
+
+  const targetCard = nodesEl.querySelector(`[data-sensor-node-id="${activeCalibration.nodeId}"]`);
+  if (!targetCard) {
+    return;
+  }
+
+  const actions = targetCard.querySelector('.sensor-actions');
+  if (actions) {
+    actions.insertAdjacentElement('afterend', calibrationBannerEl);
+    return;
+  }
+
+  targetCard.appendChild(calibrationBannerEl);
+}
+
+function finishCalibrationWithError(message) {
+  if (!activeCalibration) {
+    return;
+  }
+
+  const nodeId = activeCalibration.nodeId;
+  resetCalibrationState(nodeId);
+  activeCalibration.status = 'error';
+  activeCalibration.phase = 'done';
+  activeCalibration.deadlineMs = 0;
+  activeCalibration.autoHideAtMs = Date.now() + CAL_ERROR_HIDE_MS;
+  activeCalibration.note = message;
+  activeCalibration.steps = activeCalibration.steps.map((step) => ({
+    ...step,
+    state: step.state === 'done' ? 'done' : 'pending',
+  }));
+  renderCalibrationBanner();
+}
+
+function startCalibrationGuide(node) {
+  const nodeId = String(node.nodeId);
+  const title = node.name || `Sensor ${nodeId}`;
+  calibrationStateByNode.clear();
+  calibrationStateByNode.set(nodeId, 'measure_wet');
+
+  activeCalibration = {
+    nodeId,
+    title,
+    status: 'info',
+    phase: 'measure_wet',
+    deadlineMs: Date.now() + CAL_PROMPT_TIMEOUT_MS,
+    autoHideAtMs: 0,
+    steps: [
+      { text: 'Calibrate command sent', state: 'done' },
+      { text: 'Measure wet', state: 'active' },
+      { text: 'Sensor finishes calibration', state: 'pending' },
+    ],
+    note: 'Dry measurement completed. Place sensor in water and tap "Measure wet".',
+  };
+
+  renderCalibrationBanner();
+}
+
+function finishCalibrationGuide(node) {
+  const nodeId = String(node.nodeId);
+  resetCalibrationState(nodeId);
+
+  activeCalibration = {
+    nodeId,
+    title: node.name || `Sensor ${nodeId}`,
+    status: 'info',
+    phase: 'done',
+    deadlineMs: 0,
+    autoHideAtMs: Date.now() + CAL_INFO_HIDE_MS,
+    steps: [
+      { text: 'Calibrate command sent', state: 'done' },
+      { text: 'Measure wet', state: 'done' },
+      { text: 'Sensor finishes calibration', state: 'active' },
+    ],
+    note: 'Wet measurement command sent. Sensor now completes calibration.',
+  };
+
+  renderCalibrationBanner();
+}
+
+function moveCalibrationToSensorFinishing(node) {
+  const nodeId = String(node.nodeId);
+  const baselineRxPackets = Number.isFinite(Number(node.rxPackets)) ? Number(node.rxPackets) : 0;
+  calibrationStateByNode.set(nodeId, 'sensor_finishing');
+
+  activeCalibration = {
+    nodeId,
+    title: node.name || `Sensor ${nodeId}`,
+    status: 'info',
+    phase: 'sensor_finishing',
+    deadlineMs: 0,
+    autoHideAtMs: 0,
+    baselineRxPackets,
+    steps: [
+      { text: 'Calibrate command sent', state: 'done' },
+      { text: 'Measure wet', state: 'done' },
+      { text: 'Sensor finishes calibration', state: 'active' },
+    ],
+    note: 'Wet command sent. Waiting for sensor telemetry update.',
+  };
+
+  renderCalibrationBanner();
+}
+
+function reconcileCalibrationState() {
+  if (!activeCalibration) {
+    return;
+  }
+
+  const now = Date.now();
+  const nodeExists = latestNodes.some((node) => String(node.nodeId) === activeCalibration.nodeId);
+  if (!nodeExists) {
+    finishCalibrationWithError('Calibration canceled: sensor is no longer visible.');
+    return;
+  }
+
+  if (activeCalibration.phase === 'measure_wet' && activeCalibration.deadlineMs > 0 && now >= activeCalibration.deadlineMs) {
+    finishCalibrationWithError('Wet-step timeout. State returned to Calibrate.');
+    return;
+  }
+
+  if (activeCalibration.phase === 'sensor_finishing') {
+    const currentNode = latestNodes.find((node) => String(node.nodeId) === activeCalibration.nodeId);
+    if (!currentNode) {
+      finishCalibrationWithError('Calibration canceled: sensor is no longer visible.');
+      return;
+    }
+
+    if (currentNode.state === 'OFFLINE') {
+      finishCalibrationWithError('Calibration failed: sensor went offline.');
+      return;
+    }
+
+    const currentRxPackets = Number.isFinite(Number(currentNode.rxPackets)) ? Number(currentNode.rxPackets) : 0;
+    if (currentRxPackets > Number(activeCalibration.baselineRxPackets || 0)) {
+      finishCalibrationGuide(currentNode);
+      return;
+    }
+  }
+
+  if (activeCalibration.autoHideAtMs > 0 && now >= activeCalibration.autoHideAtMs) {
+    activeCalibration = null;
+    renderCalibrationBanner();
+  }
+}
+
+function renderPairingBannerState(isOpen) {
+  if (!pairingBannerEl) {
+    return;
+  }
+
+  if (addSensorBtn) {
+    addSensorBtn.hidden = isOpen;
+  }
+  if (closePairingBtn) {
+    closePairingBtn.hidden = !isOpen;
+  }
+
+  pairingBannerEl.textContent = isOpen
+    ? `Pairing window is open (${Math.max(0, pairingRemainingSec)}s left).`
+    : 'Pairing window is open (120s).';
+  pairingBannerEl.hidden = !isOpen;
+}
+
+function syncPairingCountdown(webStatus) {
+  const isOpen = Boolean(webStatus && webStatus.pairingOpen);
+  const serverRemainingSec = Number(webStatus && webStatus.pairingRemainingSec);
+  pairingRemainingSec = isOpen && Number.isFinite(serverRemainingSec)
+    ? Math.max(0, Math.floor(serverRemainingSec))
+    : 0;
+  renderPairingBannerState(isOpen);
+}
+
+function renderNodes(nodes) {
+  if (!Array.isArray(nodes) || nodes.length === 0) {
+    nodesEl.innerHTML = '<p class="empty">No unit data yet.</p>';
+    return;
+  }
+
+  const sortedNodes = [...nodes].sort((left, right) => {
+    const leftRole = String(left && left.role ? left.role : 'SENSOR').toUpperCase();
+    const rightRole = String(right && right.role ? right.role : 'SENSOR').toUpperCase();
+    const leftControl = leftRole === 'CONTROL';
+    const rightControl = rightRole === 'CONTROL';
+    if (leftControl !== rightControl) {
+      return leftControl ? -1 : 1;
+    }
+
+    const leftId = Number(left && left.nodeId);
+    const rightId = Number(right && right.nodeId);
+    const leftHasId = Number.isFinite(leftId);
+    const rightHasId = Number.isFinite(rightId);
+    if (leftHasId && rightHasId && leftId !== rightId) {
+      return leftId - rightId;
+    }
+    if (leftHasId !== rightHasId) {
+      return leftHasId ? -1 : 1;
+    }
+    return 0;
+  });
+
+  const activeNodeKeys = new Set(sortedNodes.map((node) => nodeUiCacheKey(node)));
+  for (const cachedKey of Array.from(uiNodeStateCache.keys())) {
+    if (!activeNodeKeys.has(cachedKey)) {
+      uiNodeStateCache.delete(cachedKey);
+    }
+  }
+
+  const html = sortedNodes
+    .map((node) => {
+      const stableState = getStableNodeState(node);
+      const nodeView = { ...node, state: stableState };
+      const role = String(node.role || 'SENSOR').toUpperCase();
+      const isControl = role === 'CONTROL';
+      const roleBadge = role === 'CONTROL' ? 'CONTROL' : role === 'SENSOR' ? 'SENSOR' : 'UNKNOWN';
+      const batteryState = node.batteryState || 'UNKNOWN';
+      const cardClasses = ['sensor-card'];
+      if (isControl) {
+        cardClasses.push('control');
+      }
+      if (batteryState === 'NEEDS_REPLACEMENT') {
+        cardClasses.push('needs-replacement');
+      }
+      if (stableState === 'OFFLINE') {
+        cardClasses.push('offline');
+      }
+      const batteryClass =
+        batteryState === 'CRITICAL'
+          ? 'battery-state critical'
+          : batteryState === 'NEEDS_REPLACEMENT'
+            ? 'battery-state needs-replacement'
+            : 'battery-state';
+      const stateView = buildNodeStateView(nodeView);
+      const calibrationState = calibrationStateFor(node.nodeId);
+      const calibrateLabel = calibrationState === 'measure_wet'
+        ? 'Measure wet'
+        : calibrationState === 'sensor_finishing'
+          ? 'Calibrating...'
+          : 'Calibrate';
+      const calibrateDisabled =
+        (activeCalibration && String(activeCalibration.nodeId) !== String(node.nodeId)) ||
+        calibrationState === 'sensor_finishing'
+          ? 'disabled'
+          : '';
+      const defaultTitle = isControl
+        ? `Control ${node.nodeId ?? '-'}`
+        : `Sensor ${node.nodeId ?? '-'}`;
+      const irrigationLockout = String(node.irrigationLockout || 'NONE').toUpperCase();
+      const moistureLine = isControl
+        ? ''
+        : `<p>Moisture: ${formatMoisture(node.moisturePermille)}</p>`;
+      let irrigationLine = '';
+      if (isControl) {
+        if (irrigationLockout === 'LOW_BATTERY') {
+          irrigationLine = '<p>Irrigation: <span class="battery-state critical">Blocked (low battery)</span></p>';
+        } else if (controlConfirmedState === 'active') {
+          irrigationLine = '<p>Irrigation: <span class="state-badge state-online">Running</span></p>';
+        } else if (controlConfirmedState === 'pending_start' || isManualIrrigationActive) {
+          irrigationLine = '<p>Irrigation: <span class="state-badge state-suspect">Starting\u2026</span></p>';
+        } else if (controlConfirmedState === 'pending_stop') {
+          irrigationLine = '<p>Irrigation: <span class="state-badge state-suspect">Stopping\u2026</span></p>';
+        } else {
+          irrigationLine = '<p>Irrigation: Idle</p>';
+        }
+      }
+      const calibrateButton = isControl
+        ? ''
+        : `<button type="button" class="sensor-btn calibrate" data-action="calibrate" data-node-id="${node.nodeId ?? ''}" ${calibrateDisabled}>${calibrateLabel}</button>`;
+      const stateNoteLine = stateView.note
+        ? `<p class="sensor-state-note">${stateView.note}</p>`
+        : '';
+
+      return `
+        <article class="${cardClasses.join(' ')}" data-sensor-node-id="${node.nodeId ?? ''}">
+          <h3>${node.name || defaultTitle}</h3>
+          <p>Role: ${roleBadge}</p>
+          ${moistureLine}
+          ${irrigationLine}
+          <p class="sensor-state-row"><span class="state-badge ${stateView.badgeClass}">${stateView.badgeText}</span></p>
+          ${stateNoteLine}
+          <p>Battery: ${formatBatteryVolts(node.batteryEstMv)} <span class="${batteryClass}">[${batteryState}]</span></p>
+          <p>Last seen: ${formatLastSeenSecAgo(node.lastSeenSecAgo)}</p>
+          <p class="sensor-next-contact">${stateView.wakeLine}</p>
+          <div class="sensor-actions">
+            <button type="button" class="sensor-btn rename" data-action="rename" data-node-id="${node.nodeId ?? ''}">Rename</button>
+            ${calibrateButton}
+            <button type="button" class="sensor-btn unpair" data-action="unpair" data-node-id="${node.nodeId ?? ''}">Unpair</button>
+          </div>
+          <p class="sensor-mac">MAC: ${node.mac ?? 'N/A'}</p>
+        </article>
+      `;
+    })
+    .join('');
+
+  nodesEl.innerHTML = html;
+}
+
+async function fetchJson(url) {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`${url} -> HTTP ${response.status}`);
+  }
+  return response.json();
+}
+
+function applyDashboardSnapshot(snapshot, allowOverridePending = true) {
+  const webStatus = snapshot && snapshot.webStatus ? snapshot.webStatus : null;
+  const nodes = Array.isArray(snapshot && snapshot.nodes) ? snapshot.nodes : [];
+  const summary = snapshot && snapshot.summary ? snapshot.summary : null;
+  const irrigationConfig = snapshot && snapshot.irrigationConfig ? snapshot.irrigationConfig : null;
+  const unitStatus = snapshot && snapshot.unitStatus ? snapshot.unitStatus : null;
+  markTransportDataUpdate();
+
+  // Fresh snapshot (SSE or polling) should clear transient fetch errors
+  // that might have been shown while the head was rebooting.
+  clearStaleFetchErrorsFromFreshSnapshot();
+
+  // Merge nodes: preserve locally-ticked nextContactSec for sleeping nodes
+  // unless server reports a significantly different value (new sleep cycle).
+  if (Array.isArray(latestNodes) && latestNodes.length > 0) {
+    const oldByMac = {};
+    for (const n of latestNodes) {
+      if (n && n.mac) oldByMac[n.mac] = n;
+    }
+    for (const n of nodes) {
+      const old = n && n.mac ? oldByMac[n.mac] : null;
+      if (old && n.sleepActive && old.sleepActive
+          && typeof old.nextContactSec === 'number' && typeof n.nextContactSec === 'number'
+          && Math.abs(n.nextContactSec - old.nextContactSec) <= 5) {
+        n.nextContactSec = old.nextContactSec;
+      }
+    }
+  }
+  latestNodes = nodes;
+
+  if (webStatus) {
+    render(webStatusEl, webStatus);
+    syncPairingCountdown(webStatus);
+  }
+
+  renderHomeSummary(summary);
+  if (irrigationConfig) {
+    applyIrrigationConfig(irrigationConfig, allowOverridePending);
+  }
+
+  if (unitStatus) {
+    applyUnitStatus(unitStatus, !unitNameSaveBtnEl || unitNameSaveBtnEl.disabled);
+  }
+
+  renderNodes(latestNodes);
+  reconcileCalibrationState();
+  renderCalibrationBanner();
+  placeCalibrationBanner();
+}
+
+async function tick() {
+  try {
+    const [webStatus, nodes, summary, irrigationConfig, unitStatus] = await Promise.all([
+      fetchJson('/api/web/status'),
+      fetchJson('/api/nodes'),
+      fetchJson('/api/system/summary'),
+      fetchJson('/api/irrigation/config'),
+      fetchJson('/api/unit/status'),
+    ]);
+    applyDashboardSnapshot({
+      webStatus,
+      nodes,
+      summary,
+      irrigationConfig,
+      unitStatus,
+    }, !shouldLockPendingFromSnapshot());
+    if (!irrigationEventsSource) {
+      setTransportStatus('fallback');
+    }
+  } catch (error) {
+    if (webStatusEl) {
+      webStatusEl.textContent = `fetch error: ${error}`;
+    }
+    nodesEl.textContent = '';
+    latestNodes = [];
+    uiNodeStateCache.clear();
+    renderHomeSummary(null);
+    if (pairingBannerEl) {
+      pairingRemainingSec = 0;
+      pairingBannerEl.hidden = true;
+    }
+    setHomeModeStatus(`Config fetch error: ${error}`, true);
+    setHomeManualStatus(`Manual control unavailable: ${error}`, true);
+    setHomeControlLockoutStatus(`Control availability unavailable: ${error}`, true);
+    activeCalibration = null;
+    calibrationStateByNode.clear();
+    renderCalibrationBanner();
+    if (!irrigationEventsSource && tickIntervalId) {
+      setTransportStatus('offline');
+    }
+  }
+}
+
+function stopTickPolling() {
+  if (!tickIntervalId) {
+    return;
+  }
+  clearInterval(tickIntervalId);
+  tickIntervalId = 0;
+  activeTickIntervalMs = 0;
+  updateTransportPopover();
+}
+
+function ensureTickPolling(intervalMs) {
+  const normalized = Math.max(500, Math.floor(Number(intervalMs) || 0));
+  if (tickIntervalId && activeTickIntervalMs === normalized) {
+    return;
+  }
+  stopTickPolling();
+  tickIntervalId = setInterval(tick, normalized);
+  activeTickIntervalMs = normalized;
+  if (!irrigationEventsSource) {
+    setTransportStatus('fallback');
+  } else {
+    updateTransportPopover();
+  }
+}
+
+function connectIrrigationEvents() {
+  if (typeof window === 'undefined' || typeof window.EventSource === 'undefined') {
+    return;
+  }
+
+  if (irrigationEventsSource) {
+    irrigationEventsSource.close();
+    irrigationEventsSource = null;
+  }
+
+  const source = new EventSource('/api/events');
+  irrigationEventsSource = source;
+  setTransportStatus('reconnect');
+
+  source.onopen = () => {
+    stopTickPolling();
+    setTransportStatus('live');
+  };
+
+  source.addEventListener('snapshot', (event) => {
+    try {
+      const snapshot = JSON.parse(event.data);
+      applyDashboardSnapshot(snapshot, !shouldLockPendingFromSnapshot());
+      setTransportStatus('live');
+    } catch (error) {
+      if (webStatusEl) {
+        webStatusEl.textContent = `events parse error: ${error}`;
+      }
+    }
+  });
+
+  source.onerror = () => {
+    if (irrigationEventsSource === source) {
+      irrigationEventsSource = null;
+    }
+    source.close();
+    setTransportStatus('reconnect');
+    ensureTickPolling(POLL_INTERVAL_FAST_MS);
+    if (irrigationEventsReconnectTimer) {
+      return;
+    }
+    transportReconnectAttempts += 1;
+    updateTransportPopover();
+    irrigationEventsReconnectTimer = setTimeout(() => {
+      irrigationEventsReconnectTimer = 0;
+      connectIrrigationEvents();
+    }, 2000);
+  };
+}
+
+if (transportIndicatorBtnEl) {
+  transportIndicatorBtnEl.addEventListener('click', (event) => {
+    event.stopPropagation();
+    toggleTransportPopover();
+  });
+}
+
+if (transportPopoverEl) {
+  transportPopoverEl.addEventListener('click', (event) => {
+    event.stopPropagation();
+  });
+}
+
+document.addEventListener('click', (event) => {
+  if (transportPopoverEl && !transportPopoverEl.hidden) {
+    const target = event.target;
+    if (target instanceof Node
+      && transportPopoverEl
+      && !transportPopoverEl.contains(target)
+      && transportIndicatorBtnEl
+      && !transportIndicatorBtnEl.contains(target)) {
+      closeTransportPopover();
+    }
+  }
+});
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') {
+    closeTransportPopover();
+  }
+});
+
+if (homeModeFormEl) {
+  homeModeFormEl.addEventListener('change', (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement)) {
+      return;
+    }
+    if (target.name !== 'irrigationMode') {
+      return;
+    }
+
+    pendingIrrigationMode = normalizeIrrigationMode(target.value);
+    renderHomeModeControls();
+    setHomeModeStatus(homeModeStatusText(), false);
+  });
+}
+
+if (manualDurationSecInputEl) {
+  manualDurationSecInputEl.addEventListener('input', () => {
+    pendingManualDurationSec = parseSecondsInput(manualDurationSecInputEl.value, pendingManualDurationSec);
+    manualDurationDirty = true;
+    renderHomeModeControls();
+    setHomeManualStatus(`Next manual watering duration: ${Math.max(0, Math.floor(pendingManualDurationSec))}s.`, false, 2500);
+  });
+}
+
+if (autoStartMoisturePctInputEl) {
+  autoStartMoisturePctInputEl.addEventListener('input', () => {
+    pendingAutoStartPermille = percentToPermille(autoStartMoisturePctInputEl.value);
+    renderHomeModeControls();
+    setHomeModeStatus(homeModeStatusText(), false);
+  });
+}
+
+if (autoStopMoisturePctInputEl) {
+  autoStopMoisturePctInputEl.addEventListener('input', () => {
+    pendingAutoStopPermille = percentToPermille(autoStopMoisturePctInputEl.value);
+    renderHomeModeControls();
+    setHomeModeStatus(homeModeStatusText(), false);
+  });
+}
+
+if (autoAdvancedToggleBtnEl) {
+  autoAdvancedToggleBtnEl.addEventListener('click', () => {
+    isAutoAdvancedExpanded = !isAutoAdvancedExpanded;
+    renderHomeModeControls();
+  });
+}
+
+if (autoWetTolerancePctInputEl) {
+  autoWetTolerancePctInputEl.addEventListener('input', () => {
+    pendingAutoWetTolerancePct = readConfigNumber(
+      autoWetTolerancePctInputEl.value,
+      pendingAutoWetTolerancePct,
+      AUTO_WET_TOLERANCE_MIN_PCT,
+      AUTO_WET_TOLERANCE_MAX_PCT,
+    );
+    renderHomeModeControls();
+    setHomeModeStatus(homeModeStatusText(), false);
+  });
+}
+
+if (autoPulseIntervalSecInputEl) {
+  autoPulseIntervalSecInputEl.addEventListener('input', () => {
+    pendingAutoPulseIntervalSec = readConfigNumber(
+      autoPulseIntervalSecInputEl.value,
+      pendingAutoPulseIntervalSec,
+      AUTO_PULSE_INTERVAL_MIN_SEC,
+      AUTO_PULSE_INTERVAL_MAX_SEC,
+    );
+    renderHomeModeControls();
+    setHomeModeStatus(homeModeStatusText(), false);
+  });
+}
+
+if (autoSoakDelaySecInputEl) {
+  autoSoakDelaySecInputEl.addEventListener('input', () => {
+    pendingAutoSoakDelaySec = readConfigNumber(
+      autoSoakDelaySecInputEl.value,
+      pendingAutoSoakDelaySec,
+      AUTO_SOAK_DELAY_MIN_SEC,
+      AUTO_SOAK_DELAY_MAX_SEC,
+    );
+    renderHomeModeControls();
+    setHomeModeStatus(homeModeStatusText(), false);
+  });
+}
+
+if (autoMaxPulsesInputEl) {
+  autoMaxPulsesInputEl.addEventListener('input', () => {
+    pendingAutoMaxPulses = readConfigNumber(
+      autoMaxPulsesInputEl.value,
+      pendingAutoMaxPulses,
+      AUTO_MAX_PULSES_MIN,
+      AUTO_MAX_PULSES_MAX,
+    );
+    renderHomeModeControls();
+    setHomeModeStatus(homeModeStatusText(), false);
+  });
+}
+
+if (sensorPollIntervalMinInputEl) {
+  sensorPollIntervalMinInputEl.addEventListener('input', () => {
+    pendingSensorPollIntervalMin = readConfigNumber(
+      sensorPollIntervalMinInputEl.value,
+      pendingSensorPollIntervalMin,
+      SENSOR_POLL_INTERVAL_MIN,
+      SENSOR_POLL_INTERVAL_MAX,
+    );
+    renderHomeModeControls();
+  });
+}
+
+if (sensorPollIntervalSaveBtnEl) {
+  sensorPollIntervalSaveBtnEl.addEventListener('click', async () => {
+    await saveSensorPollIntervalConfig();
+  });
+}
+
+if (timeIntervalMinInputEl) {
+  timeIntervalMinInputEl.addEventListener('input', () => {
+    const rawHours = parseLocalizedDecimal(timeIntervalMinInputEl.value);
+    const roundedMin = Number.isFinite(rawHours) ? Math.round(rawHours * 60) : TIME_INTERVAL_MIN;
+    const belowMin = roundedMin < TIME_INTERVAL_MIN;
+    timeIntervalMinInputEl.classList.toggle('input-warning', belowMin);
+    pendingTimeIntervalMin = parseHoursToMinutes(timeIntervalMinInputEl.value, pendingTimeIntervalMin);
+    renderHomeModeControls();
+    setHomeModeStatus(homeModeStatusText(), false);
+  });
+}
+
+if (timeRunDurationMinInputEl) {
+  timeRunDurationMinInputEl.addEventListener('input', () => {
+    pendingTimeRunDurationSec = parseMinutesToRoundedSeconds(timeRunDurationMinInputEl.value, pendingTimeRunDurationSec);
+    renderHomeModeControls();
+    setHomeModeStatus(homeModeStatusText(), false);
+  });
+}
+
+if (homeModeSaveBtnEl) {
+  homeModeSaveBtnEl.addEventListener('click', async () => {
+    await saveIrrigationConfig();
+  });
+}
+
+if (manualStartBtnEl) {
+  manualStartBtnEl.addEventListener('click', async () => {
+    await startManualIrrigation();
+  });
+}
+
+if (manualStopBtnEl) {
+  manualStopBtnEl.addEventListener('click', async () => {
+    await stopManualIrrigation();
+  });
+}
+
+if (unitNameInputEl) {
+  unitNameInputEl.addEventListener('input', () => {
+    pendingUnitName = String(unitNameInputEl.value || '').trim();
+    renderUnitConfigControls();
+    setUnitConfigStatus('Unsaved name change.', false);
+  });
+}
+
+if (unitPasswordInputEl) {
+  unitPasswordInputEl.addEventListener('input', () => {
+    renderUnitConfigControls();
+    if (String(unitPasswordInputEl.value || '').trim().length > 0) {
+      setUnitConfigStatus('Unsaved password change.', false);
+    }
+  });
+}
+
+if (factoryResetConfirmInputEl) {
+  factoryResetConfirmInputEl.addEventListener('input', () => {
+    renderUnitConfigControls();
+    if (String(factoryResetConfirmInputEl.value || '').trim().length > 0) {
+      setFactoryResetStatus('Confirmation text entered.', false);
+    } else {
+      setFactoryResetStatus('No pending action.', false);
+    }
+  });
+}
+
+if (unitNameSaveBtnEl) {
+  unitNameSaveBtnEl.addEventListener('click', async () => {
+    await saveUnitName();
+  });
+}
+
+if (unitPasswordSaveBtnEl) {
+  unitPasswordSaveBtnEl.addEventListener('click', async () => {
+    await saveUnitPassword();
+  });
+}
+
+if (factoryResetBtnEl) {
+  factoryResetBtnEl.addEventListener('click', async () => {
+    await runFactoryReset();
+  });
+}
+
+if (tabsEl) {
+  tabsEl.addEventListener('click', (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+
+    const tabName = target.dataset.tab;
+    if (!tabName) {
+      return;
+    }
+    setActiveTab(tabName);
+  });
+}
+
+nodesEl.addEventListener('click', async (event) => {
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) {
+    return;
+  }
+
+  const action = target.dataset.action;
+  const nodeId = target.dataset.nodeId;
+  if (!action || !nodeId) {
+    return;
+  }
+
+  if (action === 'rename') {
+    await renameSensor(nodeId);
+    return;
+  }
+
+  if (action === 'calibrate') {
+    const node = latestNodes.find((item) => String(item.nodeId) === String(nodeId));
+    if (!node) {
+      return;
+    }
+
+    if (activeCalibration && String(activeCalibration.nodeId) !== String(nodeId)) {
+      window.alert('Calibration is already active on another sensor.');
+      return;
+    }
+
+    try {
+      if (calibrationStateFor(nodeId) === 'measure_wet') {
+        await triggerRemoteCalibration(nodeId, 'wet');
+        moveCalibrationToSensorFinishing(node);
+      } else {
+        await triggerRemoteCalibration(nodeId, 'start');
+        startCalibrationGuide(node);
+      }
+    } catch (error) {
+      finishCalibrationWithError(`Calibration command failed: ${error.message}`);
+      renderNodes(latestNodes);
+      return;
+    }
+
+    renderNodes(latestNodes);
+    renderCalibrationBanner();
+    placeCalibrationBanner();
+    return;
+  }
+
+  if (action === 'unpair') {
+    if (activeCalibration && activeCalibration.nodeId === String(nodeId)) {
+      finishCalibrationWithError('Calibration canceled: sensor was unpaired.');
+    }
+    resetCalibrationState(nodeId);
+    await unpairSensor(nodeId);
+  }
+});
+
+ensureTickPolling(POLL_INTERVAL_FAST_MS);
+tick();
+connectIrrigationEvents();
+setTransportStatus('reconnect');
+
+setInterval(() => {
+  updateTransportPopover();
+  if (pairingRemainingSec > 0) {
+    pairingRemainingSec -= 1;
+    renderPairingBannerState(pairingRemainingSec > 0);
+  }
+
+  // Local per-second countdown for sleeping node ETA so the UI stays smooth
+  // between server snapshots.
+  if (Array.isArray(latestNodes)) {
+    for (const node of latestNodes) {
+      if (node && node.sleepActive && typeof node.nextContactSec === 'number' && node.nextContactSec > 0) {
+        node.nextContactSec = Math.max(0, node.nextContactSec - 1);
+      }
+    }
+  }
+
+  // Tick manual/time countdown values locally between snapshots.
+  let countdownDirty = false;
+  if (isManualIrrigationActive && controlConfirmedState === 'active' && manualRunRemainingSec > 0) {
+    manualRunRemainingSec = Math.max(0, manualRunRemainingSec - 1);
+    countdownDirty = true;
+    if (manualRunRemainingSec === 0) {
+      // Duration expired locally — transition UI immediately.
+      // The backend fires stopIrrigation around the same moment.
+      isManualIrrigationActive = false;
+      controlConfirmedState = 'idle';
+      // Confirm server-side state; retry in case the first poll is too early.
+      setTimeout(() => tick(), 1500);
+      setTimeout(() => tick(), 5000);
+    }
+  }
+  if (controlConfirmedState === 'pending_start' || controlConfirmedState === 'pending_stop') {
+    controlPendingElapsedSec += 1;
+    countdownDirty = true;
+  }
+  if (timeRunRemainingSec > 0) {
+    timeRunRemainingSec = Math.max(0, timeRunRemainingSec - 1);
+    countdownDirty = true;
+    if (timeRunRemainingSec === 0) {
+      setTimeout(() => tick(), 2000);
+    }
+  }
+  if (timeNextStartRemainingSec > 0) {
+    timeNextStartRemainingSec = Math.max(0, timeNextStartRemainingSec - 1);
+    countdownDirty = true;
+  }
+  if (latestAutoPhaseRemainingSec > 0) {
+    latestAutoPhaseRemainingSec = Math.max(0, latestAutoPhaseRemainingSec - 1);
+    countdownDirty = true;
+  }
+  if (latestAutoStartInSec > 0) {
+    latestAutoStartInSec = Math.max(0, latestAutoStartInSec - 1);
+    countdownDirty = true;
+  }
+  if (countdownDirty) {
+    renderHomeModeControls();
+  }
+
+  reconcileCalibrationState();
+  renderCalibrationBanner();
+  placeCalibrationBanner();
+}, 1000);
+
+if (addSensorBtn) {
+  addSensorBtn.addEventListener('click', async () => {
+    await openPairingWindow();
+  });
+}
+
+if (closePairingBtn) {
+  closePairingBtn.addEventListener('click', async () => {
+    await closePairingWindow();
+  });
+}
+
+if (trackExportCsvBtnEl) {
+  trackExportCsvBtnEl.addEventListener('click', async () => {
+    await exportTrackCsv();
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Stats charts
+// ---------------------------------------------------------------------------
+
+const STATS_NODE_COLORS = [
+  { line: 'rgba(10, 132, 255, 1)',   fill: 'rgba(10, 132, 255, 0.08)' },
+  { line: 'rgba(48, 209, 88, 1)',    fill: 'rgba(48, 209, 88, 0.08)' },
+  { line: 'rgba(255, 55, 95, 1)',    fill: 'rgba(255, 55, 95, 0.08)' },
+  { line: 'rgba(255, 159, 10, 1)',   fill: 'rgba(255, 159, 10, 0.08)' },
+  { line: 'rgba(191, 90, 242, 1)',   fill: 'rgba(191, 90, 242, 0.08)' },
+  { line: 'rgba(50, 173, 230, 1)',   fill: 'rgba(50, 173, 230, 0.08)' },
+  { line: 'rgba(255, 214, 10, 1)',   fill: 'rgba(255, 214, 10, 0.08)' },
+  { line: 'rgba(172, 142, 104, 1)',  fill: 'rgba(172, 142, 104, 0.08)' },
+];
+
+let statsMoistureChart = null;
+let statsBatteryChart = null;
+let statsCurrentPeriod = '24h';
+let statsChartLoading = false;
+const statsRefreshBtnEl = document.getElementById('statsRefreshBtn');
+const statsLoadingEl = document.getElementById('statsLoadingIndicator');
+const statsMoistureOverlayEl = document.getElementById('statsMoistureOverlay');
+const statsBatteryOverlayEl = document.getElementById('statsBatteryOverlay');
+
+const irrigationPlugin = {
+  id: 'irrigationBg',
+  beforeDraw(chart, _args, opts) {
+    if (!opts || !opts.windows || !opts.windows.length) return;
+    const { ctx, chartArea: { top, bottom }, scales: { x } } = chart;
+    ctx.save();
+    for (const [x1, x2] of opts.windows) {
+      const px1 = x.getPixelForValue(x1);
+      const px2 = x.getPixelForValue(x2);
+      const left = Math.min(px1, px2);
+      const w = Math.abs(px2 - px1);
+      ctx.fillStyle = 'rgba(10, 132, 255, 0.15)';
+      ctx.fillRect(left, top, w, bottom - top);
+      ctx.strokeStyle = 'rgba(10, 132, 255, 0.5)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(left, top, w, bottom - top);
+      ctx.fillStyle = 'rgba(10, 132, 255, 0.75)';
+      ctx.font = 'bold 11px sans-serif';
+      ctx.save();
+      // ctx.translate(left - 10, top + 56);
+      // ctx.rotate(-Math.PI / 2);
+      // ctx.fillText('Watering', 0, 0);
+      ctx.restore();
+    }
+    ctx.restore();
+  },
+};
+if (typeof Chart !== 'undefined') {
+  Chart.register(irrigationPlugin);
+}
+
+function statsFormatTick(epochMs, bucketMs) {
+  const d = new Date(epochMs);
+  const pad = (v) => String(v).padStart(2, '0');
+  if (bucketMs >= 43200000) {
+    return `${d.getDate()}.${d.getMonth() + 1} ${pad(d.getHours())}:00`;
+  }
+  if (bucketMs >= 3600000) {
+    return `${d.getDate()}.${d.getMonth() + 1} ${pad(d.getHours())}:00`;
+  }
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function statsNodeLabel(chartNode) {
+  if (chartNode.name && chartNode.name.trim()) return chartNode.name;
+  const found = latestNodes.find((n) => n.nodeId === chartNode.id);
+  if (found && found.name) return found.name;
+  return chartNode.ctrl ? 'Control' : `Node ${chartNode.id}`;
+}
+
+async function loadStatsChart() {
+  if (statsChartLoading) return;
+  statsChartLoading = true;
+  if (statsLoadingEl) statsLoadingEl.hidden = false;
+  if (statsRefreshBtnEl) statsRefreshBtnEl.disabled = true;
+  setStatsOverlay(statsMoistureOverlayEl, 'Loading data...', false);
+  setStatsOverlay(statsBatteryOverlayEl, 'Loading data...', false);
+  try {
+    const res = await fetch(`/api/stats/chart?period=${statsCurrentPeriod}`, { cache: 'no-store' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if (!data.ok) throw new Error('backend error');
+
+    // Flat format: data.r = [[nodeIdx, t, m, b, i], ...], data.nodes = [{id, ctrl, mac, name}]
+    if (Array.isArray(data.r) && Array.isArray(data.nodes)) {
+      data.nodes.forEach((node) => { node.records = []; });
+      for (const rec of data.r) {
+        const ni = rec[0];
+        if (ni < data.nodes.length) {
+          data.nodes[ni].records.push({ t: rec[1], m: rec[2], b: rec[3], i: rec[4] });
+        }
+      }
+    }
+
+    const hasRecords = Array.isArray(data.nodes) && data.nodes.some((node) => Array.isArray(node.records) && node.records.length > 0);
+    if (!hasRecords) {
+      if (statsMoistureChart) { statsMoistureChart.destroy(); statsMoistureChart = null; }
+      if (statsBatteryChart) { statsBatteryChart.destroy(); statsBatteryChart = null; }
+      setStatsOverlay(statsMoistureOverlayEl, 'No data for selected period.', false);
+      setStatsOverlay(statsBatteryOverlayEl, 'No data for selected period.', false);
+      return;
+    }
+    const renderState = renderStatsCharts(data);
+    setStatsOverlay(
+      statsMoistureOverlayEl,
+      renderState.moistureHasData ? '' : 'No moisture points for selected period.',
+      false,
+    );
+    setStatsOverlay(
+      statsBatteryOverlayEl,
+      renderState.batteryHasData ? '' : 'No battery points for selected period.',
+      false,
+    );
+  } catch (err) {
+    console.error('Stats chart load failed:', err);
+    setStatsOverlay(statsMoistureOverlayEl, `Failed to load: ${err.message}`, true);
+    setStatsOverlay(statsBatteryOverlayEl, `Failed to load: ${err.message}`, true);
+  } finally {
+    statsChartLoading = false;
+    if (statsLoadingEl) statsLoadingEl.hidden = true;
+    if (statsRefreshBtnEl) statsRefreshBtnEl.disabled = false;
+  }
+}
+
+function setStatsOverlay(el, message, isError) {
+  if (!el) return;
+  const text = String(message || '');
+  el.hidden = text.length === 0;
+  el.textContent = text;
+  el.classList.toggle('error', Boolean(isError));
+}
+
+function renderStatsCharts(data) {
+  const { uptimeMs, nodes } = data;
+  const now = Date.now();
+
+  const isControlChartNode = (node) => {
+    if (!node) return false;
+    const ctrl = node.ctrl;
+    return ctrl === true || ctrl === 1 || String(ctrl) === '1';
+  };
+
+  const normalizePermille = (value) => {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) {
+      return null;
+    }
+    if (numeric < 0 || numeric > 1000) {
+      return null;
+    }
+    return numeric;
+  };
+
+  const chartNodeKey = (node, index) => {
+    if (node && typeof node.id !== 'undefined' && node.id !== null) {
+      return `id:${node.id}`;
+    }
+    if (node && node.mac) {
+      return `mac:${String(node.mac).toUpperCase()}`;
+    }
+    return `idx:${index}`;
+  };
+
+  function approxEpochMs(tsMs) {
+    return now - (uptimeMs - tsMs);
+  }
+
+  // Build irrigation windows strictly from CONTROL motor-active telemetry.
+  // This keeps soak/idle pauses visible and avoids cross-node merging.
+  const controlNode = Array.isArray(nodes)
+    ? nodes.find((node) => isControlChartNode(node))
+    : null;
+  const irrigationWindows = [];
+  if (controlNode && Array.isArray(controlNode.records) && controlNode.records.length > 0) {
+    const sortedControlRecords = [...controlNode.records]
+      .filter((rec) => Number.isFinite(Number(rec && rec.t)))
+      .sort((a, b) => Number(a.t) - Number(b.t));
+
+    let inWindow = false;
+    let windowStart = 0;
+    let lastOnEpoch = 0;
+    const splitGapMs = 15000;
+
+    sortedControlRecords.forEach((rec) => {
+      const epoch = approxEpochMs(rec.t);
+      const motorOn = Number(rec && rec.i) === 1;
+
+      if (motorOn) {
+        if (!inWindow) {
+          inWindow = true;
+          windowStart = epoch;
+        } else if (lastOnEpoch > 0 && (epoch - lastOnEpoch) > splitGapMs) {
+          irrigationWindows.push([windowStart, lastOnEpoch]);
+          windowStart = epoch;
+        }
+        lastOnEpoch = epoch;
+      } else if (inWindow) {
+        irrigationWindows.push([windowStart, epoch]);
+        inWindow = false;
+        windowStart = 0;
+        lastOnEpoch = 0;
+      }
+    });
+
+    if (inWindow) {
+      const endEpoch = Math.max(lastOnEpoch, now);
+      irrigationWindows.push([windowStart, endEpoch]);
+    }
+  }
+
+  // X-axis range and tick format
+  let xMin = Infinity, xMax = -Infinity;
+  nodes.forEach((node) => {
+    node.records.forEach((rec) => {
+      const t = approxEpochMs(rec.t);
+      if (t < xMin) xMin = t;
+      if (t > xMax) xMax = t;
+    });
+  });
+  if (!isFinite(xMin)) { xMin = now - 3600000; xMax = now; }
+  const spanMs = xMax - xMin;
+  const tickBucketMs = spanMs < 7200000 ? 300000
+    : spanMs < 172800000 ? 1800000
+    : spanMs < 1209600000 ? 10800000 : 43200000;
+
+  const commonScaleX = {
+    type: 'linear',
+    min: xMin,
+    max: xMax,
+    ticks: { maxTicksLimit: 8, callback: (value) => statsFormatTick(value, tickBucketMs) },
+  };
+  const commonOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: { mode: 'index', intersect: false },
+    scales: { x: commonScaleX },
+    plugins: {
+      legend: { display: true, position: 'top' },
+      tooltip: { callbacks: { title: (items) => statsFormatTick(items[0].parsed.x, tickBucketMs) } },
+      irrigationBg: { windows: irrigationWindows },
+    },
+  };
+
+  const moistureDatasets = [];
+  const batteryDatasets = [];
+
+  nodes.forEach((node, colorIdx) => {
+    const color = STATS_NODE_COLORS[colorIdx % STATS_NODE_COLORS.length];
+    const label = statsNodeLabel(node);
+    const baseDs = {
+      label,
+      borderColor: color.line,
+      backgroundColor: color.fill,
+      borderWidth: 2,
+      tension: 0.3,
+      pointRadius: 1, // point radius (3)
+      pointHoverRadius: 6,
+      spanGaps: false,
+    };
+
+    if (!isControlChartNode(node)) {
+      moistureDatasets.push({
+        ...baseDs,
+        data: node.records
+          .map((rec) => {
+            const mPermille = normalizePermille(rec && rec.m);
+            if (mPermille === null || !Number.isFinite(Number(rec && rec.t))) {
+              return null;
+            }
+            return { x: approxEpochMs(rec.t), y: +(mPermille / 10).toFixed(1) };
+          })
+          .filter((point) => point !== null),
+      });
+    }
+
+    batteryDatasets.push({
+      ...baseDs,
+      data: node.records
+        .filter((rec) => rec.b !== null)
+        .map((rec) => ({ x: approxEpochMs(rec.t), y: +(rec.b / 1000).toFixed(3) })),
+    });
+  });
+
+  const averageBucketMs = Math.max(60000, tickBucketMs);
+  const moistureByBucket = new Map();
+  nodes.forEach((node, nodeIndex) => {
+    if (isControlChartNode(node)) {
+      return;
+    }
+    const nodeKey = chartNodeKey(node, nodeIndex);
+    node.records.forEach((rec) => {
+      const mPermille = normalizePermille(rec && rec.m);
+      if (mPermille === null || !Number.isFinite(Number(rec && rec.t))) {
+        return;
+      }
+      const epoch = approxEpochMs(rec.t);
+      const bucket = Math.floor(epoch / averageBucketMs) * averageBucketMs;
+      let bucketValues = moistureByBucket.get(bucket);
+      if (!bucketValues) {
+        bucketValues = new Map();
+        moistureByBucket.set(bucket, bucketValues);
+      }
+      bucketValues.set(nodeKey, mPermille);
+    });
+  });
+  const averageMoistureData = Array.from(moistureByBucket.entries())
+    .sort((a, b) => a[0] - b[0])
+    .map(([bucket, bucketValues]) => {
+      const values = Array.from(bucketValues.values());
+      if (values.length === 0) {
+        return null;
+      }
+      const avgPermille = values.reduce((sum, value) => sum + value, 0) / values.length;
+      const clampedX = Math.min(xMax, Math.max(xMin, bucket));
+      return { x: clampedX, y: +(avgPermille / 10).toFixed(1) };
+    })
+    .filter((point) => point !== null);
+  if (averageMoistureData.length > 0) {
+    moistureDatasets.push({
+      label: 'Average (all available sensors)',
+      borderColor: 'rgba(255, 159, 10, 1)',
+      backgroundColor: 'rgba(255, 159, 10, 0)',
+      borderWidth: 3,
+      borderDash: [7, 5],
+      tension: 0.2,
+      pointRadius: 2,
+      pointBackgroundColor: 'rgba(255, 159, 10, 1)',
+      pointBorderColor: 'rgba(255, 159, 10, 1)',
+      pointHoverRadius: 5,
+      spanGaps: false,
+      showLine: true,
+      data: averageMoistureData,
+    });
+  }
+
+  if (typeof Chart !== 'undefined') {
+    const moistureCtx = document.getElementById('statsMoistureChart')?.getContext('2d');
+    if (moistureCtx) {
+      if (statsMoistureChart) statsMoistureChart.destroy();
+      statsMoistureChart = new Chart(moistureCtx, {
+        type: 'line',
+        data: { datasets: moistureDatasets },
+        options: {
+          ...commonOptions,
+          scales: {
+            x: commonScaleX,
+            y: { min: 0, max: 100, title: { display: true, text: 'Moisture (%)' } },
+          },
+        },
+      });
+    }
+
+    const batteryCtx = document.getElementById('statsBatteryChart')?.getContext('2d');
+    if (batteryCtx) {
+      if (statsBatteryChart) statsBatteryChart.destroy();
+      statsBatteryChart = new Chart(batteryCtx, {
+        type: 'line',
+        data: { datasets: batteryDatasets },
+        options: {
+          ...commonOptions,
+          scales: {
+            x: commonScaleX,
+            y: { suggestedMin: 3.0, suggestedMax: 4.5, title: { display: true, text: 'Battery (V)' } },
+          },
+        },
+      });
+    }
+  }
+
+  return {
+    moistureHasData: moistureDatasets.some((ds) => Array.isArray(ds.data) && ds.data.length > 0),
+    batteryHasData: batteryDatasets.some((ds) => Array.isArray(ds.data) && ds.data.length > 0),
+  };
+}
+
+// Period selector buttons
+document.querySelectorAll('.stats-period-btn').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.stats-period-btn').forEach((b) => b.classList.remove('active'));
+    btn.classList.add('active');
+    statsCurrentPeriod = btn.dataset.period;
+    loadStatsChart();
+  });
+});
+
+if (statsRefreshBtnEl) {
+  statsRefreshBtnEl.addEventListener('click', () => {
+    loadStatsChart();
+  });
+}
+
+// Load charts on tab switch to Stats
+tabsEl.addEventListener('click', (e) => {
+  const btn = e.target.closest('.tab-btn');
+  if (btn && btn.dataset.tab === 'stats') {
+    loadStatsChart();
+  }
+});
