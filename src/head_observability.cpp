@@ -844,7 +844,7 @@ static void settleControlPhaseFromIrrigationState(uint8_t irrigationState)
     if (s_manualIrrigationActive) {
       s_manualRunConfirmedOnce = true;
     }
-    if (s_requestedRunDurationSec > 0) {
+    if (s_requestedRunDurationSec > 0 && s_manualRunDeadlineMs == 0) {
       s_manualRunDeadlineMs = millis() + (s_requestedRunDurationSec * 1000UL);
     }
   } else {
@@ -1092,7 +1092,7 @@ static size_t composeIrrigationConfigJson(char* body, size_t bodySize, uint32_t 
       bodySize,
       "{\"mode\":\"%s\",\"manualActive\":%s,\"manualDurationSec\":%u,\"autoStartPermille\":%u,\"autoStopPermille\":%u,\"autoWetTolerancePct\":%u,\"autoPulseIntervalSec\":%u,\"autoSoakDelaySec\":%u,\"autoMaxPulses\":%u,\"timeIntervalMin\":%u,\"timeRunDurationSec\":%u,\"sensorPollIntervalMin\":%u,\"timeNextStartSec\":%lu,\"runRemainingSec\":%lu,\"manualBlockedReason\":\"%s\",\"confirmedState\":\"%s\",\"pendingElapsedSec\":%lu,\"auto\":{\"phase\":\"%s\",\"phaseRemainingSec\":%lu,\"pulseIndex\":%u,\"maxPulses\":%u,\"startPlanned\":%s,\"startInSec\":%lu},\"control\":{\"status\":\"%s\",\"nextWakeKnown\":false,\"nextWakeEtaSec\":null}}",
       irrigationModeToText(s_irrigationMode),
-      s_controlConfirmedIrrigationActive ? "true" : "false",
+      s_manualIrrigationActive ? "true" : "false",
       static_cast<unsigned>(s_manualDurationSec),
       static_cast<unsigned>(s_autoStartPermille),
       static_cast<unsigned>(s_autoStopPermille),
@@ -1444,9 +1444,6 @@ static const char* autoStartBlockedReason(uint32_t nowMs)
   if (controlSnapshot.lowBatteryLockoutActive) {
     return "START_BLOCKED_CONTROL_BATTERY_LOCKOUT";
   }
-  if (!hasControlReachablePresence(nowMs)) {
-    return "START_BLOCKED_CONTROL_UNREACHABLE";
-  }
   return nullptr;
 }
 
@@ -1501,11 +1498,15 @@ static void requestImmediateControlStart(uint32_t nowMs)
   if (s_pendingControlCmd.active || s_controlConfirmedIrrigationActive) {
     return;
   }
+
+  s_controlPhase = CONTROL_CMD_PENDING_START;
   if (!hasControlReachablePresence(nowMs)) {
+    // Control is sleeping — queue the start; reconcileControlToDesiredState
+    // will send it when the control wakes up.
+    s_pendingControlCmd.active = false;
     return;
   }
 
-  s_controlPhase = CONTROL_CMD_PENDING_START;
   beginPendingControlCommand(REMOTE_BUTTON_IRRIGATION_START, nowMs);
   if (sendDesiredIrrigationState()) {
     s_lastIrrigationSyncMs = nowMs;
@@ -1515,26 +1516,16 @@ static void requestImmediateControlStart(uint32_t nowMs)
 
 static void irrigationAutomationTick(uint32_t nowMs)
 {
+  // Keep-awake must stay active for the ENTIRE auto-run (pulse + soak) so
+  // that ESP-NOW callbacks on the Wi-Fi task never see a cleared override
+  // and hand out a long sleep plan mid-run (race condition).
   bool autoKeepAwakeActive = false;
   if (s_irrigationMode == IRRIGATION_MODE_AUTO) {
     if (s_autoCohortCollectActive) {
       autoKeepAwakeActive = true;
     }
-
-    if (s_autoRunState == AUTO_RUN_PULSE_ACTIVE && s_autoPulseStartedAtMs != 0) {
-      const uint32_t sincePulseStartMs = static_cast<uint32_t>(nowMs - s_autoPulseStartedAtMs);
-      if (sincePulseStartMs <= AUTO_KEEP_AWAKE_PRIME_MS) {
-        autoKeepAwakeActive = true;
-      }
-    }
-
-    if (!autoKeepAwakeActive &&
-        (s_autoRunState == AUTO_RUN_PULSE_ACTIVE || s_autoRunState == AUTO_RUN_SOAK_WAIT) &&
-        s_autoCheckpointAtMs != 0) {
-      const int32_t untilCheckpointMs = static_cast<int32_t>(s_autoCheckpointAtMs - nowMs);
-      autoKeepAwakeActive =
-          (untilCheckpointMs <= static_cast<int32_t>(AUTO_KEEP_AWAKE_WINDOW_LEAD_MS)) &&
-          (untilCheckpointMs >= -static_cast<int32_t>(AUTO_CHECKPOINT_WINDOW_MS));
+    if (s_autoRunState == AUTO_RUN_PULSE_ACTIVE || s_autoRunState == AUTO_RUN_SOAK_WAIT) {
+      autoKeepAwakeActive = true;
     }
   }
   if (autoKeepAwakeActive) {
@@ -1612,8 +1603,8 @@ static void irrigationAutomationTick(uint32_t nowMs)
     }
   }
 
-  if (s_irrigationMode != IRRIGATION_MODE_AUTO &&
-      s_manualIrrigationActive &&
+  if (s_manualIrrigationActive &&
+      s_autoRunState == AUTO_RUN_IDLE &&
       s_manualRunDeadlineMs != 0 && (int32_t)(nowMs - s_manualRunDeadlineMs) >= 0) {
     // s_manualRunDeadlineMs is only set after control confirms RUN, so the
     // deadline is authoritative even if s_controlConfirmedIrrigationActive was
@@ -1897,6 +1888,8 @@ static void irrigationAutomationTick(uint32_t nowMs)
         s_autoWaitNextWakeSeenMs = latestAutoEligibleSeenMs();
         s_autoWaitNextWakeCollectUntilMs = 0;
         s_autoIdleLastLogMs = 0;
+        telemetryHeadSetSleepBaseOverrideMs(0, 0);
+        telemetryHeadResendSleepPlansToOnlineNodes();
         autoSmLog("SoakWait", "checkpoint", "CompletedByLimit", "limit", "COMPLETE_BY_LIMIT", &zones);
         return;
       }
@@ -2967,7 +2960,7 @@ void headObservabilityInit()
 
 void headObservabilityTick()
 {
-  const uint32_t nowMs = millis();
+  uint32_t nowMs = millis();
   consumeControlCommandAcks(nowMs);
   pendingControlCommandTick(nowMs);
 
@@ -3009,6 +3002,12 @@ void headObservabilityTick()
   }
 
   s_server.handleClient();
+  // Re-capture time after HTTP handlers: startIrrigation() etc. stamp
+  // millis() into s_manualStartRequestedAtMs which can be ahead of the
+  // original nowMs (NVS write inside the handler costs several ms).
+  // Without this refresh the uint32_t subtraction in the MANUAL timeout
+  // check underflows and fires immediately.
+  nowMs = millis();
   irrigationAutomationTick(nowMs);
   reconcileControlToDesiredState(nowMs);
   irrigationSyncTick(nowMs);
